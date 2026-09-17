@@ -119,9 +119,15 @@ within reach here.
 | n = 150 | 0.0667 | 8.41535e-4 |
 | n = 300 | 0.0333 | 8.44955e-4 |
 | n = 400 | 0.0250 | 8.47042e-4 |
+| n = 600 | 0.0167 | 8.47705e-4 |
 
-bracketed at n = 400 to a relative width of 6e-7, and shifting by 0.7% over
-a factor of 2.7 in `dr`. Below it the field disperses and `2m/r` peaks near
+bracketed at n = 400 to a relative width of 6e-7, and shifting by 0.73% over
+a factor of 4 in `dr`. Successive differences are 3.42e-6 and 2.75e-6, a
+ratio of 1.24 rather than the 4 a second-order scheme would give, so the
+threshold is sharp at each resolution but its converged value is only known
+to about half a per cent. That is the same limitation as below, seen from
+the other side: the critical solution is not resolved, so nothing that
+depends on it converges cleanly. Below it the field disperses and `2m/r` peaks near
 0.51; above it `2m/r` runs up to one and the slicing refuses to continue.
 `particlesim.analysis.critical_collapse` runs this search.
 
@@ -142,6 +148,22 @@ Measured at n = 400:
 Three decades in `1 − p/p*`, six per cent in the peak. The fitted exponent
 is γ = 0.004 against Choptuik's 0.374: not a poor measurement of the
 exponent but the absence of one.
+
+The plateau is the grid, and that is measurable rather than inferred. Held
+at a fixed distance from each resolution's own threshold, the peak grows by
+a factor of four for every halving of `dr`:
+
+| `1 − p/p*` | n = 150 | n = 300 | n = 600 | growth per halving |
+|---|---|---|---|---|
+| 1e-2 | 1.340e3 | 5.122e3 | 2.049e4 | ×3.82, ×4.00 |
+| 1e-3 | 1.350e3 | 5.121e3 | 2.045e4 | ×3.79, ×3.99 |
+
+`|R| = 8π(Φ² − Π²)/a²` and the steepest `Φ` a grid can carry goes as `1/dr`,
+so a peak set by the grid grows as `1/dr²`, which is exactly ×4 per halving.
+A physical peak would converge instead. (At `1 − p/p* = 1e-1` the n = 600 run
+breaks the pattern and drops to 6.5e1, having got far enough from threshold
+that the focus is weak and resolved. That is the behaviour the other rows
+would show too, at resolutions out of reach here.)
 
 The reason is not the run length or the closeness of the bisection. The
 critical solution is discretely self-similar with echoing period Δ = 3.44 in

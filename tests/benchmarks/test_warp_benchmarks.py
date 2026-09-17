@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import sympy as sp
 
+from particlesim.analysis.geodesics import GeodesicIntegrator
 from particlesim.core.config import WarpAnalyzeConfig
 from particlesim.core.grid import UniformGrid
 from particlesim.scenarios.warp.analyze import analyze
@@ -128,3 +129,44 @@ def test_eulerian_tidal_tensor_on_alcubierre_wall(tmp_path, monkeypatch):
     tmax = res.report["tidal"]["max_eigenvalue_abs"]
     assert np.isfinite(tmax) and tmax > 0
     assert (tmp_path / "run" / "report.csv").exists()
+
+
+@pytest.mark.benchmark
+@pytest.mark.slow
+def test_alcubierre_violates_the_ford_roman_quantum_inequality():
+    """Pfenning and Ford 1997: an observer swept through an Alcubierre wall
+    samples far more negative energy than a free scalar field may carry,
+    unless the wall is near the Planck scale.
+
+    The observer is Eulerian. With unit lapse those observers are geodesic
+    (their acceleration is the gradient of ln alpha, which vanishes), so the
+    worldline comes from the geodesic integrator and the proper time is the
+    coordinate time. Outside the bubble the shape function's derivative is
+    zero to double precision, so the density vanishes there and the default
+    outside="zero" convention is exact.
+    """
+    from particlesim.analysis.quantum_inequality import check_ford_roman
+    from particlesim.scenarios.warp.metrics import COORDS
+
+    m = make_metric("alcubierre", {"v_s": 2.0, "R": 5.0, "sigma": 2.0})
+    geo = GeodesicIntegrator(m.metric(), COORDS, m.params)
+    start = np.array([0.0, 20.0, 5.0, 0.0])  # offset to y = R, where |rho| peaks
+    u0 = geo.from_eulerian_velocity(start, [0.0, 0.0, 0.0])
+    np.testing.assert_allclose(u0, [1.0, 0.0, 0.0, 0.0], atol=1e-12)
+
+    res = geo.integrate(start, u0, 22.0, n_out=2201, rtol=1e-10, atol=1e-12)
+    assert res.success
+    rho = m.closed_form_energy_density()(res.x[:, 0], res.x[:, 1], res.x[:, 2], res.x[:, 3])
+    # The observer starts and ends in flat space, which is what makes
+    # outside="zero" exact rather than an approximation.
+    assert abs(rho[0]) < 1e-12 and abs(rho[-1]) < 1e-12
+    tau = res.affine - res.affine[int(np.argmin(rho))]
+
+    short = check_ford_roman(tau, rho, 0.1)
+    long_ = check_ford_roman(tau, rho, 5.0)
+    # Sampling briefly enough is permitted: the bound scales as tau0^-4.
+    assert short.satisfied
+    # Sampling over the crossing is not, by more than two orders of magnitude.
+    assert not long_.satisfied
+    assert long_.violation_factor > 100
+    assert long_.sampled_energy < 0

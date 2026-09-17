@@ -44,6 +44,25 @@ def _cmd_rerun(args: argparse.Namespace) -> int:
     return _dispatch(config, args.out)
 
 
+def _cmd_check_limits(args: argparse.Namespace) -> int:
+    from particlesim.theories.limits import check_all
+
+    reports = check_all(check_action=not args.no_action)
+    failures = 0
+    for tid, r in sorted(reports.items()):
+        if r.passed:
+            status = "ok"
+        elif r.checked:
+            status = "FAIL"
+            failures += 1
+        else:
+            status = "skipped"
+        print(f"{tid:24s} {status}")
+        for reason in r.reasons:
+            print(f"    {reason}")
+    return 1 if failures else 0
+
+
 def _cmd_scenarios(args: argparse.Namespace) -> int:
     for name in sorted(SCENARIOS):
         print(name)
@@ -60,6 +79,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sc = sub.add_parser("scenarios", help="list scenario types")
     sc.set_defaults(func=_cmd_scenarios)
+
+    cl = sub.add_parser("check-limits", help="verify every plugin's declared GR limit")
+    cl.add_argument("--no-action", action="store_true", help="skip the slower Lagrangian check")
+    cl.set_defaults(func=_cmd_check_limits)
 
     rn = sub.add_parser("run", help="run a scenario from a YAML config")
     rn.add_argument("config")

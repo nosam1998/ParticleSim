@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | Draft v0.1, open for review |
-| **Date** | 2026-09-16 |
+| **Status** | v0.2, merged baseline; revised per review discussion |
+| **Date** | 2026-09-17 |
 | **Scope** | Cosmology, warp drive design, particle lasers, matter, singularities, with pluggable theories of everything (ToEs) |
 | **Default theory family** | String-inspired effective field theory (EFT) |
 | **License** | GPL-3.0 (already in repo) |
@@ -274,7 +274,9 @@ mass and charge conservation, Penrose diagram construction for spherically
 symmetric spacetimes via conformal compactification of the numerical
 solution.
 
-**Hypothesis harness:** Section 8.
+**Hypothesis harness:** Section 8. Before any evolution runs, the harness
+scores a hypothesis against the exact-CFT reference module where the
+hypothesis makes a claim about a background that has one.
 
 Theory plugin hooks: the whole point. Examples that ship as plugins so that
 the user's hypotheses have working templates: LQC holonomy corrections (bounce
@@ -300,7 +302,7 @@ contracts.
 |---|---|---|---|
 | **A: Covariant effective action** | Fields, action density, couplings, hyperbolic formulation, regime of validity | GR; string EFT family (dilaton gravity, Einstein-Maxwell-dilaton-axion, Einstein-scalar-Gauss-Bonnet with α', Kaluza-Klein D = 4 + n); f(R); Horndeski; Randall-Sundrum effective 4D equations; Einstein-Cartan torsion; Born-Infeld EM sector | First class, v1 |
 | **B: Symmetry-reduced effective equations** | Modified reduced equations of motion (FLRW, spherical) or a quantum-corrected metric family; GR-limit statement | LQC, polymer black holes, asymptotic-safety RG-improved metrics, limiting-curvature hypotheses, user singularity hypotheses | First class in reduced solvers, v1 |
-| **C: Non-perturbative / discrete** | A separate solver backend rather than field equations | BFSS/BMN matrix models by Monte Carlo (Hanada et al., Monte Carlo String/M-theory Collaboration), causal dynamical triangulations, causal sets | Phase 4+, interface reserved |
+| **C: Non-perturbative / discrete** | A separate solver backend rather than field equations | BFSS/BMN matrix models by Monte Carlo (Hanada et al., Monte Carlo String/M-theory Collaboration); IKKT type IIB matrix model with emergent spacetime (Kim, Nishimura, Tsuchiya 2012 and later complex-Langevin work); causal dynamical triangulations; causal sets | Phase 4+, interface reserved |
 
 Tier C is the only place where something closer to string/M-theory itself is
 computed (the BFSS model is conjectured to define M-theory in the light-cone
@@ -366,7 +368,10 @@ override any stage.
 | `string.eft4d.axion_photon` | `g_aγγ a F F̃` coupling | Axion-photon conversion in strong fields |
 | `string.kk` | D = 4 + n with toroidal or simple orbifold compactification; moduli become 4D scalars; optional lattice of small extra dimensions | Compute cost grows with n; n ≤ 2 for lattice mode |
 | `string.cosmo.*` | Inflation potentials (KKLT-type, fibre, monodromy, D-brane), string gas, pre-big-bang, ekpyrotic backgrounds | Tier A or B depending on module |
-| `string.matrix.bfss` | BFSS/BMN matrix model Monte Carlo | Tier C, Phase 4 |
+| `string.compactify` | Compactification-to-EFT pipeline: from a chosen vacuum (tori and orbifolds first, then numerically computed Calabi-Yau metrics via machine-learned metrics such as the cymetric line of work) derive the 4D field content, moduli, Kähler and superpotential data, gauge kinetic functions, and leading α' and loop coefficients, and emit a Tier A plugin | Makes the string-family Wilson coefficients derived rather than free; the vacuum choice remains the user's |
+| `string.exact_cft` | Reference module of exact worldsheet results on singular backgrounds: orbifolds, the 2D SL(2,R)/U(1) black hole, Milne and null-orbifold cosmological singularities and their known instabilities | Not a simulator; used by the hypothesis harness as a cheap first check against what string theory already says |
+| `string.matrix.bfss` | BFSS/BMN matrix model Monte Carlo: black hole thermodynamics from first principles | Tier C, Phase 4 |
+| `string.matrix.ikkt` | IKKT matrix model Monte Carlo: emergent spacetime and expanding-dimension studies for cosmology | Tier C, Phase 4; results in the literature are suggestive and debated, and the module reports them as such |
 
 ### 4.5 Other ToE and modified-gravity families
 
@@ -381,6 +386,31 @@ Plugins register through Python entry points (`particlesim.theories`).
 Composition is allowed where physically meaningful: a gravity plugin plus an
 EM-sector plugin plus a matter EOS plugin form a `TheoryStack`, validated for
 frame consistency and dimension agreement at construction time.
+
+### 4.7 Computability ladder
+
+Full string theory has no general non-perturbative definition to discretize,
+its non-perturbative definitions through duality exist only for backgrounds
+unlike ours, its vacuum is unselected, and its scale sits more than thirty
+orders of magnitude below any scenario here. Abstraction is therefore not an
+optimization but the only route to computation. The framework places each
+question on the cheapest rung that still answers it.
+
+| Rung | What is computed | Cost | Where it breaks |
+|---|---|---|---|
+| Numerical compactification (`string.compactify`) | The 4D EFT itself from a chosen vacuum | Minutes to hours per vacuum | Only for vacua the user can specify |
+| Exact worldsheet CFTs (`string.exact_cft`) | What strings do on specific singular backgrounds, without simulation | Analytic or cheap | Only backgrounds with an exact CFT description |
+| EFT with α' corrections (Tier A) | Everything in the scenario packages | GR-scale | Near the string scale; coefficients must come from the rung above |
+| Matrix models (Tier C) | Black hole thermodynamics (BFSS), emergent spacetime (IKKT) | Workstation-feasible at modest matrix size | Thermodynamics and correlators, not an interior movie; backgrounds are not ours |
+| Holographic matter | Strongly coupled fluids from classical gravity in one higher dimension | Cheap | Only theories with known duals |
+| Quantum hardware | Real-time dynamics of dual gauge theories | Not practical yet | Hardware scale |
+
+Engineering-level abstraction is orthogonal and applies at every rung:
+symmetry reduction (3D to 1D), vectorized parameter sweeps and autodiff, and
+neural surrogates trained on expensive runs for design search. Two limits
+survive every rung: the vacuum choice stays with the user, and real-time
+quantum gravity in our kind of spacetime is not computable by any known
+method today.
 
 ---
 
@@ -473,6 +503,43 @@ quality metrics, convergence-order estimator across three resolutions.
 - Python API mirrors the CLI and is what notebooks use.
 - Dashboard (later): static HTML report per run with plots and the
   hypothesis report card; no server required.
+
+### 5.7 Visualization and interactive demos
+
+Visualization is a feature, not plumbing. Every scenario package declares
+the views it needs, and every view reads the same HDF5/JSON outputs the runs
+produce, so no demo carries its own physics.
+
+Required views by domain:
+
+| Domain | Views |
+|---|---|
+| Warp | Energy-density and energy-condition violation maps as slices and isosurfaces; expansion scalar; light-ray and passenger geodesics rendered through the bubble; embedding diagrams; live objective surface during design search |
+| Singularity | Spacetime diagrams with horizon and trapped-surface curves; curvature invariants versus proper time; Penrose diagrams built from the numerical solution; Kasner maps for mixmaster; GR-versus-hypothesis side-by-side panels in the report card |
+| Laser | Phase-space scatter and density; field snapshots and movies; beam spectra and emittance; FEL gain and bunching versus undulator length; emitted-photon spectra |
+| Matter | Shock-tube profiles against exact solutions; density and field slices; lattice observables with autocorrelation; N-body projections and power spectra |
+| Cosmology | Scale factor and Hubble rate; potential landscape with inflaton trajectory; primordial, matter, and CMB spectra overlaid on data; bounce diagnostics |
+| Cross-cutting | Convergence across resolutions; live constraint monitors during a run; derived equations rendered as typeset math |
+
+Three delivery families, chosen per demo by whether it computes live,
+replays a run, or is cheap enough to compute in the browser:
+
+1. **Notebook widgets** (Jupyter with ipywidgets, marimo, Voilà): parameter
+   sliders over anything the Python API exposes. Available from Milestone 0.
+2. **Served web apps** (Panel, or trame for 3D PyVista scenes) run from the
+   published Docker image: the only family that shows live GPU results under
+   a modified theory.
+3. **Static browser demos** (Plotly.js over precomputed data; three.js or
+   WebGPU shaders for real-time 3D) on GitHub Pages: shareable links with no
+   backend. Targets: the analytic warp energy-density explorer, a WebGPU
+   light-ray tracer through a warp bubble, a 1D electrostatic PIC two-stream
+   instability computed in-browser, the Friedmann integrator with a theory
+   dropdown, and scrubbable replays of collapse and LWFA runs.
+
+Tooling: matplotlib for static figures, PyVista or yt for 3D volumes,
+Plotly for interactive exploration, ffmpeg for movies. The run monitor and
+the report scaffolding are Milestone 0 deliverables; domain views land with
+the milestone that produces their data.
 
 ---
 
@@ -695,16 +762,16 @@ in `docs/benchmarks.md`.
 
 | Milestone | Deliverable | Acceptance |
 |---|---|---|
-| **M0 Foundations** | Core (units, grids, config, IO, provenance), theory plugin base, `gr` plugin, symbolic pipeline for metric analysis, ODE solver, CLI skeleton, CI | Warp analyzer runs Alcubierre/Natário/Van Den Broeck/Lentz/Bobrick-Martire under GR with energy-condition maps; Alcubierre and Natário benchmarks pass |
+| **M0 Foundations** | Core (units, grids, config, IO, provenance), theory plugin base, `gr` plugin, symbolic pipeline for metric analysis, ODE solver, CLI skeleton, CI, run monitor and report scaffolding, notebook widgets, first static browser demo (warp energy-density explorer) | Warp analyzer runs Alcubierre/Natário/Van Den Broeck/Lentz/Bobrick-Martire under GR with energy-condition maps; Alcubierre and Natário benchmarks pass; the demo is published on GitHub Pages |
 | **M1 Spherical NR and hypothesis harness** | `nr.spherical`, singularity battery (spherical subset), report card, Tier B contract, `lqg.lqc`, `lqg.polymer_bh`, `asafety.rg_improved`, hypothesis templates and authoring guide | Choptuik and LQC benchmarks pass; a template hypothesis produces a report card end to end |
 | **M2 PIC 1D/2D** | `pic.fdtd`, laser injection, LWFA and FEL scenarios, EM-sector plugin contract, `string.eft4d.born_infeld` | Plasma frequency, two-stream, LWFA 1D, FEL gain benchmarks pass; Born-Infeld modifies a benchmark measurably and reduces to Maxwell as the scale goes to infinity |
 | **M3 Cosmology C0 and C1** | Background and inflation modules, string-inspired potentials, alternative early-universe backgrounds, CLASS/hi_class adapter | ΛCDM, LQC bounce, Starobinsky benchmarks pass; one string-inspired potential's n_s and r reproduced from its paper |
 | **M4 3D NR** | `nr.bssn`/`nr.ccz4` on GPU, fixed mesh refinement, horizon finders, `nr.modified` with `string.eft4d.dgb`, warp Mode W2 and test-field W3 | Puncture, gauge wave, head-on binary benchmarks pass; EsGB scalarized black hole reproduced; warp design search reduces a violation objective under constraints |
 | **M5 GRHD** | Valencia GRHD/GRMHD, EOS plugins, fluid collapse in battery, TOV | Shock tube and TOV benchmarks pass; fluid collapse forms a horizon and matches Schwarzschild exterior |
 | **M6 Lattice** | HMC and real-time lattice, preheating scenario | φ⁴ and U(1) benchmarks pass |
-| **M7 String EFT completion** | `string.kk` with moduli and optional lattice extra dimensions, `string.eft4d.emda`, axion-photon, Kalb-Ramond dualization, frame consistency checks | GR-limit tests pass for all; charged interior mass inflation under EMDA reported |
+| **M7 String EFT completion** | `string.kk` with moduli and optional lattice extra dimensions, `string.eft4d.emda`, axion-photon, Kalb-Ramond dualization, frame consistency checks, `string.exact_cft` reference module, `string.compactify` for tori and orbifolds | GR-limit tests pass for all; charged interior mass inflation under EMDA reported; a toroidal compactification emits a Tier A plugin whose couplings match the hand-derived ones |
 | **M8 Structure and adapters** | N-body PM/TreePM with modified-gravity multigrid, GRChombo and Einstein Toolkit adapters, WarpX adapter, HTML dashboard | Zel'dovich and P(k) benchmarks pass; one adapter round-trips a config and results |
-| **M9 Tier C** | BFSS/BMN Monte Carlo module | Reproduces a published energy-vs-temperature curve at one coupling |
+| **M9 Tier C** | BFSS/BMN Monte Carlo module; IKKT module; `string.compactify` for numerical Calabi-Yau metrics | BFSS reproduces a published energy-vs-temperature curve at one coupling; IKKT reproduces a published dimension-emergence observable at one matrix size |
 
 Rough effort for one developer with AI assistance: M0 to M3 in one quarter,
 M4 to M6 in the following two, M7 to M9 after that. Ordering can change; the

@@ -868,7 +868,6 @@ import sympy as sp
 
 Formulation = Literal["standard", "modified_ccz4", "order_reduced"]
 
-
 @dataclass
 class FieldSpec:
     name: str
@@ -876,14 +875,12 @@ class FieldSpec:
     rank: int = 0
     units: str = "dimensionless"
 
-
 @dataclass
 class Coupling:
     name: str
     default: float
     units: str
     bounds: tuple[float, float] | None = None
-
 
 @dataclass
 class Theory:
@@ -923,10 +920,8 @@ Registration in `pyproject.toml`:
 ```python
 from particlesim.theories.base import Theory, Coupling
 
-
 class LimitingCurvature(Theory):
     """Hypothesis: effective density saturates so curvature stays bounded."""
-
     id = "user.limiting_curvature"
     tier = "B"
     couplings = [Coupling("rho_c", 0.41, "planck_density", (1e-6, 1e6))]
@@ -934,11 +929,9 @@ class LimitingCurvature(Theory):
 
     def reduced_equations(self, symmetry):
         assert symmetry == "spherical"
-
         def rhs(state, c):
             rho_eff = state.rho * (1.0 - state.rho / c["rho_c"])
             return gr_spherical_rhs(state, rho_override=rho_eff)
-
         return rhs
 
     def gr_limit(self):

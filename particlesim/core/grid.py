@@ -99,6 +99,50 @@ def derivative(arr: np.ndarray, axis: int, dx: float, order: int = 4) -> np.ndar
     return np.moveaxis(out, 0, axis)
 
 
+def second_derivative(arr: np.ndarray, axis: int, dx: float, order: int = 4) -> np.ndarray:
+    """Central finite-difference second derivative along ``axis``.
+
+    A direct stencil rather than two applications of :func:`derivative`.
+    Composing first derivatives is the same order but over a stencil twice
+    as wide, and it squares the amplification of grid-scale noise -- which
+    in an evolution shows up as the second derivatives in a Ricci tensor
+    going bad before anything else does. Mixed derivatives have no such
+    stencil and are composed, which is why they are the noisiest term in
+    any of this.
+
+    Points within the stencil radius of an edge fall back to a second-order
+    one-sided difference.
+    """
+    if order not in (2, 4, 6):
+        raise ValueError("order must be 2, 4, or 6")
+    a = np.moveaxis(arr, axis, 0)
+    out = np.empty_like(a, dtype=float)
+    n = a.shape[0]
+    r = order // 2
+    if n < 2 * r + 1:
+        raise ValueError("array too short for the requested stencil")
+    if order == 2:
+        out[1:-1] = (a[2:] - 2 * a[1:-1] + a[:-2]) / dx**2
+    elif order == 4:
+        out[2:-2] = (-a[4:] + 16 * a[3:-1] - 30 * a[2:-2] + 16 * a[1:-3] - a[:-4]) / (12 * dx**2)
+    else:
+        out[3:-3] = (
+            2 * a[6:]
+            - 27 * a[5:-1]
+            + 270 * a[4:-2]
+            - 490 * a[3:-3]
+            + 270 * a[2:-4]
+            - 27 * a[1:-5]
+            + 2 * a[:-6]
+        ) / (180 * dx**2)
+    for i in range(r):
+        out[i] = (2 * a[i] - 5 * a[i + 1] + 4 * a[i + 2] - a[i + 3]) / dx**2
+        out[n - 1 - i] = (
+            2 * a[n - 1 - i] - 5 * a[n - 2 - i] + 4 * a[n - 3 - i] - a[n - 4 - i]
+        ) / dx**2
+    return np.moveaxis(out, 0, axis)
+
+
 def kreiss_oliger(u: np.ndarray, axis: int, dx: float, order: int = 4, epsilon: float = 0.1):
     """Kreiss-Oliger artificial dissipation, to be added to a right-hand side.
 

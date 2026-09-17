@@ -60,6 +60,13 @@ method.
 | NumPy and JAX kernels agree | identical arithmetic | 1e-12, float64 | `test_jax_and_numpy_kernels_agree` |
 | Autodiff gradient | matches central difference | 2e-3 | `test_gradient_of_negative_energy_with_respect_to_wall_thickness` |
 
+## Hypothesis templates
+
+The four templates under `examples/hypotheses/` are exercised by the suite:
+each must declare itself completely, have a GR limit that can actually be
+instantiated and checked, and run through the harness. A template that stops
+working fails the build rather than misleading whoever copies it next.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared
@@ -69,6 +76,8 @@ limit. `particlesim check-limits` enforces this and runs in CI.
 |---|---|
 | `gr` | passes both the stress-energy and action checks |
 | `gr.lambda` | passes both |
+| `lqg.lqc` | passes the reduced-dynamics check |
+| `asafety.rg_improved` | passes the metric-family check |
 
 The harness itself is tested against deliberately wrong plugins, because a
 check that cannot fail proves nothing: a wrong declared limit, a

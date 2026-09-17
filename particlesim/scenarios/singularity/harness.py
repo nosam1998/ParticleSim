@@ -76,6 +76,7 @@ class ReportCard:
     max_density: float
     density_bounded: bool
     converged: bool
+    in_regime: bool = True
     predictions: dict[str, Any] = field(default_factory=dict)
     confirmed: list[str] = field(default_factory=list)
     contradicted: list[str] = field(default_factory=list)
@@ -105,6 +106,7 @@ class ReportCard:
             "density_bounded": self.density_bounded,
             "max_density": self.max_density,
             "converged": self.converged,
+            "in_regime": self.in_regime,
             "confirmed": list(self.confirmed),
             "contradicted": list(self.contradicted),
             "untested": list(self.untested),
@@ -116,14 +118,18 @@ class ReportCard:
 
     def render(self) -> str:
         """A short human-readable verdict."""
+        verdict = "SURVIVED" if self.passed else "FAILED"
+        if self.passed and not self.in_regime:
+            verdict += " (outside its own declared regime of validity)"
         lines = [
             f"Hypothesis: {self.theory_id}  (tier {self.tier})",
-            f"Verdict: {'SURVIVED' if self.passed else 'FAILED'}",
+            f"Verdict: {verdict}",
             f"  declaration complete : {self.declaration_complete}",
             f"  GR limit recovered   : {self.gr_limit.passed}",
             f"  singularity resolved : {self.singularity_resolved}",
             f"  density bounded      : {self.density_bounded} (max {self.max_density:.6g})",
             f"  converged            : {self.converged}",
+            f"  within declared regime: {self.in_regime}",
         ]
         for b in self.battery:
             lines.append(f"  scenario {b.scenario:<22} {b.outcome}")
@@ -235,6 +241,23 @@ def evaluate(theory: Theory, matter_density: float = 1e-3) -> ReportCard:
     max_density = max(b.max_density for b in battery)
     density_bounded = bool(np.isfinite(max_density)) and max_density < 1e12
 
+    # The design document asks for a regime-of-validity flag on every run, and
+    # it earns its place: a hypothesis can pass every other check while every
+    # number it produced sits outside the range it claimed to be good for.
+    # That is not a failure of the hypothesis, it is a statement about what
+    # the result is worth, so it flags rather than fails.
+    try:
+        in_regime = bool(theory.regime_of_validity(max_density))
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"regime_of_validity raised: {exc!r}; assuming in-regime")
+        in_regime = True
+    if not in_regime:
+        warnings.append(
+            f"the run reached a density of {max_density:.6g}, outside the regime this "
+            "plugin declares itself valid in; its own statement says these numbers "
+            "should not be trusted"
+        )
+
     predictions = theory.observable_predictions()
     confirmed: list[str] = []
     contradicted: list[str] = []
@@ -260,6 +283,7 @@ def evaluate(theory: Theory, matter_density: float = 1e-3) -> ReportCard:
         max_density=max_density,
         density_bounded=density_bounded,
         converged=converged,
+        in_regime=in_regime,
         predictions=predictions,
         confirmed=confirmed,
         contradicted=contradicted,

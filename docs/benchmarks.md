@@ -112,6 +112,31 @@ are all required to be caught or reported rather than passed.
 | Shape partition of unity and centroid | 1 and the particle position | 1e-15, 1e-14 | `test_shapes_are_a_partition_of_unity_with_the_right_centroid` |
 | Deposited charge total | the charge present | 1e-12 | `test_deposited_charge_totals_the_charge_present` |
 
+### Laser injection and ionization
+
+| Benchmark | Reference | Tolerance | Measured | Test |
+|---|---|---|---|---|
+| Injected pulse energy | quadrature on the specified waveform | 1% | −0.23% at 40 cells/wavelength, both polarizations | `test_injected_energy_matches_the_specification` |
+| Injection error order | 2 in the spacing | 1.7–2.3 | −0.94%, −0.23%, −0.058% at 20, 40, 80 cells/wavelength | `test_injection_error_is_second_order_in_the_spacing` |
+| One-way source | nothing behind the plane | 1e-8 of forward | 1e-12 | `test_nothing_travels_backward_from_the_source` |
+| Followed pulse energy | unchanged | 1e-4 over 3000 shifts | exact to five decimals | `test_a_followed_pulse_keeps_its_energy` |
+| ADK rate for hydrogen | `(4/F) exp(−2/3F)` | 1e-12 | exact | `test_adk_reproduces_the_hydrogen_closed_form` |
+| Ionized fraction | the rate it was drawn from | 2% | binomial, 200 000 draws | `test_ionized_fraction_follows_the_rate` |
+
+The source is total-field/scattered-field rather than a current sheet. A
+sheet radiates symmetrically and throws half the energy backward; here the
+backward region holds twelve orders of magnitude less than the forward one,
+and what remains is the lattice dispersion, since a pulse spans wavenumbers
+and no single incident phase velocity is right for all of them.
+
+The moving window shifts by whole cells, which is a relabelling and so costs
+nothing. A continuous shift would interpolate the pulse on every step of a
+run lasting thousands of steps. The absorbing layer's convolution history is
+carried along with the fields: leaving it behind pairs each field with
+another cell's memory, and the layer stops absorbing. Measured, a pulse
+followed for two thousand cells then gains five orders of magnitude in
+energy instead of holding it.
+
 ### Cold plasma
 
 | Benchmark | Reference | Tolerance | Measured | Test |

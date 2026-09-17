@@ -1,0 +1,21 @@
+# Fuchs et al 2024 (CQG 41, 075003): constant-velocity subluminal warp shell.
+# A positive-mass matter shell carries the shift on its interior, so
+# eulerian.min_density in the report stays non-negative. Curved slices and a
+# non-unit lapse, so this goes through the full symbolic Einstein-tensor path,
+# which is slow -- keep the resolution small.
+scenario: warp.analyze
+theory:
+  gravity: gr
+metric:
+  family: fuchs
+  params: {v_s: 0.1, M: 1.0, R: 5.0, R_f: 3.0, sigma: 0.7}
+grid:
+  extent: [[-12, 12], [-12, 12], [-12, 12]]
+  resolution: [8, 8, 8]
+analysis:
+  energy_conditions: [NEC, WEC, SEC, DEC]
+  full_stress_energy: true
+output:
+  dir: runs/warp_fuchs
+  formats: [npz, json]
+seed: 0

@@ -151,3 +151,40 @@ def test_the_summary_reports_the_outcome():
     assert summary["reached_singularity"] is False
     assert summary["bounce_density"] == pytest.approx(RHO_CRITICAL_PLANCK, rel=1e-8)
     assert summary["constraint_drift"] < 1e-8
+
+
+@pytest.mark.parametrize("equation_of_state", [0.0, 0.2, 1.0 / 3.0, 0.5, 1.0])
+def test_a_general_relativistic_collapse_ends_cleanly_at_every_equation_of_state(
+    equation_of_state,
+):
+    """A crunch is an outcome the run carries, not an integrator failure.
+
+    The scale-factor floor cannot do this alone, and the reason is
+    arithmetic. For radiation ``rho ~ a^-4``, so ``a = 1e-8`` means
+    ``|H| ~ 1e13`` and a dynamical time of 1e-13; at a cosmic time of order
+    a hundred that step is below the spacing between neighbouring doubles,
+    and the integrator fails with a step-size message before the event can
+    fire. Only ``w = 0`` survived it. The ceiling on ``|H|`` is reached
+    first and stops the run where the classical description has run out
+    anyway.
+    """
+    run = evolve(theory=None, equation_of_state=equation_of_state, density=1e-6)
+    assert run.reached_singularity
+    assert not run.bounced
+    assert run.constraint_drift < 1e-8
+
+
+@pytest.mark.parametrize("equation_of_state", [0.0, 1.0 / 3.0, 1.0])
+def test_the_curvature_ceiling_cannot_cut_a_bounce_short(equation_of_state):
+    """``|H|`` peaks at 0.93 on the loop-quantum branch, three orders below the ceiling.
+
+    ``H^2 = (8 pi/3) rho (1 - rho/rho_c)`` is largest at ``rho = rho_c/2``,
+    which is 0.93 at ``rho_c = 0.41``. Asserting that here is what keeps the
+    ceiling honest: if someone lowers it to a value a bounce can reach, the
+    bounce would be reported as a crunch and this test says so.
+    """
+    run = evolve(theory=EffectiveLQC(), equation_of_state=equation_of_state, density=1e-6)
+    assert run.bounced
+    assert not run.reached_singularity
+    assert float(np.abs(run.hubble).max()) < 1.0
+    assert run.bounce_density == pytest.approx(RHO_CRITICAL_PLANCK, rel=1e-6)

@@ -50,13 +50,27 @@ thickness with a live energy-density map. The physics is in
 
 ## Demos
 
+Static pages, no Python and no backend. Source in `demos/`, deployed to
+GitHub Pages from that directory by `.github/workflows/pages.yml` on every
+push to `main`.
+
 - [Warp energy-density explorer](https://nosam1998.github.io/ParticleSim/warp-energy-explorer/):
   sliders for bubble velocity, radius, and wall thickness over a live heatmap
   and 1D cut of the Alcubierre Eulerian energy density, with the integrated
   negative energy. It computes the analytic Alcubierre result in the browser
-  from the closed form in Section 3.2 of the design document; no Python and no
-  backend. Source in `demos/warp-energy-explorer/`, deployed to GitHub Pages
-  from `demos/` by `.github/workflows/pages.yml` on every push to `main`.
+  from the closed form in Section 3.2 of the design document.
+- [Two-stream instability](https://nosam1998.github.io/ParticleSim/two-stream/):
+  a one-dimensional electrostatic particle-in-cell code running live in the
+  page. Two electron beams stream through each other and the measured growth
+  rate is compared with the exact root of the dispersion relation.
+- [Friedmann integrator](https://nosam1998.github.io/ParticleSim/friedmann/):
+  the two background solvers, in the page. A ΛCDM budget integrated for ages
+  and distances, and a theory plugin's own `H²(ρ)` integrated through a crunch
+  under general relativity or a bounce under effective loop quantum cosmology.
+  Its physics lives in `demos/friedmann/friedmann.js`, which the test suite
+  loads in Node and compares against the Python solvers directly — the bounce
+  time to 1e-8 and the ΛCDM ages and distances to 1e-9 — so "reproduces the
+  solver" is a measurement rather than a claim.
 
 ## Layout
 

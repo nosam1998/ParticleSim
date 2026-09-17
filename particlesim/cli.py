@@ -63,6 +63,20 @@ def _cmd_check_limits(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
+def _cmd_hypothesis(args: argparse.Namespace) -> int:
+    from particlesim.scenarios.singularity.harness import evaluate
+    from particlesim.theories import get_theory
+
+    card = evaluate(get_theory(args.theory))
+    if args.json:
+        print(json.dumps(card.summary(), indent=2, default=str))
+    else:
+        print(card.render())
+    # Exit non-zero when a hypothesis is contradicted, so the harness can gate
+    # a pipeline rather than only inform a reader.
+    return 0 if card.passed else 1
+
+
 def _cmd_scenarios(args: argparse.Namespace) -> int:
     for name in sorted(SCENARIOS):
         print(name)
@@ -83,6 +97,11 @@ def build_parser() -> argparse.ArgumentParser:
     cl = sub.add_parser("check-limits", help="verify every plugin's declared GR limit")
     cl.add_argument("--no-action", action="store_true", help="skip the slower Lagrangian check")
     cl.set_defaults(func=_cmd_check_limits)
+
+    hy = sub.add_parser("hypothesis", help="score a theory plugin against the singularity battery")
+    hy.add_argument("theory", help="theory id, for example lqg.lqc")
+    hy.add_argument("--json", action="store_true", help="machine-readable report card")
+    hy.set_defaults(func=_cmd_hypothesis)
 
     rn = sub.add_parser("run", help="run a scenario from a YAML config")
     rn.add_argument("config")

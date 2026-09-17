@@ -1,0 +1,14 @@
+scenario: warp.analyze
+theory:
+  gravity: gr
+metric:
+  family: natario
+  params: {v_s: 2.0, R: 5.0, sigma: 2.0}
+grid:
+  extent: [[-12, 12], [-12, 12], [-12, 12]]
+  resolution: [32, 32, 32]
+analysis:
+  full_stress_energy: false
+output:
+  dir: runs/warp_natario
+  formats: [npz, json, png]

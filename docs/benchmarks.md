@@ -191,6 +191,29 @@ another cell's memory, and the layer stops absorbing. Measured, a pulse
 followed for two thousand cells then gains five orders of magnitude in
 energy instead of holding it.
 
+### Beam filamentation
+
+| Benchmark | drift | k | measured | theory | error |
+|---|---|---|---|---|---|
+| Current filamentation growth | 0.3 | 2.0 | 0.26277 | 0.26373 | −0.36% |
+| | 0.5 | 2.0 | 0.41997 | 0.42349 | −0.83% |
+| | 0.5 | 5.0 | 0.45442 | 0.45751 | −0.67% |
+| | 0.8 | 2.0 | 0.57567 | 0.58081 | −0.89% |
+
+Tolerance 5%, in `test_filamentation_growth_matches_linear_theory`.
+
+The dispersion relation is derived in `particlesim/scenarios/beams.py`
+rather than quoted, because the published forms differ by powers of the beam
+Lorentz factor depending on whether the perturbing field lies along the
+drift or across it, and picking the wrong one makes a benchmark agree with
+the wrong number. Its short-wavelength limit is the textbook maximum
+`β₀ ω_p / √γ`, which is what says the factors landed in the right places.
+
+The seed displaces the two beams in **opposite** directions. Displacing them
+the same way perturbs the density with no net current, and nothing magnetic
+grows from it, so the sign of the seed is the difference between measuring
+this instability and measuring noise.
+
 ### Laser wakefield
 
 | Benchmark | Reference | Tolerance | Measured | Test |

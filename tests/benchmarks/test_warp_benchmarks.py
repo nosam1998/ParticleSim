@@ -73,3 +73,22 @@ def test_van_den_broeck_reduces_to_alcubierre():
     X = res.grid.coords()
     rho_cf = m.closed_form_energy_density()(np.zeros_like(X[0]), *X)
     assert np.abs(res.fields["energy_density"] - rho_cf).max() < 1e-12
+
+
+@pytest.mark.benchmark
+def test_full_path_uses_cache_and_reports_kretschmann(tmp_path, monkeypatch):
+    """Second identical analysis hits the kernel cache; Kretschmann is finite and nonzero."""
+    monkeypatch.setenv("PARTICLESIM_CACHE_DIR", str(tmp_path))
+    monkeypatch.delenv("PARTICLESIM_NO_CACHE", raising=False)
+    cfg = WarpAnalyzeConfig()
+    cfg.metric.family = "alcubierre"
+    cfg.grid.extent = [(-12.0, 12.0)] * 3
+    cfg.grid.resolution = [8, 8, 8]
+    cfg.analysis.invariants = ["kretschmann"]
+    first = analyze(cfg)
+    second = analyze(cfg)
+    assert first.timings["full_path_cache_hit"] == 0.0
+    assert second.timings["full_path_cache_hit"] == 1.0
+    k = first.fields["kretschmann"]
+    assert np.isfinite(k).all() and np.abs(k).max() > 0
+    np.testing.assert_allclose(second.fields["kretschmann"], k)

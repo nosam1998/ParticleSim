@@ -38,11 +38,12 @@ class AnalysisConfig(BaseModel):
     )
     null_directions: int = 26
     full_stress_energy: bool = True
+    invariants: list[Literal["kretschmann"]] = Field(default_factory=list)
 
 
 class OutputConfig(BaseModel):
     dir: str = "runs/warp"
-    formats: list[Literal["npz", "json", "png"]] = Field(default=["npz", "json"])
+    formats: list[Literal["npz", "json", "png", "h5"]] = Field(default=["npz", "json"])
 
 
 class WarpAnalyzeConfig(BaseModel):
@@ -58,10 +59,15 @@ class WarpAnalyzeConfig(BaseModel):
 SCENARIOS: dict[str, type[BaseModel]] = {"warp.analyze": WarpAnalyzeConfig}
 
 
-def load_config(path: str | Path) -> BaseModel:
-    """Load a YAML scenario file and validate it against its scenario schema."""
-    raw: dict[str, Any] = yaml.safe_load(Path(path).read_text()) or {}
+def config_from_dict(raw: dict[str, Any]) -> BaseModel:
+    """Validate a raw scenario dictionary against its scenario schema."""
     name = raw.get("scenario")
     if name not in SCENARIOS:
         raise ValueError(f"unknown scenario {name!r}; known: {sorted(SCENARIOS)}")
     return SCENARIOS[name].model_validate(raw)
+
+
+def load_config(path: str | Path) -> BaseModel:
+    """Load a YAML scenario file and validate it against its scenario schema."""
+    raw: dict[str, Any] = yaml.safe_load(Path(path).read_text()) or {}
+    return config_from_dict(raw)

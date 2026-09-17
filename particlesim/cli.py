@@ -5,9 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 import particlesim
-from particlesim.core.config import SCENARIOS, load_config
+from particlesim.core.config import SCENARIOS, config_from_dict, load_config
 from particlesim.theories import list_theories
 
 
@@ -19,10 +20,9 @@ def _cmd_theories(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_run(args: argparse.Namespace) -> int:
-    config = load_config(args.config)
-    if args.out:
-        config.output.dir = args.out
+def _dispatch(config, out: str | None) -> int:
+    if out:
+        config.output.dir = out
     if config.scenario == "warp.analyze":
         from particlesim.scenarios.warp.analyze import run
 
@@ -32,6 +32,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return 0
     print(f"scenario {config.scenario} has no runner yet", file=sys.stderr)
     return 2
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    return _dispatch(load_config(args.config), args.out)
+
+
+def _cmd_rerun(args: argparse.Namespace) -> int:
+    manifest = json.loads(Path(args.manifest).read_text())
+    config = config_from_dict(manifest["config"])
+    return _dispatch(config, args.out)
 
 
 def _cmd_scenarios(args: argparse.Namespace) -> int:
@@ -55,6 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
     rn.add_argument("config")
     rn.add_argument("--out", help="override the output directory")
     rn.set_defaults(func=_cmd_run)
+
+    rr = sub.add_parser("rerun", help="re-run a scenario from a run manifest")
+    rr.add_argument("manifest")
+    rr.add_argument("--out", help="override the output directory")
+    rr.set_defaults(func=_cmd_rerun)
     return p
 
 

@@ -13,5 +13,5 @@ analysis:
   full_stress_energy: true
 output:
   dir: runs/warp_alcubierre
-  formats: [npz, json, png]
+  formats: [npz, json, png, html, csv]
 seed: 0

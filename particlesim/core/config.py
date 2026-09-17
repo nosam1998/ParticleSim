@@ -45,7 +45,9 @@ class AnalysisConfig(BaseModel):
 
 class OutputConfig(BaseModel):
     dir: str = "runs/warp"
-    formats: list[Literal["npz", "json", "png", "h5", "csv"]] = Field(default=["npz", "json"])
+    formats: list[Literal["npz", "json", "png", "h5", "csv", "html"]] = Field(
+        default=["npz", "json"]
+    )
 
 
 class WarpAnalyzeConfig(BaseModel):

@@ -59,6 +59,17 @@ class WarpAnalysisResult:
             (out / "report.json").write_text(json.dumps(self.report, indent=2, default=str))
         if "png" in formats:
             _save_png(self, out / "energy_density.png")
+        if "html" in formats:
+            from particlesim.viz.plots import warp_figures
+            from particlesim.viz.report import render_html_report
+
+            figures = warp_figures(self.fields, self.grid.extent)
+            render_html_report(
+                self.report,
+                out / "report.html",
+                figures,
+                title=f"Warp analysis: {self.metric.name}",
+            )
         if "csv" in formats:
             export_reduced_csv(self.report, out / "report.csv")
         if "h5" in formats:

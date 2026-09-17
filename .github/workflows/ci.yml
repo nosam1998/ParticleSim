@@ -9,15 +9,18 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
-      - name: Install
-        run: |
-          uv venv --python ${{ matrix.python-version }}
-          uv pip install -e .[dev]
+        with:
+          enable-cache: true
+      - name: Install from the lockfile
+        # --locked fails rather than silently re-resolving, so CI tests the
+        # same dependency versions a contributor gets locally.
+        run: uv sync --locked --all-extras --python ${{ matrix.python-version }}
       - name: Lint
         run: |
           uv run ruff check .
@@ -26,3 +29,18 @@ jobs:
         run: uv run pytest -q -m "not slow"
       - name: Benchmarks
         run: uv run pytest -q -m "benchmark and not slow"
+      - name: GR limits
+        run: uv run particlesim check-limits
+
+  slow:
+    runs-on: ubuntu-latest
+    # Slow benchmarks would double every PR's feedback time, so they run on
+    # main and on demand instead of gating each push.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - run: uv sync --locked --all-extras
+      - run: uv run pytest -q -m slow

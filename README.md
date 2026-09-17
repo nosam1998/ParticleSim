@@ -29,6 +29,16 @@ uv run pytest -q -m "not slow"
 The Alcubierre run writes `fields.npz`, `report.json`, `energy_density.png`,
 and `manifest.json` under `runs/warp_alcubierre/`.
 
+## Demos
+
+- [Warp energy-density explorer](https://nosam1998.github.io/ParticleSim/warp-energy-explorer/):
+  sliders for bubble velocity, radius, and wall thickness over a live heatmap
+  and 1D cut of the Alcubierre Eulerian energy density, with the integrated
+  negative energy. It computes the analytic Alcubierre result in the browser
+  from the closed form in Section 3.2 of the design document; no Python and no
+  backend. Source in `demos/warp-energy-explorer/`, deployed to GitHub Pages
+  from `demos/` by `.github/workflows/pages.yml` on every push to `main`.
+
 ## Layout
 
 ```

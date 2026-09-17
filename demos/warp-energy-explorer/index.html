@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Warp Energy Explorer</title>
+<meta name="description" content="Interactive explorer for the Alcubierre warp-bubble Eulerian energy density, evaluated from the analytic closed form in the browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌀</text></svg>">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f9f9f7;
+  --surface: #fcfcfb;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --accent: #2a78d6;
+  --link: #1c5cab;
+  /* Diverging scale: blue (negative) - neutral gray (zero) - red (positive). */
+  --div-0: #0d366b;
+  --div-1: #2a78d6;
+  --div-2: #f0efec;
+  --div-3: #e34948;
+  --div-4: #7a1414;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0d0d0d;
+    --surface: #1a1a19;
+    --text: #ffffff;
+    --text-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --accent: #3987e5;
+    --link: #6da7ec;
+    --div-0: #b7d3f6;
+    --div-1: #3987e5;
+    --div-2: #383835;
+    --div-3: #e66767;
+    --div-4: #f6c0c0;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d0d0d;
+  --surface: #1a1a19;
+  --text: #ffffff;
+  --text-2: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.10);
+  --accent: #3987e5;
+  --link: #6da7ec;
+  --div-0: #b7d3f6;
+  --div-1: #3987e5;
+  --div-2: #383835;
+  --div-3: #e66767;
+  --div-4: #f6c0c0;
+}
+
+* { box-sizing: border-box; }
+html, body { max-width: 100%; overflow-x: hidden; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+a { color: var(--link); }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 24px 16px 40px; }
+header h1 { font-size: 1.6rem; line-height: 1.2; margin: 0 0 8px; }
+header p { margin: 0 0 20px; color: var(--text-2); max-width: 72ch; }
+header p code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+.controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px 24px;
+  align-items: end;
+}
+.control label, .control .label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text-2);
+}
+.control output { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+.control input[type="range"] { width: 100%; margin: 6px 0 0; accent-color: var(--accent); }
+.control select, .control button {
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--axis);
+  border-radius: 8px;
+}
+.control button { cursor: pointer; }
+.control button:hover { border-color: var(--accent); }
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.tile .name { font-size: 0.85rem; color: var(--text-2); }
+.tile .value { font-size: 1.75rem; font-weight: 600; line-height: 1.25; margin: 2px 0; font-variant-numeric: tabular-nums; }
+.tile .note { font-size: 0.8rem; color: var(--muted); }
+.plots {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 820px) { .plots { grid-template-columns: minmax(0, 1fr); } }
+.plot { padding: 8px 4px 4px; overflow: hidden; }
+.plot h2 { font-size: 0.95rem; font-weight: 600; margin: 0 8px 4px; color: var(--text-2); }
+.plot .fig { width: 100%; min-width: 0; }
+.plot .fig.missing { padding: 24px 12px; color: var(--muted); font-size: 0.9rem; text-align: center; }
+details { margin-top: 12px; }
+summary { cursor: pointer; color: var(--text-2); font-size: 0.95rem; }
+pre {
+  margin: 8px 0 0;
+  padding: 12px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+footer { margin-top: 24px; font-size: 0.85rem; color: var(--muted); }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@4.1.1/plotly.min.js" defer onerror="window.__plotlyFailed = true"></script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Warp energy-density explorer</h1>
+    <p>
+      The Alcubierre warp bubble's Eulerian energy density
+      ρ = −(v²/32π) · (y²+z²)/r<sub>s</sub>² · f′(r<sub>s</sub>)², on the z = 0 plane at t = 0, with the
+      top-hat shape function f(r) = [tanh(σ(r+R)) − tanh(σ(r−R))] / (2 tanh(σR)) in geometric units
+      (G = c = 1). The bubble moves along x; ρ vanishes inside and outside it and is negative
+      everywhere in the wall (the red half of the colour scale never lights up), which is the
+      energy-condition violation that makes warp drives exotic. Everything is computed in your
+      browser from the closed form, with no Python and no precomputed data. This is the first static
+      browser demo from Section 5.7 of the
+      <a href="https://github.com/nosam1998/ParticleSim/blob/main/docs/DESIGN.md">design document</a>;
+      <code>particlesim run examples/configs/warp_alcubierre.yaml</code> (Mode W1, Section 3.2)
+      gives the same numbers.
+    </p>
+  </header>
+
+  <section class="card controls" aria-label="Parameters">
+    <div class="control">
+      <label for="v_s"><span>Bubble velocity v</span><output id="v_s_out" for="v_s">2.00</output></label>
+      <input type="range" id="v_s" min="0.1" max="5" step="0.05" value="2">
+    </div>
+    <div class="control">
+      <label for="R"><span>Radius R</span><output id="R_out" for="R">5.0</output></label>
+      <input type="range" id="R" min="1" max="15" step="0.1" value="5">
+    </div>
+    <div class="control">
+      <label for="sigma"><span>Wall thickness σ</span><output id="sigma_out" for="sigma">2.00</output></label>
+      <input type="range" id="sigma" min="0.5" max="8" step="0.05" value="2" title="The wall is about 1/σ wide">
+
+    </div>
+    <div class="control">
+      <label for="resolution"><span>Slice resolution</span></label>
+      <select id="resolution">
+        <option value="64">64 × 64</option>
+        <option value="128" selected>128 × 128</option>
+        <option value="256">256 × 256</option>
+      </select>
+    </div>
+    <div class="control">
+      <span class="label"><span>&nbsp;</span></span>
+      <button type="button" id="reset">Reset to defaults</button>
+    </div>
+  </section>
+
+  <section class="stats" aria-label="Summary">
+    <div class="card tile">
+      <div class="name">Integrated negative energy ∫ min(ρ, 0) dV</div>
+      <div class="value" id="negative_energy">…</div>
+      <div class="note" id="negative_energy_note">3D box, 48³ cells</div>
+    </div>
+    <div class="card tile">
+      <div class="name">Minimum ρ on the z = 0 slice</div>
+      <div class="value" id="min_density">…</div>
+      <div class="note" id="min_density_note"></div>
+    </div>
+  </section>
+
+  <section class="plots">
+    <div class="card plot">
+      <h2>ρ on the z = 0 slice</h2>
+      <div id="heatmap" class="fig" role="img" aria-label="Heatmap of the energy density on the z = 0 plane"></div>
+    </div>
+    <div class="card plot">
+      <h2>ρ along the y axis at x = 0, z = 0</h2>
+      <div id="cut" class="fig" role="img" aria-label="Line plot of the energy density along the y axis"></div>
+    </div>
+  </section>
+
+  <details>
+    <summary>Report JSON (same fields as the analyzer's <code>report.json</code>)</summary>
+    <pre id="report"></pre>
+    <p class="control"><button type="button" id="download">Download report.json with the energy_density slice</button></p>
+  </details>
+
+  <footer>
+    Part of <a href="https://github.com/nosam1998/ParticleSim">ParticleSim</a>.
+    Source: <a href="https://github.com/nosam1998/ParticleSim/tree/main/demos/warp-energy-explorer">demos/warp-energy-explorer</a>.
+    Alcubierre, Class. Quantum Grav. 11, L73 (1994).
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // Box half-width matches examples/configs/warp_alcubierre.yaml (extent ±12).
+  var HALF_WIDTH = 12;
+  // Coarse 3D grid for the volume integral.
+  var VOLUME_N = 48;
+  var DEFAULTS = { v_s: 2, R: 5, sigma: 2, resolution: 128 };
+  var RESOLUTIONS = [64, 128, 256];
+  var PUBLISHED_PROPERTY = 'Eulerian energy density -(v²/32π) (y²+z²)/r_s² f\'(r_s)² everywhere ≤ 0';
+  var FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  // ---- physics ----------------------------------------------------------
+  function sech2(u) { var c = Math.cosh(u); return 1 / (c * c); }
+
+  // f(r) = [tanh(σ(r+R)) − tanh(σ(r−R))] / (2 tanh(σR)); this is df/dr.
+  function shapeDerivative(r, R, sigma) {
+    return sigma * (sech2(sigma * (r + R)) - sech2(sigma * (r - R))) / (2 * Math.tanh(sigma * R));
+  }
+
+  // ρ = −(v²/32π) (y²+z²)/r_s² f'(r_s)² with r_s = sqrt(x²+y²+z²) at t = 0.
+  function energyDensity(x, y, z, p) {
+    var r2 = x * x + y * y + z * z;
+    if (r2 === 0) return 0;
+    var df = shapeDerivative(Math.sqrt(r2), p.R, p.sigma);
+    return -(p.v_s * p.v_s) / (32 * Math.PI) * (y * y + z * z) / r2 * df * df;
+  }
+
+  // Cell-centred axis, as in particlesim.core.grid.UniformGrid.
+  function axis(n) {
+    var dx = 2 * HALF_WIDTH / n, a = new Array(n);
+    for (var i = 0; i < n; i++) a[i] = -HALF_WIDTH + dx * (i + 0.5);
+    return a;
+  }
+
+  function computeSlice(p, n) {
+    var ax = axis(n), rows = new Array(n), cut = new Array(n);
+    var min = Infinity, max = -Infinity, argmin = [0, 0];
+    for (var j = 0; j < n; j++) {
+      var y = ax[j], row = new Array(n);
+      for (var i = 0; i < n; i++) {
+        var v = energyDensity(ax[i], y, 0, p);
+        row[i] = v;
+        if (v < min) { min = v; argmin = [ax[i], y]; }
+        if (v > max) max = v;
+      }
+      rows[j] = row;
+      cut[j] = energyDensity(0, y, 0, p);
+    }
+    return { x: ax, y: ax, z: rows, cut: cut, min: min, max: max, argmin: argmin, spacing: 2 * HALF_WIDTH / n };
+  }
+
+  function computeVolume(p, n) {
+    var ax = axis(n), dV = Math.pow(2 * HALF_WIDTH / n, 3);
+    var total = 0, negative = 0, negCount = 0;
+    for (var k = 0; k < n; k++) {
+      for (var j = 0; j < n; j++) {
+        for (var i = 0; i < n; i++) {
+          var v = energyDensity(ax[i], ax[j], ax[k], p);
+          total += v;
+          if (v < 0) { negative += v; negCount++; }
+        }
+      }
+    }
+    return { total_energy: total * dV, negative_energy: negative * dV, negative_fraction: negCount / (n * n * n), cell_volume: dV };
+  }
+
+  // ---- state ------------------------------------------------------------
+  var el = function (id) { return document.getElementById(id); };
+  var inputs = { v_s: el('v_s'), R: el('R'), sigma: el('sigma'), resolution: el('resolution') };
+  var outputs = { v_s: el('v_s_out'), R: el('R_out'), sigma: el('sigma_out') };
+  var state = { params: null, slice: null, volume: null };
+  var api = { ready: false };
+  window.warpExplorer = api;
+
+  function readParams() {
+    return {
+      v_s: Number(inputs.v_s.value),
+      R: Number(inputs.R.value),
+      sigma: Number(inputs.sigma.value),
+      resolution: Number(inputs.resolution.value)
+    };
+  }
+
+  function report() {
+    var p = state.params, s = state.slice, vol = state.volume, n = s.x.length;
+    return {
+      family: 'alcubierre',
+      params: { v_s: p.v_s, R: p.R, sigma: p.sigma },
+      theory: { gravity: 'gr' },
+      grid: {
+        extent: [[-HALF_WIDTH, HALF_WIDTH], [-HALF_WIDTH, HALF_WIDTH], [-HALF_WIDTH, HALF_WIDTH]],
+        shape: [VOLUME_N, VOLUME_N, VOLUME_N],
+        cell_volume: vol.cell_volume,
+        slice: { plane: 'z = 0', shape: [n, n], spacing: s.spacing }
+      },
+      eulerian: {
+        total_energy: vol.total_energy,
+        negative_energy: vol.negative_energy,
+        min_density: s.min,
+        max_density: s.max,
+        negative_fraction: vol.negative_fraction,
+        min_density_at: { x: s.argmin[0], y: s.argmin[1], z: 0 }
+      },
+      published_property: PUBLISHED_PROPERTY,
+      source: 'analytic closed form evaluated in the browser (demos/warp-energy-explorer); integrals over the 48³ box, min over the z = 0 slice'
+    };
+  }
+
+  function fields() {
+    return { x: state.slice.x, y: state.slice.y, energy_density: state.slice.z, energy_density_cut: state.slice.cut };
+  }
+
+  // ---- formatting -------------------------------------------------------
+  function fmt(v) {
+    if (v === 0) return '0';
+    var a = Math.abs(v), s = (a >= 1e-3 && a < 1e4) ? v.toPrecision(4) : v.toExponential(3);
+    return s.replace('-', '−');
+  }
+  function fmtParam(v, digits) { return Number(v).toFixed(digits); }
+
+  function updateOutputs(p) {
+    outputs.v_s.textContent = fmtParam(p.v_s, 2);
+    outputs.R.textContent = fmtParam(p.R, 1);
+    outputs.sigma.textContent = fmtParam(p.sigma, 2);
+  }
+
+  function updateStats() {
+    var r = report(), n = r.grid.slice.shape[0];
+    el('negative_energy').textContent = fmt(r.eulerian.negative_energy);
+    el('negative_energy_note').textContent = '3D box ±' + HALF_WIDTH + ', ' + VOLUME_N + '³ cells; total energy ' + fmt(r.eulerian.total_energy) + ', ' + (100 * r.eulerian.negative_fraction).toFixed(1) + '% of cells negative';
+    el('min_density').textContent = fmt(r.eulerian.min_density);
+    el('min_density_note').textContent = n + ' × ' + n + ' slice, at (x, y) ≈ (' + r.eulerian.min_density_at.x.toFixed(2) + ', ' + r.eulerian.min_density_at.y.toFixed(2) + '); the wall peaks near r = R';
+    el('report').textContent = JSON.stringify(r, null, 2);
+  }
+
+  // ---- plotting ---------------------------------------------------------
+  function tokens() {
+    var cs = getComputedStyle(document.documentElement);
+    var t = function (name) { return cs.getPropertyValue(name).trim(); };
+    return {
+      surface: t('--surface'), text: t('--text'), text2: t('--text-2'), muted: t('--muted'),
+      grid: t('--grid'), axis: t('--axis'), accent: t('--accent'),
+      diverging: [[0, t('--div-0')], [0.25, t('--div-1')], [0.5, t('--div-2')], [0.75, t('--div-3')], [1, t('--div-4')]]
+    };
+  }
+
+  function axisStyle(tk, title) {
+    return {
+      title: { text: title, font: { size: 12, color: tk.text2 } },
+      gridcolor: tk.grid, zeroline: false, linecolor: tk.axis, showline: true, mirror: false,
+      ticks: 'outside', ticklen: 4, tickcolor: tk.axis, tickfont: { size: 11, color: tk.muted }
+    };
+  }
+
+  // Sizing is done here (see draw on resize) rather than with Plotly's responsive
+  // mode, whose resize handler drops layout.height and can collapse the container.
+  var plotConfig = { responsive: false, displaylogo: false, modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d', 'toggleSpikelines'] };
+
+  function size(target, height) {
+    var w = Math.max(200, target.clientWidth || 600);
+    target.style.height = height + 'px';
+    return { width: w, height: height };
+  }
+
+  function drawHeatmap(tk) {
+    var target = el('heatmap'), s = state.slice;
+    var w = target.clientWidth || 600;
+    var dims = size(target, Math.round(Math.min(w, 620)) + 84);
+    var trace = {
+      type: 'heatmap', x: s.x, y: s.y, z: s.z, zmid: 0, colorscale: tk.diverging, zsmooth: false,
+      hovertemplate: 'x = %{x:.2f}<br>y = %{y:.2f}<br>ρ = %{z:.4g}<extra></extra>',
+      colorbar: { orientation: 'h', thickness: 10, len: 0.9, x: 0.5, xanchor: 'center', y: -0.16, yanchor: 'top', outlinewidth: 0,
+        title: { text: 'ρ (geometric units), centred on zero', side: 'bottom', font: { size: 11, color: tk.text2 } },
+        tickfont: { size: 11, color: tk.muted } }
+    };
+    var xa = axisStyle(tk, 'x (direction of motion)'); xa.scaleanchor = 'y'; xa.constrain = 'domain'; xa.showgrid = false;
+    var ya = axisStyle(tk, 'y'); ya.constrain = 'domain'; ya.showgrid = false;
+    var layout = {
+      paper_bgcolor: tk.surface, plot_bgcolor: tk.surface, font: { family: FONT, size: 12, color: tk.text2 },
+      margin: { l: 46, r: 12, t: 8, b: 44 }, width: dims.width, height: dims.height,
+      xaxis: xa, yaxis: ya, hoverlabel: { font: { family: FONT, size: 12 } }
+    };
+    return Plotly.react(target, [trace], layout, plotConfig);
+  }
+
+  function drawCut(tk) {
+    var target = el('cut'), s = state.slice, p = state.params;
+    var dims = size(target, 360);
+    var trace = {
+      type: 'scatter', mode: 'lines', x: s.y, y: s.cut, name: 'ρ(0, y, 0)',
+      line: { color: tk.accent, width: 2 }, hovertemplate: 'y = %{x:.2f}<br>ρ = %{y:.4g}<extra></extra>'
+    };
+    var ya = axisStyle(tk, 'ρ'); ya.zeroline = true; ya.zerolinecolor = tk.axis; ya.zerolinewidth = 1;
+    var xa = axisStyle(tk, 'y'); xa.showgrid = false; xa.showspikes = true; xa.spikemode = 'across'; xa.spikethickness = 1; xa.spikecolor = tk.axis; xa.spikedash = 'dot';
+    var shapes = [-p.R, p.R].map(function (yy) {
+      return { type: 'line', x0: yy, x1: yy, y0: 0, y1: 1, xref: 'x', yref: 'paper', line: { color: tk.muted, width: 1, dash: 'dot' } };
+    });
+    var layout = {
+      paper_bgcolor: tk.surface, plot_bgcolor: tk.surface, font: { family: FONT, size: 12, color: tk.text2 },
+      margin: { l: 56, r: 12, t: 8, b: 44 }, width: dims.width, height: dims.height, showlegend: false, hovermode: 'x',
+      xaxis: xa, yaxis: ya, shapes: shapes,
+      annotations: [{ x: p.R, y: 1, xref: 'x', yref: 'paper', text: 'y = ±R', showarrow: false, xanchor: 'left', yanchor: 'top', xshift: 4, font: { size: 11, color: tk.muted } }],
+      hoverlabel: { font: { family: FONT, size: 12 } }
+    };
+    return Plotly.react(target, [trace], layout, plotConfig);
+  }
+
+  function draw() {
+    if (typeof Plotly === 'undefined') {
+      ['heatmap', 'cut'].forEach(function (id) {
+        var t = el(id); t.classList.add('missing');
+        t.textContent = 'Plotly.js could not be loaded from cdn.jsdelivr.net, so the plots are unavailable; the numbers above are still live.';
+      });
+      return;
+    }
+    var tk = tokens();
+    drawHeatmap(tk);
+    drawCut(tk);
+  }
+
+  // ---- wiring -----------------------------------------------------------
+  function update() {
+    var p = readParams();
+    state.params = p;
+    state.slice = computeSlice(p, p.resolution);
+    state.volume = computeVolume(p, VOLUME_N);
+    updateOutputs(p);
+    updateStats();
+    writeHash(p);
+    draw();
+  }
+
+  var pending = false;
+  function scheduleUpdate() {
+    if (pending) return;
+    pending = true;
+    window.requestAnimationFrame(function () { pending = false; update(); });
+  }
+
+  var resizeTimer = null;
+  function scheduleDraw() {
+    window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(draw, 150);
+  }
+
+  function writeHash(p) {
+    var h = '#v=' + p.v_s + '&R=' + p.R + '&sigma=' + p.sigma + '&n=' + p.resolution;
+    if (window.location.hash !== h && window.history && window.history.replaceState) {
+      window.history.replaceState(null, '', h);
+    }
+  }
+
+  function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+  function readHash() {
+    var q = {}, h = window.location.hash.replace(/^#/, '');
+    if (!h) return;
+    h.split('&').forEach(function (kv) { var m = kv.split('='); if (m.length === 2) q[decodeURIComponent(m[0])] = Number(decodeURIComponent(m[1])); });
+    if (isFinite(q.v)) inputs.v_s.value = clamp(q.v, 0.1, 5);
+    if (isFinite(q.R)) inputs.R.value = clamp(q.R, 1, 15);
+    if (isFinite(q.sigma)) inputs.sigma.value = clamp(q.sigma, 0.5, 8);
+    if (RESOLUTIONS.indexOf(q.n) >= 0) inputs.resolution.value = String(q.n);
+  }
+
+  function reset() {
+    inputs.v_s.value = DEFAULTS.v_s;
+    inputs.R.value = DEFAULTS.R;
+    inputs.sigma.value = DEFAULTS.sigma;
+    inputs.resolution.value = String(DEFAULTS.resolution);
+    update();
+  }
+
+  function download() {
+    var r = report();
+    r.fields = fields();
+    var blob = new Blob([JSON.stringify(r)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'report.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+
+  function init() {
+    readHash();
+    Object.keys(inputs).forEach(function (k) { inputs[k].addEventListener('input', scheduleUpdate); });
+    inputs.resolution.addEventListener('change', scheduleUpdate);
+    el('reset').addEventListener('click', reset);
+    el('download').addEventListener('click', download);
+    window.addEventListener('resize', scheduleDraw);
+    // replaceState does not fire hashchange, so this only reacts to pasted links.
+    window.addEventListener('hashchange', function () { readHash(); scheduleUpdate(); });
+    if (window.matchMedia) {
+      var mq = window.matchMedia('(prefers-color-scheme: dark)');
+      if (mq.addEventListener) mq.addEventListener('change', scheduleDraw);
+      else if (mq.addListener) mq.addListener(scheduleDraw);
+    }
+    update();
+    api.ready = true;
+  }
+
+  api.report = report;
+  api.fields = fields;
+  api.energyDensity = energyDensity;
+  api.update = update;
+  api.draw = draw;
+  api.reset = reset;
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+</body>
+</html>

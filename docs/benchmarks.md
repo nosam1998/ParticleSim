@@ -633,6 +633,145 @@ version of the translation. It also carries the citations CLASS asks for in
 return for its free use, so the condition is discharged by the run rather
 than by the user's memory.
 
+## The 3+1 pipeline: derivation, BSSN, codegen
+
+Stage 2 to 5 of design doc Section 5.3, in `particlesim.symbolic`:
+`threeplusone` (the ADM algebra), `bssn` (the change of variables),
+`codegen` (stencil substitution, common-subexpression elimination, kernel
+emission). The chain is checked link by link rather than end to end only,
+so a failure localises.
+
+| Link | Check | Tolerance | Measured |
+|---|---|---|---|
+| Plugin → ADM constraints | `n^a n^b G_ab = (R + K² − K_ij K^ij)/2` on data satisfying nothing | 1e-12 | exact to 3e-17 |
+| Plugin → momentum constraint | `−n^a γ^b_i G_ab = D_j(K^j_i − δ^j_i K)`, three components | 1e-10 | 4e-17 |
+| ADM → exact solution | gauge-wave `∂_t γ_ij`, `∂_t K_ij` | symbolic | **exactly zero** |
+| Static solution | isotropic Schwarzschild: `α R_ij = D_i D_j α` | 1e-14 | 5e-17 |
+| Flat space, curvilinear | `diag(1, r², r² sin²θ)` has `R_ij = 0` | symbolic | exactly zero |
+| Curved space | `S² × ℝ`: `R_ij = γ_ij/a²`, `R = 2/a²` | symbolic | exactly zero |
+| Metric compatibility | `∂_k γ_ij = Γ^m_ki γ_mj + Γ^m_kj γ_im` | 1e-12 | machine |
+| Inverse-metric identity | `∂_k γ^ij = −γ^ia γ^jb ∂_k γ_ab` vs `sp.diff` | 1e-10 | machine |
+| BSSN algebraic constraints | `det γ̃ = 1`, `γ̃^ij Ã_ij = 0` | 1e-14 | machine |
+| BSSN variable change | `to_adm ∘ from_adm = id` | 1e-12 | machine |
+| Conformal Ricci | `R_ij = R̄_ij + R^φ_ij` | 1e-12 relative | machine |
+| BSSN → exact solution | all five right-hand sides on the gauge wave, `Γ̄^i` included | symbolic | **exactly zero** |
+| BSSN ↔ ADM | `∂_t φ`, `∂_t γ̃_ij`, `∂_t Ã_ij` two independent ways | 1e-12 relative | machine |
+| Emitted kernel | gauge wave, orders 2, 4, 6 | factor 4, 16, 64 per halving | 4.0, 16.0, 64 |
+| NumPy vs JAX kernel | same expressions, two backends | 1e-13 relative | 1e-15 |
+
+### The one place BSSN is not ADM
+
+`∂_t φ`, `∂_t γ̃_ij` and `∂_t Ã_ij` agree with the chain rule applied to the
+ADM equations to machine precision. **`∂_t K` does not**, and the
+difference is exactly `−α H`:
+
+```
+∂_t K |textbook  −  ∂_t K |ADM  =  −α (R + K² − K_ij K^ij)
+```
+
+measured as a ratio of `−1.000000000000` at three independent points. The
+textbook equation uses the Hamiltonian constraint to replace the Ricci
+scalar with `Ã_ij Ã^ij + K²/3`, which is why BSSN and ADM behave
+differently on constraint-violating data — that is, on all data. The test
+asserts the *equality* rather than tolerating a discrepancy: it is the most
+interesting fact about the change of variables, and a round-trip test that
+papered over it would be missing the point.
+
+The connection equation carries the momentum constraint the same way, and
+cannot be checked by the chain-rule route at all: `Γ̄^i` is already a
+spatial derivative of the state, so its time derivative needs the
+derivative of a right-hand side. It is checked directly against the
+gauge wave instead, where `Γ̄^x` is a non-zero function of `x − t` and its
+time derivative has to come out of the equation with the constraint
+substituted into it.
+
+### One algebra, two backends
+
+Every formula is written once against a data class holding a slice's fields
+and their spatial derivatives, and it does not know whether those are SymPy
+expressions or NumPy arrays. `symbolic_slice` differentiates closed forms;
+`grid_slice` differences arrays. That is the verification strategy rather
+than a convenience: an exact solution goes through the *same* algebra both
+ways, so the symbolic path says whether the formulas are right and the grid
+path says whether the discretisation is. Two implementations — one for
+derivation, one for evolution, which is what most codes end up with — make
+that comparison impossible, and that is where a factor of two lives for
+years.
+
+Three consequences of writing it that way, each of which saves a
+differentiation pass on a grid:
+
+- the inverse metric is never differenced, because
+  `∂_k γ^ij = −γ^ia γ^jb ∂_k γ_ab`;
+- the conformal factor is never differenced, because
+  `∂_i φ = γ^ab ∂_i γ_ab / 12`;
+- the conformal metric's derivatives are propagated by the product rule
+  from the physical ones, so one pass over `γ_ij`, `K_ij`, `α` and `β^i`
+  supplies everything BSSN needs.
+
+The conformal factor is also carried as `(det γ)^(−1/3)` rather than as
+`exp(−4φ)`. Same number; the algebraic form cancels against the powers in
+the Ricci decomposition and the exponential one blocks every simplification
+that matters.
+
+### Codegen, measured
+
+Emitting the twelve ADM right-hand sides from an abstract slice:
+
+| Quantity | Value |
+|---|---|
+| Operations as written | 32 571 |
+| Operations after global CSE | 1 280 |
+| Reduction | **25×** |
+| Temporaries | 208 |
+| Derivative arrays emitted | 75 of 90 possible |
+| Grid fields read | 16 |
+
+The elimination runs over all twelve outputs at once, not one at a time,
+because they share almost all of their work — the inverse metric, the
+Christoffels, the Ricci tensor. Only the derivatives that appear are
+differenced: the ADM equations never use the second derivative of the
+shift, and the emitted source contains no `dd_beta`. Mixed second
+derivatives are differences of the already-computed first derivative, so
+`dd_f_01` costs one stencil application rather than two.
+
+The stencils are `roll`-based and therefore periodic, which is what makes
+them a handful of array operations XLA can fuse, and means a kernel is
+wrong at the edge of a bounded domain. That is deliberate and stated: the
+standard tests of an evolution scheme are periodic, and boundary treatment
+belongs to the evolution. `grid_slice` is the bounded-domain path, with
+one-sided differences at the edges.
+
+### Whether to emit C++ or CUDA: the measurement, not the opinion
+
+Design doc Section 5.3 leaves C++/CUDA emission as a later option "for
+kernels where XLA underperforms". Here is what the same kernel does on this
+machine, CPU only, double precision:
+
+| Grid | JAX | NumPy | Ratio | JAX throughput |
+|---|---|---|---|---|
+| 16³ | 232 ns/point | 1981 ns/point | 8.5× | 5.5 Gop/s |
+| 32³ | 232 ns/point | 1689 ns/point | 7.3× | 5.5 Gop/s |
+| 48³ | 299 ns/point | 2463 ns/point | 8.2× | 4.3 Gop/s |
+| 64³ | 384 ns/point | 2806 ns/point | 7.3× | 3.3 Gop/s |
+
+Two things that follow. **XLA is already doing the fusion a hand-written
+kernel would be written for**: the NumPy path materialises 208 temporary
+arrays, which at 64³ is 436 MB of traffic per call, and the 7× gap is
+almost entirely that. **What XLA is not fusing is the stencils**: the
+per-point cost is flat at 232 ns up to 32³ and then degrades to 384 ns,
+which is the 75 derivative arrays spilling out of cache. That is precisely
+where a tiled kernel holding a block's neighbourhood in shared memory wins,
+and it is a factor of order two, not ten.
+
+So the decision is to defer, and the reason is a number rather than a
+preference: the first target for a hand-written kernel is stencil fusion,
+worth about 1.7× on CPU at 64³, and it should be revisited when
+[#47](https://github.com/nosam1998/ParticleSim/issues/47) has an evolution
+to profile and a GPU run shows whether the same materialisation happens
+there. The measurements above are recorded so that comparison is possible
+rather than starting over.
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |

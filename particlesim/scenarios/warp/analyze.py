@@ -17,6 +17,7 @@ For GR the two paths must agree; the benchmark test checks that they do.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
@@ -28,10 +29,12 @@ import sympy as sp
 from particlesim.analysis import energy_conditions as ec
 from particlesim.core.config import WarpAnalyzeConfig
 from particlesim.core.grid import UniformGrid
+from particlesim.core.io import save_fields
 from particlesim.core.provenance import build_manifest, write_manifest
 from particlesim.scenarios.warp.metrics import COORDS, SPATIAL, WarpMetric, make_metric
 from particlesim.symbolic.adm import FlatSliceADM
-from particlesim.symbolic.curvature import MetricGeometry, lambdify_exprs
+from particlesim.symbolic.cache import compile_cached, key_for
+from particlesim.symbolic.curvature import MetricGeometry
 from particlesim.theories import TheoryStack, get_theory
 
 
@@ -55,6 +58,14 @@ class WarpAnalysisResult:
             (out / "report.json").write_text(json.dumps(self.report, indent=2, default=str))
         if "png" in formats:
             _save_png(self, out / "energy_density.png")
+        if "h5" in formats:
+            save_fields(
+                out / "fields.h5",
+                self.fields,
+                self.grid,
+                attrs={"family": self.metric.name, "report": self.report},
+                xdmf=True,
+            )
         manifest = build_manifest(
             self.config.model_dump(), self.config.seed, {"timings": self.timings}
         )
@@ -97,15 +108,39 @@ def build_grid(config: WarpAnalyzeConfig) -> UniformGrid:
 
 
 def full_stress_energy(
-    metric: WarpMetric, stack: TheoryStack, coords: tuple[np.ndarray, ...]
-) -> tuple[np.ndarray, np.ndarray]:
-    """Numeric ``T_ab`` and ``g_ab`` of shape ``(4, 4, N)`` at ``t = 0`` on flattened coords."""
+    metric: WarpMetric,
+    stack: TheoryStack,
+    coords: tuple[np.ndarray, ...],
+    invariants: Sequence[str] = (),
+) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray], bool]:
+    """Numeric ``T_ab``, ``g_ab`` (4, 4, N) and requested invariants at ``t = 0``.
+
+    Returns ``(T, g, invariants, cache_hit)`` on flattened coordinates.
+    """
     g_sym = metric.metric()
-    geom = MetricGeometry(g_sym, COORDS)
-    T_sym = stack.gravity.effective_stress_energy(geom.einstein, g_sym)
     idx = [(a, b) for a in range(4) for b in range(a, 4)]
-    exprs = [T_sym[a, b] for a, b in idx] + [g_sym[a, b] for a, b in idx]
-    f = lambdify_exprs(exprs, COORDS, metric.params)
+    invariants = list(invariants)
+
+    def build() -> list[sp.Expr]:
+        geom = MetricGeometry(g_sym, COORDS)
+        T_sym = stack.gravity.effective_stress_energy(geom.einstein, g_sym)
+        exprs = [T_sym[a, b] for a, b in idx] + [g_sym[a, b] for a, b in idx]
+        for name in invariants:
+            if name == "kretschmann":
+                exprs.append(geom.kretschmann)
+            else:
+                raise ValueError(f"unknown invariant {name!r}")
+        return exprs
+
+    key = key_for(
+        "warp.full_stress_energy",
+        sp.srepr(g_sym),
+        stack.gravity.id,
+        sorted(stack.gravity.values.items()),
+        sorted((str(k), v) for k, v in metric.params.items()),
+        invariants,
+    )
+    f, hit = compile_cached(key, COORDS, build, metric.params)
     flat = [c.ravel() for c in coords]
     out = f(np.zeros_like(flat[0]), *flat)
     N = flat[0].size
@@ -114,7 +149,8 @@ def full_stress_energy(
     for k, (a, b) in enumerate(idx):
         T[a, b] = T[b, a] = out[k]
         g[a, b] = g[b, a] = out[len(idx) + k]
-    return T, g
+    inv = {name: out[2 * len(idx) + i] for i, name in enumerate(invariants)}
+    return T, g, inv, hit
 
 
 def analyze(config: WarpAnalyzeConfig) -> WarpAnalysisResult:
@@ -138,8 +174,11 @@ def analyze(config: WarpAnalyzeConfig) -> WarpAnalysisResult:
     ec_summary: dict[str, Any] | None = None
     if config.analysis.full_stress_energy or not use_fast:
         t0 = perf_counter()
-        T, g = full_stress_energy(metric, stack, coords)
+        T, g, inv, hit = full_stress_energy(metric, stack, coords, config.analysis.invariants)
         timings["full_path_symbolic_and_eval_s"] = perf_counter() - t0
+        timings["full_path_cache_hit"] = float(hit)
+        for name, arr in inv.items():
+            result.fields[name] = arr.reshape(grid.full_shape)
         t0 = perf_counter()
         report = ec.evaluate(
             T,
@@ -176,6 +215,11 @@ def analyze(config: WarpAnalyzeConfig) -> WarpAnalysisResult:
         summary["expansion"] = {"max_abs": float(np.abs(result.fields["expansion"]).max())}
     if ec_summary is not None:
         summary["energy_conditions"] = ec_summary
+    if config.analysis.invariants:
+        summary["invariants"] = {
+            name: {"max_abs": float(np.abs(result.fields[name]).max())}
+            for name in config.analysis.invariants
+        }
     if use_fast and "energy_density_full" in result.fields:
         summary["fast_vs_full_max_abs_diff"] = float(
             np.abs(result.fields["energy_density"] - result.fields["energy_density_full"]).max()

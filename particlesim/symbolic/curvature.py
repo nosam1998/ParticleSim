@@ -179,30 +179,26 @@ class Eulerian:
         return out
 
 
-def lambdify_exprs(
+def generate_source(
     exprs: Sequence[sp.Expr],
     coords: Sequence[sp.Symbol],
     params: dict[sp.Symbol, float] | None = None,
-) -> Callable[..., np.ndarray]:
-    """Compile a list of expressions into one NumPy function with CSE.
+) -> str:
+    """Generate NumPy source for a function of the coordinates returning ``exprs``.
 
-    The returned callable takes coordinate arrays and returns an array of shape
-    ``(len(exprs), *grid_shape)``. Parameter symbols are substituted first.
+    Parameter symbols are substituted first, then common subexpressions are
+    eliminated. The source is plain text so it can be cached on disk.
     """
     subs = params or {}
     exprs = [sp.sympify(e).subs(subs) for e in exprs]
     replacements, reduced = sp.cse(exprs, optimizations="basic")
-    syms = list(coords)
-    lines = []
-    for lhs, rhs in replacements:
-        lines.append(f"    {lhs} = {sp.pycode(rhs)}")
+    lines = [f"    {lhs} = {sp.pycode(rhs)}" for lhs, rhs in replacements]
     body = "\n".join(lines)
     outs = ", ".join(sp.pycode(e) for e in reduced)
-    args = ", ".join(str(s) for s in syms)
+    args = ", ".join(str(s) for s in coords)
     src = (
         "def _f(" + args + "):\n"
         "    import numpy as np\n"
-        "    from numpy import sqrt, tanh, cosh, sinh, exp, log, sin, cos, tan, pi, arctan2\n"
         + (body + "\n" if body else "")
         + "    return np.broadcast_arrays("
         + outs
@@ -210,7 +206,11 @@ def lambdify_exprs(
         + ")\n"
     )
     # sympy's pycode uses math.* names; map them onto numpy for array evaluation.
-    src = src.replace("math.", "np.")
+    return src.replace("math.", "np.")
+
+
+def compile_source(src: str, coords: Sequence[sp.Symbol]) -> Callable[..., np.ndarray]:
+    """Compile source from ``generate_source`` into a broadcasting NumPy callable."""
     ns: dict = {}
     exec(src, ns)  # noqa: S102 - generated from our own SymPy expressions
     f = ns["_f"]
@@ -221,3 +221,16 @@ def lambdify_exprs(
         return np.stack([np.broadcast_to(o, arrs[0].shape) for o in out])
 
     return wrapped
+
+
+def lambdify_exprs(
+    exprs: Sequence[sp.Expr],
+    coords: Sequence[sp.Symbol],
+    params: dict[sp.Symbol, float] | None = None,
+) -> Callable[..., np.ndarray]:
+    """Compile a list of expressions into one NumPy function with CSE.
+
+    The returned callable takes coordinate arrays and returns an array of shape
+    ``(len(exprs), *grid_shape)``.
+    """
+    return compile_source(generate_source(exprs, coords, params), coords)

@@ -149,7 +149,7 @@ def test_conservation_check():
 
 
 def test_diagnose_on_a_live_slice():
-    sim = ScalarCollapse(SphericalGrid(r_max=20.0, n=200), dissipation=0.02)
+    sim = ScalarCollapse(SphericalGrid(r_max=20.0, n=200))
     st = gaussian_pulse(sim.grid, amplitude=1e-4, r0=8.0, width=1.5, ingoing=True)
     a, alpha = sim.solve_metric(st.Phi, st.Pi)
     d = diagnose(st.t, sim.r, a, alpha, st.Phi, st.Pi)
@@ -177,7 +177,7 @@ def test_collapse_run_reports_the_collapse_signature():
     report a metric with negative enclosed mass along the way."""
     from particlesim.solvers.nr.spherical import PolarSlicingBreakdown
 
-    sim = ScalarCollapse(SphericalGrid(r_max=20.0, n=400), dissipation=0.02)
+    sim = ScalarCollapse(SphericalGrid(r_max=20.0, n=400))
     st = gaussian_pulse(sim.grid, amplitude=0.005, r0=8.0, width=1.0, ingoing=True)
     a0, al0 = sim.solve_metric(st.Phi, st.Pi)
     m0 = diagnose(0.0, sim.r, a0, al0, st.Phi, st.Pi).adm_mass

@@ -73,7 +73,7 @@ def test_lapse_is_normalised_to_schwarzschild_at_the_outer_boundary():
 
 
 def test_evolution_conserves_the_adm_mass():
-    sim = sim_at(200, courant=0.25, dissipation=0.02)
+    sim = sim_at(200, courant=0.25)
     st = gaussian_pulse(sim.grid, amplitude=1e-4, r0=8.0, width=1.5, ingoing=True)
     a0, _ = sim.solve_metric(st.Phi, st.Pi)
     m0 = sim.adm_mass(a0)
@@ -85,7 +85,7 @@ def test_evolution_conserves_the_adm_mass():
 
 
 def test_ingoing_pulse_reaches_the_origin_and_disperses():
-    sim = sim_at(200, dissipation=0.02)
+    sim = sim_at(200)
     st = gaussian_pulse(sim.grid, amplitude=1e-4, r0=8.0, width=1.0, ingoing=True)
     central = []
     for i in range(int(12.0 / sim.dt)):
@@ -137,7 +137,7 @@ def test_strong_data_collapses_and_weak_data_does_not():
     relative to the grid."""
     from particlesim.solvers.nr.spherical import PolarSlicingBreakdown
 
-    strong = sim_at(400, dissipation=0.02)
+    strong = sim_at(400)
     st = gaussian_pulse(strong.grid, amplitude=0.005, r0=8.0, width=1.0, ingoing=True)
     min_alpha, max_compactness, broke_down = 1.0, 0.0, False
     try:
@@ -155,7 +155,7 @@ def test_strong_data_collapses_and_weak_data_does_not():
     assert max_compactness > 0.9
     assert max_compactness < 1.0  # never crossed, by construction
 
-    weak = sim_at(300, dissipation=0.02)
+    weak = sim_at(300)
     st = gaussian_pulse(weak.grid, amplitude=1e-4, r0=8.0, width=1.0, ingoing=True)
     worst_alpha = 1.0
     for i in range(int(10.0 / weak.dt)):
@@ -174,7 +174,7 @@ def test_constraint_solve_refuses_data_it_cannot_resolve():
     missed it because the bad value sits below one from underneath."""
     from particlesim.solvers.nr.spherical import PolarSlicingBreakdown
 
-    coarse = sim_at(300, dissipation=0.02)
+    coarse = sim_at(300)
     st = gaussian_pulse(coarse.grid, amplitude=0.01, r0=8.0, width=1.0, ingoing=True)
     with pytest.raises(PolarSlicingBreakdown, match="2m/r"):
         coarse.solve_metric(st.Phi, st.Pi)
@@ -184,7 +184,7 @@ def test_constraint_solve_refuses_data_it_cannot_resolve():
 def test_refining_the_grid_resolves_data_a_coarse_grid_refuses():
     """The same data the coarse grid refuses is fine once resolved, which is
     what distinguishes a resolution limit from a horizon."""
-    fine = sim_at(1600, dissipation=0.02)
+    fine = sim_at(1600)
     st = gaussian_pulse(fine.grid, amplitude=0.01, r0=8.0, width=1.0, ingoing=True)
     a, _ = fine.solve_metric(st.Phi, st.Pi)
     assert (a >= 1.0 - 1e-12).all()

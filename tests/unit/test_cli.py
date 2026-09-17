@@ -48,3 +48,9 @@ def test_rerun_from_manifest_reproduces_report(tmp_path: Path, capsys):
     ra = json.loads((tmp_path / "a" / "report.json").read_text())
     rb = json.loads((tmp_path / "b" / "report.json").read_text())
     assert ra["eulerian"] == rb["eulerian"]
+
+
+def test_check_limits_command(capsys):
+    assert main(["check-limits", "--no-action"]) == 0
+    out = capsys.readouterr().out
+    assert "gr" in out and "ok" in out

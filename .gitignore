@@ -10,3 +10,4 @@ runs/
 *.npz
 *.h5
 .ipynb_checkpoints/
+.claude/

@@ -39,6 +39,8 @@ particlesim = "particlesim.cli:main"
 [project.entry-points."particlesim.theories"]
 gr = "particlesim.theories.gr:GeneralRelativity"
 "gr.lambda" = "particlesim.theories.gr_lambda:GRWithLambda"
+"lqg.lqc" = "particlesim.theories.lqg.lqc:EffectiveLQC"
+"asafety.rg_improved" = "particlesim.theories.asafety.rg_improved:RGImprovedSchwarzschild"
 
 [tool.hatch.build.targets.wheel]
 packages = ["particlesim"]

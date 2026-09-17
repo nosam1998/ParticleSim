@@ -29,12 +29,12 @@ import sympy as sp
 from particlesim.analysis import energy_conditions as ec
 from particlesim.core.config import WarpAnalyzeConfig
 from particlesim.core.grid import UniformGrid
-from particlesim.core.io import save_fields
+from particlesim.core.io import export_reduced_csv, save_fields
 from particlesim.core.provenance import build_manifest, write_manifest
 from particlesim.scenarios.warp.metrics import COORDS, SPATIAL, WarpMetric, make_metric
 from particlesim.symbolic.adm import FlatSliceADM
 from particlesim.symbolic.cache import compile_cached, key_for
-from particlesim.symbolic.curvature import MetricGeometry
+from particlesim.symbolic.curvature import Eulerian, MetricGeometry, lambdify_exprs
 from particlesim.theories import TheoryStack, get_theory
 
 
@@ -47,6 +47,7 @@ class WarpAnalysisResult:
     fields: dict[str, np.ndarray] = field(default_factory=dict)
     report: dict[str, Any] = field(default_factory=dict)
     timings: dict[str, float] = field(default_factory=dict)
+    report_horizon: dict[str, Any] | None = None
 
     def save(self, out_dir: str | Path) -> Path:
         out = Path(out_dir)
@@ -58,6 +59,8 @@ class WarpAnalysisResult:
             (out / "report.json").write_text(json.dumps(self.report, indent=2, default=str))
         if "png" in formats:
             _save_png(self, out / "energy_density.png")
+        if "csv" in formats:
+            export_reduced_csv(self.report, out / "report.csv")
         if "h5" in formats:
             save_fields(
                 out / "fields.h5",
@@ -112,13 +115,19 @@ def full_stress_energy(
     stack: TheoryStack,
     coords: tuple[np.ndarray, ...],
     invariants: Sequence[str] = (),
+    tidal: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray], bool]:
-    """Numeric ``T_ab``, ``g_ab`` (4, 4, N) and requested invariants at ``t = 0``.
+    """Numeric ``T_ab``, ``g_ab`` (4, 4, N) and requested extras at ``t = 0``.
 
-    Returns ``(T, g, invariants, cache_hit)`` on flattened coordinates.
+    Returns ``(T, g, extras, cache_hit)`` on flattened coordinates. ``extras``
+    holds the requested invariants and, with ``tidal``, the six spatial
+    components of the Eulerian tidal tensor ``E_ij = R_icjd n^c n^d`` under
+    the key ``tidal`` as an array of shape ``(6, N)`` in the order
+    xx, xy, xz, yy, yz, zz.
     """
     g_sym = metric.metric()
     idx = [(a, b) for a in range(4) for b in range(a, 4)]
+    sidx = [(i, j) for i in range(1, 4) for j in range(i, 4)]
     invariants = list(invariants)
 
     def build() -> list[sp.Expr]:
@@ -130,6 +139,11 @@ def full_stress_energy(
                 exprs.append(geom.kretschmann)
             else:
                 raise ValueError(f"unknown invariant {name!r}")
+        if tidal:
+            n = Eulerian(g_sym, COORDS).normal
+            Rl = geom.riemann_lower
+            for i, j in sidx:
+                exprs.append(sum(Rl[i][c][j][d] * n[c] * n[d] for c in range(4) for d in range(4)))
         return exprs
 
     key = key_for(
@@ -139,6 +153,7 @@ def full_stress_energy(
         sorted(stack.gravity.values.items()),
         sorted((str(k), v) for k, v in metric.params.items()),
         invariants,
+        tidal,
     )
     f, hit = compile_cached(key, COORDS, build, metric.params)
     flat = [c.ravel() for c in coords]
@@ -149,8 +164,50 @@ def full_stress_energy(
     for k, (a, b) in enumerate(idx):
         T[a, b] = T[b, a] = out[k]
         g[a, b] = g[b, a] = out[len(idx) + k]
-    inv = {name: out[2 * len(idx) + i] for i, name in enumerate(invariants)}
-    return T, g, inv, hit
+    extras = {name: out[2 * len(idx) + i] for i, name in enumerate(invariants)}
+    if tidal:
+        start = 2 * len(idx) + len(invariants)
+        extras["tidal"] = out[start : start + len(sidx)]
+    return T, g, extras, hit
+
+
+def tidal_eigen_max(tidal6: np.ndarray, g: np.ndarray) -> np.ndarray:
+    """Largest |eigenvalue| of the mixed Eulerian tidal tensor ``γ^{ik} E_kj`` per point."""
+    N = tidal6.shape[1]
+    E = np.zeros((N, 3, 3))
+    k = 0
+    for i in range(3):
+        for j in range(i, 3):
+            E[:, i, j] = E[:, j, i] = tidal6[k]
+            k += 1
+    gam_inv = np.linalg.inv(np.moveaxis(g[1:, 1:], -1, 0))
+    eig = np.linalg.eigvals(gam_inv @ E).real
+    return np.abs(eig).max(axis=1)
+
+
+def horizon_summary(h_expr: sp.Expr, metric: WarpMetric, grid: UniformGrid) -> dict[str, Any]:
+    """Locate the ship-frame horizon along the axis of motion, if any.
+
+    Samples the indicator on a fine line along +x and −x from the centre out
+    to the grid edge and reports the first sign change on each side.
+    """
+    f = lambdify_exprs([h_expr], SPATIAL, metric.params)
+    lo, hi = grid.extent[0]
+    n = 20001
+    out: dict[str, Any] = {}
+    for side, xs in (("front", np.linspace(0.0, hi, n)), ("back", np.linspace(0.0, lo, n))):
+        xs = xs[1:]  # avoid the exact centre, singular for shape functions of r_s
+        h = f(xs, np.zeros_like(xs), np.zeros_like(xs))[0]
+        sign_change = np.nonzero(np.sign(h[1:]) != np.sign(h[:-1]))[0]
+        if sign_change.size:
+            k = sign_change[0]
+            # Linear interpolation of the crossing.
+            x_h = xs[k] - h[k] * (xs[k + 1] - xs[k]) / (h[k + 1] - h[k])
+            out[f"{side}_radius"] = float(abs(x_h))
+        else:
+            out[f"{side}_radius"] = None
+    out["present"] = any(v is not None for v in out.values())
+    return out
 
 
 def analyze(config: WarpAnalyzeConfig) -> WarpAnalysisResult:
@@ -174,11 +231,16 @@ def analyze(config: WarpAnalyzeConfig) -> WarpAnalysisResult:
     ec_summary: dict[str, Any] | None = None
     if config.analysis.full_stress_energy or not use_fast:
         t0 = perf_counter()
-        T, g, inv, hit = full_stress_energy(metric, stack, coords, config.analysis.invariants)
+        T, g, extras, hit = full_stress_energy(
+            metric, stack, coords, config.analysis.invariants, config.analysis.tidal
+        )
         timings["full_path_symbolic_and_eval_s"] = perf_counter() - t0
         timings["full_path_cache_hit"] = float(hit)
-        for name, arr in inv.items():
-            result.fields[name] = arr.reshape(grid.full_shape)
+        for name, arr in extras.items():
+            if name == "tidal":
+                result.fields["tidal_eigen_max"] = tidal_eigen_max(arr, g).reshape(grid.full_shape)
+            else:
+                result.fields[name] = arr.reshape(grid.full_shape)
         t0 = perf_counter()
         report = ec.evaluate(
             T,
@@ -195,6 +257,12 @@ def analyze(config: WarpAnalyzeConfig) -> WarpAnalysisResult:
         for name, r in report.results.items():
             result.fields[f"{name}_min"] = r.pointwise_min.reshape(grid.full_shape)
         ec_summary = report.summary()
+
+    if config.analysis.horizon:
+        h_expr = metric.horizon_indicator().subs(sp.Symbol("t", real=True), 0)
+        h = lambdify_exprs([h_expr], SPATIAL, metric.params)(*coords)[0]
+        result.fields["horizon_indicator"] = h
+        result.report_horizon = horizon_summary(h_expr, metric, grid)
 
     rho = result.fields["energy_density"]
     summary = {
@@ -220,6 +288,10 @@ def analyze(config: WarpAnalyzeConfig) -> WarpAnalysisResult:
             name: {"max_abs": float(np.abs(result.fields[name]).max())}
             for name in config.analysis.invariants
         }
+    if "tidal_eigen_max" in result.fields:
+        summary["tidal"] = {"max_eigenvalue_abs": float(result.fields["tidal_eigen_max"].max())}
+    if getattr(result, "report_horizon", None) is not None:
+        summary["horizon"] = result.report_horizon
     if use_fast and "energy_density_full" in result.fields:
         summary["fast_vs_full_max_abs_diff"] = float(
             np.abs(result.fields["energy_density"] - result.fields["energy_density_full"]).max()

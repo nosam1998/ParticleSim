@@ -82,6 +82,28 @@ class WarpMetric:
         """Distance from the bubble centre, which moves along x at speed v_s."""
         return sp.sqrt((x - self.symbols["v_s"] * t) ** 2 + y**2 + z**2)
 
+    def comoving_offset(self) -> list[sp.Expr]:
+        """Velocity of the bubble centre in these coordinates.
+
+        Adding it to the shift gives the shift in coordinates comoving with
+        the ship, which is what the ship-frame horizon indicator needs.
+        Families whose coordinates already ride with the ship return zero.
+        """
+        return [self.symbols["v_s"], sp.S.Zero, sp.S.Zero]
+
+    def horizon_indicator(self) -> sp.Expr:
+        """``α² − γ_ij (β^i + o^i)(β^j + o^j)`` with ``o`` the comoving offset.
+
+        Negative where a ship-frame observer at rest would be spacelike: for
+        a superluminal Alcubierre bubble that is everything beyond the
+        surface ``f(r_s) = 1 − 1/v`` (Hiscock 1997), so the sign change
+        marks the horizon of the ship.
+        """
+        a = self.lapse()
+        b = sp.Matrix(self.shift()) + sp.Matrix(self.comoving_offset())
+        gam = self.spatial_metric()
+        return a**2 - (b.T * gam * b)[0, 0]
+
     def closed_form_energy_density(self) -> Callable[..., np.ndarray] | None:
         """Published Eulerian energy density, if one exists, as a NumPy callable."""
         return None
@@ -133,6 +155,13 @@ class Natario(WarpMetric):
     flat_slices = True
     unit_lapse = True
     published_property = "trace K = 0 everywhere (zero expansion), WEC still violated"
+
+    def comoving_offset(self) -> list[sp.Expr]:
+        # Natário's coordinates are already comoving with the ship (X = 0 inside).
+        return [sp.S.Zero, sp.S.Zero, sp.S.Zero]
+
+    def r_s(self) -> sp.Expr:
+        return sp.sqrt(x**2 + y**2 + z**2)
 
     @classmethod
     def defaults(cls) -> dict[str, float]:

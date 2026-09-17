@@ -82,3 +82,44 @@ def test_eulerian_velocity_constructor():
     assert geo.norm(x0, k) == pytest.approx(0.0, abs=1e-12)
     with pytest.raises(ValueError, match="< 1"):
         geo.from_eulerian_velocity(x0, [1.0, 0.0, 0.0])
+
+
+def test_static_observer_tidal_eigenvalues_in_schwarzschild():
+    """E^a_b for a static observer has eigenvalues (-2M/r³, M/r³, M/r³, 0)."""
+    geo = schwarzschild_integrator()
+    r0 = 8.0
+    x0 = np.array([0.0, r0, np.pi / 2, 0.3])
+    u = geo.from_eulerian_velocity(x0, [0.0, 0.0, 0.0])
+    eig = geo.tidal_eigenvalues(x0, u)
+    expected = np.sort([-2 / r0**3, 1 / r0**3, 1 / r0**3, 0.0])
+    np.testing.assert_allclose(eig, expected, atol=1e-10)
+
+
+def test_tidal_along_circular_orbit_is_constant_and_traceless():
+    geo = schwarzschild_integrator()
+    r0 = 10.0
+    omega = np.sqrt(1.0 / r0**3)
+    ut = 1 / np.sqrt(1 - 3 / r0)
+    res = geo.integrate(
+        [0.0, r0, np.pi / 2, 0.0], [ut, 0.0, 0.0, omega * ut], 5.0, n_out=6, tidal=True
+    )
+    assert res.tidal_eigenvalues is not None and res.tidal_eigenvalues.shape == (6, 4)
+    # Ricci-flat: E^a_a = 0, and the orbit is circular so the spectrum is constant.
+    np.testing.assert_allclose(res.tidal_eigenvalues.sum(axis=1), 0.0, atol=1e-9)
+    np.testing.assert_allclose(
+        res.tidal_eigenvalues, np.broadcast_to(res.tidal_eigenvalues[0], (6, 4)), atol=1e-8
+    )
+
+
+def test_integrator_tolerance_convergence():
+    """An eccentric orbit integrated at looser tolerance drifts from a tight reference."""
+    geo = schwarzschild_integrator()
+    x0 = np.array([0.0, 10.0, np.pi / 2, 0.0])
+    # Sub-circular angular velocity gives an eccentric bound orbit.
+    u0 = geo.normalize(x0, [0.0, 0.0, 0.8 * np.sqrt(1.0 / 10.0**3)])
+    ref = geo.integrate(x0, u0, 200.0, n_out=3, rtol=1e-12, atol=1e-14)
+    errs = []
+    for rtol in (1e-5, 1e-8):
+        res = geo.integrate(x0, u0, 200.0, n_out=3, rtol=rtol, atol=rtol * 1e-2)
+        errs.append(np.abs(res.x[-1] - ref.x[-1]).max())
+    assert errs[0] > 0 and errs[1] < errs[0] / 10

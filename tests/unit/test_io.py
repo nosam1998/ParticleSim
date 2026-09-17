@@ -52,3 +52,16 @@ def test_time_series_append_and_read(tmp_path):
     ts = read_time_series(path)
     assert ts["step"].tolist() == [0, 1, 2, 3, 4, 5]
     assert ts["mass"][-1] == 0.9
+
+
+def test_export_reduced_csv_flattens_nested_report(tmp_path):
+    import csv
+
+    from particlesim.core.io import export_reduced_csv, flatten_report
+
+    report = {"a": 1, "b": {"c": 2.5, "d": {"e": "x"}}, "f": [1, 2]}
+    flat = flatten_report(report)
+    assert flat == {"a": 1, "b.c": 2.5, "b.d.e": "x", "f": "[1, 2]"}
+    path = export_reduced_csv(report, tmp_path / "r.csv")
+    rows = list(csv.reader(path.open()))
+    assert rows[0] == ["key", "value"] and ["b.d.e", "x"] in rows

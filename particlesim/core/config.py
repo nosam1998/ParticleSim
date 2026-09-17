@@ -39,11 +39,13 @@ class AnalysisConfig(BaseModel):
     null_directions: int = 26
     full_stress_energy: bool = True
     invariants: list[Literal["kretschmann"]] = Field(default_factory=list)
+    tidal: bool = False
+    horizon: bool = True
 
 
 class OutputConfig(BaseModel):
     dir: str = "runs/warp"
-    formats: list[Literal["npz", "json", "png", "h5"]] = Field(default=["npz", "json"])
+    formats: list[Literal["npz", "json", "png", "h5", "csv"]] = Field(default=["npz", "json"])
 
 
 class WarpAnalyzeConfig(BaseModel):

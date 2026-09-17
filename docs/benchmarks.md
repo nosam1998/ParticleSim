@@ -324,6 +324,130 @@ solver would be the wrong one for it. That is why
 `particlesim.cosmo.inflation.efolds` checks the sign of the gradient over
 the interval rather than assuming a monotonic roll.
 
+## Alternative early-universe backgrounds
+
+| Benchmark | Reference | Tolerance | Measured | Test |
+|---|---|---|---|---|
+| Ekpyrotic exponent `a ~ (-t)^(2/c²)` | closed form, three steepnesses | 1e-7 | 5e-10 | `test_ekpyrotic_scaling_solution_is_reproduced` |
+| Ekpyrotic `ε = c²/2` | closed form | 1e-9 | 6e-13 | same |
+| Ekpyrotic trajectory `(a, φ, φ̇, H)` | closed form | 1e-6 | converged | `test_ekpyrotic_trajectory_matches_the_closed_form` |
+| Dilaton exponents `a ~ \|t\|^(-1/√d)`, `e^φ ~ \|t\|^q` | closed form, `d = 2, 3, 4, 9`, both branches | 1e-9 | 9e-12 | `test_dilaton_vacuum_exponents_are_reproduced` |
+| Dilaton constraint conservation | `C = 0` | 1e-12 | 9e-12 worst, 1e-16 at `d = 3` | same |
+| Scale-factor duality | exact symmetry | 1e-12 | 1.7e-15 | `test_scale_factor_duality_is_exact` |
+| Dual integrated independently | the mapped trajectory | 1e-7 | 1.8e-12 | `test_the_dual_is_itself_a_solution_of_the_evolution` |
+| String gas T-duality | exact symmetry | 1e-15 | exact | `test_t_duality_leaves_the_string_gas_energy_invariant` |
+| Radion minimum | `R = √(E_n/E_w)` | 1e-3 by scan | agrees | `test_the_radion_sits_at_the_self_dual_radius` |
+| Radiation after winding annihilation, `a ~ t^(1/2)` | Friedmann integrator | 1e-8 | 5e-10 | `test_radiation_scaling_after_winding_annihilation` |
+| Pressureless gas, `a ~ t^(2/3)` | same | 1e-8 | 1.6e-10 | `test_a_pressureless_gas_expands_as_two_thirds` |
+| LQC bounce without a null-energy violation | `H_dot = -(ρ+p)/2` | sign | `ρ + p > 0` at the turning point | `test_a_loop_quantum_bounce_does_not_violate_the_null_energy_condition` |
+
+### The ekpyrotic existence condition is the anisotropy condition
+
+For `V = -V₀ e^(-cφ)` the field equation fixes the amplitude the scaling
+solution needs, `A = (2 - 6p)/c²`, and the Friedmann constraint then forces
+`p = 2/c²`. But `A` has to be *positive* for the potential to be negative at
+all, so `p < 1/3`, so `ε > 3`. Separately, a homogeneous anisotropy grows as
+`a^-6` in a contraction while the dominant component grows as `a^(-2ε)`, so
+the component outgrows the shear exactly when `ε > 3`.
+
+**Those are the same inequality.** The scaling solution exists precisely when
+the contraction smooths rather than shatters, which is why the module refuses
+`c² ≤ 6` rather than returning a marginal answer. At `ε = 50` a contraction
+by a factor of a thousand suppresses the shear fraction by 1e-282; at `ε = 2`
+it amplifies it by 1e6, which is the Belinski-Khalatnikov-Lifshitz chaos a
+shallow contraction ends in.
+
+### Why the stopping condition is the curvature and not the scale factor
+
+A run started off the attractor crunches early, and the integrator has to be
+stopped before it. The obvious floor — stop when `a` falls below 1e-8 — does
+not work here at all: with `a ~ (t_s - t)^p` and `p = 0.02`, reaching
+`a = 1e-8` needs `t_s - t ~ 1e-400`. **The scale factor barely moves while the
+curvature diverges.** So the terminal event is `|H| = 1` in reduced Planck
+units, where the classical description has run out, and the run reports
+`reached_ceiling` rather than raising a step-size error. That is also the
+honest statement about the scenario: an ekpyrotic contraction does not bounce
+on its own, it runs into the regime where this description fails.
+
+What a perturbation off the attractor does is worth recording: `ε` comes back
+to `c²/2` and what is left behind is a *shifted singular time*. The
+perturbation is absorbed by moving the crunch, not by changing the power law,
+because a shift of `t_s` is the scaling family's zero mode. The same zero mode
+is where the integrator's own residual error shows up — 8e-8 in `t_s` against
+5e-10 in the exponent.
+
+### Slow contraction, measured
+
+Over six decades of cosmic time the ekpyrotic curvature grows by six decades
+and the scale factor falls by a third (a factor 1.318 at `c = 10`). A dust
+contraction covering the same range of curvature would have collapsed by ten
+thousand. That ratio is the model: many Hubble times, almost no contraction.
+
+### Scale-factor duality is a machine-precision test of the whole system
+
+The pre-big-bang module integrates the *unreduced* equations in `(a, φ)` and
+monitors the constraint `C = φ̇² - 2dHφ̇ + d(d-1)H²`, which the evolution
+conserves rather than imposes. Integrating the reduced pair in the shifted
+dilaton `φ̄ = φ - d ln a` instead would satisfy its constraint identically and
+monitoring it would prove nothing.
+
+The map `a → 1/a`, `φ → φ - 2d ln a` sends `H → -H` and leaves `φ̄` alone, and
+substituting it into all three equations leaves each unchanged term by term.
+So the dual of a solution is a solution *exactly*, and that is checked two
+ways: the mapped trajectory satisfies the constraint to 1.7e-15 — the dual's
+`H` and `φ̇` are different numbers, so this is a statement about the map and
+not an identity of arrays — and integrating the other branch forward from the
+dual's own initial data lands on the mapped trajectory to 1.8e-12.
+
+Both the curvature and the coupling diverge on the super-inflating branch:
+four decades of curvature growth over the run come with eleven decades of
+coupling growth. Nothing in the tree-level action stops that, and the graceful
+exit needs the `α'` corrections this module does not have.
+
+### The Hagedorn phase and the stabilised radion are one condition
+
+A string gas has momentum energy falling as `1/R` and winding energy rising as
+`R`, so `w = (1/d)(E_mom - E_wind)/(E_mom + E_wind)`: radiation for pure
+momentum, its negative for pure winding, and *zero* when they balance. The
+energy `E = E_n/R + E_w R` has its minimum at `R = √(E_n/E_w)`.
+
+`E_n/R = E_w R` rearranges to `R = √(E_n/E_w)`, so the pressureless gas and
+the stationary radion are the same statement rather than two — a gas built to
+be pressureless comes out with zero radion force, at any radius. T-duality,
+`R → 1/R` with the two scales exchanged, leaves the energy exactly invariant.
+
+The scaling solution checked here is the one after the winding modes have
+annihilated: pure momentum, `w = 1/3`, `a ~ t^(1/2)`, with the equation of
+state the only thing the string-gas module supplies and the background coming
+from the Friedmann integrator. The quasi-static Hagedorn phase itself is **not**
+reproduced, and the module says so: `w = 0` in Einstein gravity gives
+`a ~ t^(2/3)`, not a static universe. A static Hagedorn phase needs
+dilaton gravity or an externally fixed radion, and the thermal fluctuation
+spectrum string gas cosmology is actually interesting for needs the specific
+heat of a string gas on a torus. Neither is here.
+
+The Brandenberger-Vafa dimension count is: two string worldsheets are
+two-dimensional, so in `D` spacetime dimensions they generically intersect
+only if `2 + 2 ≥ D`, giving at most three large spatial dimensions. It is
+reported as the counting argument it is, not as a theorem about the dynamics.
+
+### What paid for a bounce
+
+In general relativity on a flat slice `H_dot = -(ρ+p)/2`, so a bounce needs
+`H = 0` with `H_dot > 0` and therefore `ρ + p < 0`: the null energy condition
+must be violated. There is no way around that in general relativity, which
+makes the sign of `ρ + p` at a turning point a direct read-out of *what* did
+the bouncing.
+
+Running the loop-quantum-cosmology plugin's bounce through it returns
+`null_energy_violated = False` at both dust and radiation: `ρ + p > 0`
+throughout, and the universe bounced anyway, because the Friedmann equation
+being integrated is not the general-relativistic one. That is the entire
+content of the Tier B `reduced_equations` hook, appearing as a number rather
+than as a claim. The verdict is a *sign*, so unlike the peak density it is not
+sample-limited — for ordinary matter both terms are positive at every sample
+and no amount of resolution changes that.
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |

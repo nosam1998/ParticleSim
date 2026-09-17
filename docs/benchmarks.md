@@ -101,6 +101,45 @@ It is not a cartoon of the benchmark, it is the benchmark: the same
 deposition, the same push, and the same dispersion relation solved for the
 same exact root, at a size that fits in a browser tab.
 
+## Background cosmology
+
+| Benchmark | Reference | Tolerance | Achieved | Test |
+|---|---|---|---|---|
+| Flat ΛCDM distances | astropy `FlatLambdaCDM` | 1e-8 | 2e-14 | `test_flat_lcdm_distances_match_astropy` |
+| Curved and extreme ΛCDM | astropy `LambdaCDM`, four budgets | 1e-8 | 4e-14 | `test_curved_and_extreme_lcdm_distances_match_astropy` |
+| Dark energy, w₀ and wₐ | astropy `Flatw0waCDM`, four models | 1e-8 | 2e-13 | `test_dark_energy_distances_match_astropy` |
+| Ages and lookback times | astropy `FlatLambdaCDM` | 1e-8 | 2e-15 | `test_flat_lcdm_ages_match_astropy` |
+| 10 000-cosmology sweep | runs in seconds | 10 s | 0.22 s | `test_a_ten_thousand_point_sweep_runs_in_seconds` |
+| LQC bounce density | `ρ_c = 0.41 ρ_Planck` | 1% | 6e-11 | `test_the_bounce_density_is_the_critical_density` |
+| Bounce reached dynamically | same, at three equations of state | 1e-8 | exact at the turning point | `test_a_contracting_universe_bounces_at_the_critical_density` |
+
+Every integral is fixed-order Gauss-Legendre, not adaptive quadrature. For
+these integrands — smooth, analytic, positive — that is both more accurate
+and vectorizable, so one code path serves an eight-figure comparison and a
+ten-thousand-point sweep. An adaptive routine would need a Python-level call
+per evaluation, and that is what would make the sweep slow.
+
+Two substitutions carry the accuracy. Distances integrate over `ln(1+z)`
+rather than `z`, because in redshift the integrand spans decades and a fixed
+rule spreads its nodes evenly across all of it — worth four significant
+figures at `z = 1000`. Ages integrate over `s` with `a = s²`, because over
+`a` the integrand goes as `a^(1/2)` near zero, whose second derivative is
+infinite there, and Gauss-Legendre converges slowly on that — worth five
+significant figures.
+
+Where the ages disagree with astropy at 1.4e-8 for a curved model, the gap
+is astropy's: raising the quadrature order here from 48 to 240 moves the
+answer by 1e-15, and 1.49e-8 is astropy's own default `quad` tolerance. A
+test asserts both halves of that, including that the gap is not smaller than
+1e-12, so the day astropy gets more accurate the test says so.
+
+The bounce density is found by root-finding on the plugin's own `H²(ρ)`
+rather than by watching an evolution, so it does not depend on a step size.
+The evolution is a separate check that the bounce is actually reached, and it
+reads the density at the turning point the integrator located rather than at
+the nearest output sample — the sampled maximum understates a sharp peak by
+tens of per cent, which would be a resolution artefact reported as physics.
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |
@@ -395,7 +434,6 @@ the design document.
 - Free-electron laser gain length, to 5% (issue #35)
 
 ### Milestone 3, cosmology
-- ΛCDM distances against astropy, to 1e-8 relative (issue #39)
 - Starobinsky inflation `n_s = 1 − 2/N`, to three digits (issue #41)
 - One published string-inspired potential's `(n_s, r)` pair (issue #42)
 

@@ -11,8 +11,9 @@ ENTRY_POINT_GROUP = "particlesim.theories"
 
 def _builtin() -> dict[str, type[Theory]]:
     from particlesim.theories.gr import GeneralRelativity
+    from particlesim.theories.gr_lambda import GRWithLambda
 
-    return {GeneralRelativity.id: GeneralRelativity}
+    return {GeneralRelativity.id: GeneralRelativity, GRWithLambda.id: GRWithLambda}
 
 
 def list_theories() -> dict[str, type[Theory]]:

@@ -2034,6 +2034,8 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "ipywidgets" },
+    { name = "jax", version = "0.10.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "jax", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "matplotlib" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -2058,7 +2060,8 @@ requires-dist = [
     { name = "h5py", specifier = ">=3.10" },
     { name = "ipywidgets", marker = "extra == 'dev'", specifier = ">=8.1" },
     { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=8.1" },
-    { name = "jax", marker = "extra == 'jax'", specifier = ">=0.4.30" },
+    { name = "jax", extras = ["cpu"], marker = "extra == 'dev'", specifier = ">=0.4.30" },
+    { name = "jax", extras = ["cpu"], marker = "extra == 'jax'", specifier = ">=0.4.30" },
     { name = "jupyterlab", marker = "extra == 'notebook'", specifier = ">=4.2" },
     { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.8" },
     { name = "matplotlib", marker = "extra == 'notebook'", specifier = ">=3.8" },

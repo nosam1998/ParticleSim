@@ -70,6 +70,37 @@ each must declare itself completely, have a GR limit that can actually be
 instantiated and checked, and run through the harness. A template that stops
 working fails the build rather than misleading whoever copies it next.
 
+## Views and the browser demo
+
+| Benchmark | Reference | Result | Test |
+|---|---|---|---|
+| Emittance of an uncorrelated beam | `σ_x σ_p` | 2% on 200 000 particles | `test_emittance_of_an_uncorrelated_beam_is_the_product_of_its_spreads` |
+| Emittance of a perfectly chirped beam | zero | 7e-16, against 4e-8 for the naive determinant | `test_a_perfectly_chirped_beam_has_zero_emittance` |
+| Monoenergetic spectrum | one bin | exact | `test_a_monoenergetic_beam_lands_in_one_bin` |
+
+The chirped-beam row is the one with teeth. A beam whose momentum is a linear
+function of position occupies no phase-space area however large it looks in
+either projection, and `<x²><p²> − <xp>²` cancels there: the naive form
+returns 4e-8 where the answer is zero. Regressing momentum on position and
+taking the residual spread gives the same determinant without the
+subtraction.
+
+The browser demo at `demos/two-stream/` is a one-dimensional electrostatic
+particle-in-cell code running live in the page. Verified in headless Chromium
+at desktop and phone widths, in light and dark mode:
+
+| Measure | Result |
+|---|---|
+| Frame rate | 60 fps, the animation-frame cap |
+| Console errors | none |
+| Horizontal overflow at 390px | none |
+| Growth rate measured in the page | 0.3505 against a theory of 0.3536, 0.9% |
+| Energy drift | 0.3% |
+
+It is not a cartoon of the benchmark, it is the benchmark: the same
+deposition, the same push, and the same dispersion relation solved for the
+same exact root, at a size that fits in a browser tab.
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |

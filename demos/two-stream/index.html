@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Two-Stream Instability</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg:#ffffff; --fg:#1b1b1f; --muted:#5c5f6b; --line:#e3e4e8;
+  --card:#f7f7f9; --accent:#2d5bd7; --warn:#b3261e; --ok:#1a7f4b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#15161a; --fg:#e8e9ed; --muted:#a0a3ad; --line:#2c2e36;
+    --card:#1d1f25; --accent:#8ab0ff; --warn:#ff8a80; --ok:#6ee7a8;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#15161a; --fg:#e8e9ed; --muted:#a0a3ad; --line:#2c2e36;
+  --card:#1d1f25; --accent:#8ab0ff; --warn:#ff8a80; --ok:#6ee7a8;
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px 16px 56px;background:var(--bg);color:var(--fg);
+  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:980px;margin:0 auto}
+h1{font-size:1.45rem;margin:0 0 4px}
+p.sub{color:var(--muted);margin:0 0 18px;font-size:.92rem}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:12px;margin-bottom:14px}
+canvas{width:100%;display:block;border-radius:8px;background:var(--bg)}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+label{display:block;font-size:.83rem;color:var(--muted);margin-bottom:4px}
+input[type=range]{width:100%}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+button{font:inherit;padding:7px 14px;border-radius:8px;border:1px solid var(--line);
+  background:var(--bg);color:var(--fg);cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+table{border-collapse:collapse;width:100%;font-size:.9rem;margin-top:4px}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600}
+td.num{font-variant-numeric:tabular-nums}
+.good{color:var(--ok)} .bad{color:var(--warn)}
+details{margin-top:14px} summary{cursor:pointer;color:var(--accent)}
+details p{color:var(--muted);font-size:.92rem}
+code{font-size:.88em}
+</style>
+</head>
+<body><main>
+<h1>Two-Stream Instability</h1>
+<p class="sub">A one-dimensional electrostatic particle-in-cell code, running live. Two electron
+beams stream through each other; the plasma wave between them grows until the beams trap and
+roll into vortices.</p>
+
+<div class="panel">
+  <canvas id="phase" height="380"></canvas>
+</div>
+
+<div class="panel">
+  <canvas id="history" height="190"></canvas>
+</div>
+
+<div class="panel">
+  <div class="controls">
+    <div>
+      <label for="drift">Beam speed v₀ = <span id="driftValue">0.20</span></label>
+      <input type="range" id="drift" min="0.04" max="0.45" step="0.01" value="0.2">
+    </div>
+    <div>
+      <label for="count">Macro-particles = <span id="countValue">8192</span></label>
+      <input type="range" id="count" min="1024" max="32768" step="1024" value="8192">
+    </div>
+    <div>
+      <label for="cells">Grid cells = <span id="cellsValue">64</span></label>
+      <input type="range" id="cells" min="32" max="256" step="32" value="64">
+    </div>
+    <div>
+      <label for="speed">Steps per frame = <span id="speedValue">4</span></label>
+      <input type="range" id="speed" min="1" max="12" step="1" value="4">
+    </div>
+  </div>
+  <div class="row">
+    <button class="primary" id="toggle">Pause</button>
+    <button id="restart">Restart</button>
+    <button id="theme">Toggle theme</button>
+  </div>
+</div>
+
+<div class="panel">
+  <table>
+    <tbody>
+      <tr><th>Time</th><td class="num" id="time">0.00</td>
+          <th>Frames per second</th><td class="num" id="fps">—</td></tr>
+      <tr><th>Growth rate, measured</th><td class="num" id="measured">—</td>
+          <th>Linear theory</th><td class="num" id="theory">—</td></tr>
+      <tr><th>Total energy drift</th><td class="num" id="drift-energy">—</td>
+          <th>Phase</th><td id="phase-label">seeding</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<details>
+<summary>What this is solving</summary>
+<p>Charge is deposited from the particles onto the grid with a cloud-in-cell shape, the
+longitudinal field follows by integrating <code>dE/dx = ρ</code> along the box and removing
+the mean, and the particles are advanced by leapfrog. Units are normalized so that the
+plasma frequency of the whole population is one.</p>
+<p>Two counter-streaming beams are unstable for <code>k v₀ &lt; √2 ω_p</code>. The growth
+rate plotted alongside the measurement is the unstable root of
+<code>1 = (ω_p²/2)[1/(ω − k v₀)² + 1/(ω + k v₀)²]</code> at the box's fundamental mode,
+solved exactly rather than fitted. The measurement is a running fit to the mode amplitude
+and only becomes meaningful after the seeded perturbation settles onto the growing branch,
+which is why it is blank at first and drifts once the beams trap and growth stops.</p>
+<p>The same dispersion relation, the same deposition and the same push are what the Python
+package runs; this is the browser-sized version of the benchmark in
+<code>tests/unit/test_plasma_scenarios.py</code>.</p>
+</details>
+</main>
+
+<script>
+"use strict";
+
+const phaseCanvas = document.getElementById("phase");
+const historyCanvas = document.getElementById("history");
+const pctx = phaseCanvas.getContext("2d");
+const hctx = historyCanvas.getContext("2d");
+
+const ui = {
+  drift: document.getElementById("drift"),
+  count: document.getElementById("count"),
+  cells: document.getElementById("cells"),
+  speed: document.getElementById("speed"),
+  toggle: document.getElementById("toggle"),
+  restart: document.getElementById("restart"),
+  theme: document.getElementById("theme"),
+};
+const out = {
+  time: document.getElementById("time"),
+  fps: document.getElementById("fps"),
+  measured: document.getElementById("measured"),
+  theory: document.getElementById("theory"),
+  energy: document.getElementById("drift-energy"),
+  phase: document.getElementById("phase-label"),
+};
+
+function css(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/* ---- the simulation ---------------------------------------------------- */
+
+const state = {
+  running: true,
+  x: null, v: null,
+  ng: 64, np: 8192,
+  L: 1, dx: 1, dt: 0.05,
+  density: 1, drift: 0.2, k: 1,
+  rho: null, E: null,
+  t: 0, history: [], energy0: 0, theory: 0,
+};
+
+/** Unstable root of the cold two-stream dispersion relation, or zero. */
+function growthRate(k, drift, wp) {
+  const a = (k * drift) ** 2, wp2 = wp * wp;
+  const b = -(2 * a + wp2), c = a * a - a * wp2;
+  const disc = b * b - 4 * c;
+  if (disc < 0) return 0;
+  const root = 0.5 * (-b - Math.sqrt(disc));
+  return root < 0 ? Math.sqrt(-root) : 0;
+}
+
+function reset() {
+  const ng = state.ng = parseInt(ui.cells.value, 10);
+  const np = state.np = parseInt(ui.count.value, 10);
+  const drift = state.drift = parseFloat(ui.drift.value);
+
+  // Box length set so the fundamental mode is the fastest growing one.
+  const wp = 1.0;
+  const kBest = Math.sqrt(3 / 8) * wp / drift;
+  const L = state.L = 2 * Math.PI / kBest;
+  state.k = 2 * Math.PI / L;
+  state.dx = L / ng;
+  state.dt = 0.08;
+  state.density = wp * wp;
+  state.theory = growthRate(state.k, drift, wp);
+
+  const x = state.x = new Float64Array(np);
+  const v = state.v = new Float64Array(np);
+  const half = np >> 1;
+  const amplitude = 1e-4 * L;
+  for (let i = 0; i < np; i++) {
+    const base = ((i % half) + 0.5) / half * L;
+    x[i] = base + amplitude * Math.sin(state.k * base);
+    v[i] = i < half ? drift : -drift;
+  }
+  for (let i = 0; i < np; i++) {
+    x[i] = ((x[i] % L) + L) % L;
+  }
+  state.rho = new Float64Array(ng);
+  state.E = new Float64Array(ng);
+  state.t = 0;
+  state.history = [];
+  deposit();
+  solveField();
+  state.energy0 = totalEnergy();
+  out.phase.textContent = "seeding";
+}
+
+function deposit() {
+  const { x, rho, ng, dx, np, density, L } = state;
+  rho.fill(0);
+  const weight = density * L / np;
+  for (let i = 0; i < np; i++) {
+    const s = x[i] / dx;
+    const j = Math.floor(s);
+    const f = s - j;
+    const a = ((j % ng) + ng) % ng;
+    const b = (a + 1) % ng;
+    rho[a] -= weight * (1 - f);
+    rho[b] -= weight * f;
+  }
+  // Immobile neutralizing ions: exactly the mean electron density.
+  let mean = 0;
+  for (let i = 0; i < ng; i++) mean += rho[i];
+  mean /= ng;
+  for (let i = 0; i < ng; i++) rho[i] = (rho[i] - mean) / dx;
+}
+
+function solveField() {
+  // dE/dx = rho with periodic boundaries: integrate, then remove the mean so
+  // the field has no uniform part, which a periodic box cannot support.
+  const { rho, E, ng, dx } = state;
+  let running = 0, mean = 0;
+  for (let i = 0; i < ng; i++) {
+    running += rho[i] * dx;
+    E[i] = running;
+    mean += running;
+  }
+  mean /= ng;
+  for (let i = 0; i < ng; i++) E[i] -= mean;
+}
+
+function gather(position) {
+  const { E, ng, dx } = state;
+  const s = position / dx - 0.5;
+  const j = Math.floor(s);
+  const f = s - j;
+  const a = ((j % ng) + ng) % ng;
+  const b = (a + 1) % ng;
+  return E[a] * (1 - f) + E[b] * f;
+}
+
+function step() {
+  const { x, v, np, dt, L } = state;
+  deposit();
+  solveField();
+  for (let i = 0; i < np; i++) {
+    v[i] -= dt * gather(x[i]);       // charge -1, mass 1
+    let next = x[i] + dt * v[i];
+    next = ((next % L) + L) % L;
+    x[i] = next;
+  }
+  state.t += dt;
+}
+
+function totalEnergy() {
+  const { v, np, E, ng, dx, density, L } = state;
+  let kinetic = 0;
+  const weight = density * L / np;
+  for (let i = 0; i < np; i++) kinetic += 0.5 * weight * v[i] * v[i];
+  let field = 0;
+  for (let i = 0; i < ng; i++) field += 0.5 * E[i] * E[i] * dx;
+  return kinetic + field;
+}
+
+/** Amplitude of the fundamental spatial mode of the field. */
+function modeAmplitude() {
+  const { E, ng } = state;
+  let re = 0, im = 0;
+  for (let i = 0; i < ng; i++) {
+    const a = 2 * Math.PI * i / ng;
+    re += E[i] * Math.cos(a);
+    im -= E[i] * Math.sin(a);
+  }
+  return Math.hypot(re, im) / ng;
+}
+
+/** Slope of ln(amplitude) over the clean exponential band. */
+function measuredRate() {
+  const h = state.history;
+  if (h.length < 20) return null;
+  let peak = 0;
+  for (const s of h) peak = Math.max(peak, s.a);
+  if (peak <= 0) return null;
+  const lo = 1e-2 * peak, hi = 0.3 * peak;
+  const band = [];
+  for (const s of h) {
+    if (s.a >= hi) break;         // stop at saturation, do not come back
+    if (s.a >= lo) band.push(s);
+  }
+  if (band.length < 8) return null;
+  let n = 0, st = 0, sy = 0, stt = 0, sty = 0;
+  for (const s of band) {
+    const y = Math.log(s.a);
+    n++; st += s.t; sy += y; stt += s.t * s.t; sty += s.t * y;
+  }
+  const denominator = n * stt - st * st;
+  if (Math.abs(denominator) < 1e-12) return null;
+  return (n * sty - st * sy) / denominator;
+}
+
+/* ---- drawing ------------------------------------------------------------ */
+
+function fit(canvas) {
+  const ratio = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth;
+  if (canvas.width !== Math.round(width * ratio)) {
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(canvas.clientHeight * ratio);
+  }
+  return ratio;
+}
+
+function drawPhase() {
+  const ratio = fit(phaseCanvas);
+  const w = phaseCanvas.width, h = phaseCanvas.height;
+  pctx.setTransform(1, 0, 0, 1, 0, 0);
+  pctx.clearRect(0, 0, w, h);
+  const pad = 34 * ratio;
+  const span = Math.max(3 * state.drift, 0.35);
+
+  pctx.strokeStyle = css("--line");
+  pctx.lineWidth = ratio;
+  pctx.strokeRect(pad, pad * 0.5, w - pad * 1.4, h - pad * 1.4);
+
+  const { x, v, np, L } = state;
+  const sx = (w - pad * 1.4 - pad) / L;
+  const sy = (h - pad * 1.4 - pad * 0.5) / (2 * span);
+  const stride = Math.max(1, Math.floor(np / 12000));
+  const dot = Math.max(1, ratio);
+  pctx.fillStyle = css("--accent");
+  pctx.globalAlpha = 0.55;
+  for (let i = 0; i < np; i += stride) {
+    const px = pad + x[i] * sx;
+    const py = pad * 0.5 + (span - v[i]) * sy;
+    pctx.fillRect(px, py, dot, dot);
+  }
+  pctx.globalAlpha = 1;
+
+  pctx.fillStyle = css("--muted");
+  pctx.font = `${12 * ratio}px -apple-system, system-ui, sans-serif`;
+  pctx.fillText("velocity", 4 * ratio, pad * 0.5 + 10 * ratio);
+  pctx.fillText("position", w - pad * 4, h - pad * 0.5);
+  pctx.fillText(`+${span.toFixed(2)}`, 4 * ratio, pad * 0.5 + 24 * ratio);
+  pctx.fillText(`-${span.toFixed(2)}`, 4 * ratio, h - pad * 1.5);
+}
+
+function drawHistory() {
+  const ratio = fit(historyCanvas);
+  const w = historyCanvas.width, h = historyCanvas.height;
+  hctx.setTransform(1, 0, 0, 1, 0, 0);
+  hctx.clearRect(0, 0, w, h);
+  const history = state.history;
+  if (history.length < 2) return;
+
+  const pad = 34 * ratio;
+  let lo = Infinity, hi = -Infinity, tmax = 0;
+  for (const s of history) {
+    if (s.a > 0) { const y = Math.log10(s.a); lo = Math.min(lo, y); hi = Math.max(hi, y); }
+    tmax = Math.max(tmax, s.t);
+  }
+  if (!isFinite(lo) || hi <= lo) return;
+  lo -= 0.2; hi += 0.2;
+
+  const sx = (w - pad * 1.4 - pad) / Math.max(tmax, 1e-9);
+  const sy = (h - pad * 1.2) / (hi - lo);
+  hctx.strokeStyle = css("--line");
+  hctx.lineWidth = ratio;
+  hctx.strokeRect(pad, pad * 0.4, w - pad * 1.4, h - pad * 1.2);
+
+  // Theory slope, anchored where the measurement band starts.
+  if (state.theory > 0) {
+    const anchor = history[Math.floor(history.length * 0.15)];
+    if (anchor && anchor.a > 0) {
+      hctx.strokeStyle = css("--warn");
+      hctx.setLineDash([5 * ratio, 4 * ratio]);
+      hctx.beginPath();
+      for (let i = 0; i < history.length; i++) {
+        const t = history[i].t;
+        const y = Math.log10(anchor.a) + state.theory * (t - anchor.t) / Math.LN10;
+        const px = pad + t * sx;
+        const py = pad * 0.4 + (hi - y) * sy;
+        if (i === 0) hctx.moveTo(px, py); else hctx.lineTo(px, py);
+      }
+      hctx.stroke();
+      hctx.setLineDash([]);
+    }
+  }
+
+  hctx.strokeStyle = css("--accent");
+  hctx.lineWidth = 1.6 * ratio;
+  hctx.beginPath();
+  let started = false;
+  for (const s of history) {
+    if (s.a <= 0) continue;
+    const px = pad + s.t * sx;
+    const py = pad * 0.4 + (hi - Math.log10(s.a)) * sy;
+    if (!started) { hctx.moveTo(px, py); started = true; } else hctx.lineTo(px, py);
+  }
+  hctx.stroke();
+
+  hctx.fillStyle = css("--muted");
+  hctx.font = `${12 * ratio}px -apple-system, system-ui, sans-serif`;
+  hctx.fillText("log₁₀ |mode amplitude| vs time", pad + 6 * ratio, pad * 0.4 + 14 * ratio);
+}
+
+/* ---- loop --------------------------------------------------------------- */
+
+let lastFrame = performance.now();
+let smoothedFps = 0;
+
+function frame(now) {
+  const elapsed = now - lastFrame;
+  lastFrame = now;
+  if (elapsed > 0) {
+    const instant = 1000 / elapsed;
+    smoothedFps = smoothedFps ? smoothedFps * 0.9 + instant * 0.1 : instant;
+  }
+
+  if (state.running) {
+    const perFrame = parseInt(ui.speed.value, 10);
+    for (let i = 0; i < perFrame; i++) {
+      step();
+      state.history.push({ t: state.t, a: modeAmplitude() });
+      if (state.history.length > 4000) state.history.shift();
+    }
+  }
+
+  drawPhase();
+  drawHistory();
+
+  out.time.textContent = state.t.toFixed(2);
+  out.fps.textContent = smoothedFps ? smoothedFps.toFixed(0) : "—";
+  out.theory.textContent = state.theory > 0 ? state.theory.toFixed(4) : "stable";
+  const rate = measuredRate();
+  if (rate === null) {
+    out.measured.textContent = "—";
+    out.phase.textContent = state.running ? "seeding" : "paused";
+  } else {
+    out.measured.textContent = rate.toFixed(4);
+    const off = state.theory > 0 ? Math.abs(rate / state.theory - 1) : 1;
+    out.measured.className = "num " + (off < 0.1 ? "good" : "bad");
+    out.phase.textContent = off < 0.1 ? "growing exponentially" : "saturated or seeding";
+  }
+  const energy = totalEnergy();
+  out.energy.textContent = state.energy0
+    ? ((energy / state.energy0 - 1) * 100).toFixed(2) + "%" : "—";
+
+  requestAnimationFrame(frame);
+}
+
+/* ---- wiring ------------------------------------------------------------- */
+
+function label(input, target, digits) {
+  const span = document.getElementById(target);
+  const show = () => {
+    span.textContent = digits ? parseFloat(input.value).toFixed(digits) : input.value;
+  };
+  input.addEventListener("input", show);
+  show();
+}
+label(ui.drift, "driftValue", 2);
+label(ui.count, "countValue", 0);
+label(ui.cells, "cellsValue", 0);
+label(ui.speed, "speedValue", 0);
+
+for (const control of [ui.drift, ui.count, ui.cells]) {
+  control.addEventListener("change", reset);
+}
+ui.toggle.addEventListener("click", () => {
+  state.running = !state.running;
+  ui.toggle.textContent = state.running ? "Pause" : "Run";
+});
+ui.restart.addEventListener("click", reset);
+ui.theme.addEventListener("click", () => {
+  const root = document.documentElement;
+  const dark = getComputedStyle(root).getPropertyValue("--bg").trim() !== "#ffffff";
+  root.setAttribute("data-theme", dark ? "light" : "dark");
+});
+
+reset();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

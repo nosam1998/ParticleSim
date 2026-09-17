@@ -139,6 +139,27 @@ class ScalarCollapse:
         m[0] = S[0] * r[0] / 3.0
 
         def dm(rr: float, mm: float, ss: float) -> float:
+            """Right-hand side, valid only while ``2m/r < 1``.
+
+            The bound is enforced on every stage argument, not only on the
+            accepted value, because the failure mode is subtler than an
+            overshoot that stays overshot. A single stage can step past
+            ``2m/r = 1``, where the ``(1 - 2m/r)`` factor changes sign and
+            the slope becomes large and negative, and the Runge-Kutta
+            combination then lands on a *negative* mass. That result has
+            ``2m/r < 0``, comfortably below one, so a check on the accepted
+            value alone passes it through and the caller receives a metric
+            with ``a < 1`` and negative mass: unphysical, finite, and
+            plottable.
+            """
+            if 2.0 * mm >= rr:
+                raise PolarSlicingBreakdown(
+                    f"the constraint integration stepped to 2m/r >= 1 at r = {rr:.4f}. "
+                    "Polar-areal coordinates do not cover a trapped region, so either "
+                    "the data is forming a horizon, or the radial grid is too coarse "
+                    "to resolve the approach to one. Refine the grid to tell the two "
+                    "apart"
+                )
             return ss * (1.0 - 2.0 * mm / rr)
 
         for i in range(len(r) - 1):
@@ -147,15 +168,14 @@ class ScalarCollapse:
             k3 = dm(r_mid[i], m[i] + 0.5 * dr * k2, S_mid[i])
             k4 = dm(r[i + 1], m[i] + dr * k3, S[i + 1])
             m[i + 1] = m[i] + dr / 6.0 * (k1 + 2 * k2 + 2 * k3 + k4)
+            if 2.0 * m[i + 1] >= r[i + 1]:
+                raise PolarSlicingBreakdown(
+                    f"2m/r reached one at r = {float(r[i + 1]):.4f}: a trapped "
+                    "region has formed and polar-areal coordinates do not cover it. "
+                    "This is the physical end of the run, not a solver failure"
+                )
 
         two_m_over_r = 2.0 * m / r
-        if np.any(two_m_over_r >= 1.0):
-            raise PolarSlicingBreakdown(
-                f"2m/r reached {two_m_over_r.max():.4f} at r = "
-                f"{float(r[int(np.argmax(two_m_over_r))]):.4f}: polar-areal "
-                "coordinates do not cover a trapped region, so the evolution "
-                "cannot continue past horizon formation in this slicing"
-            )
         a = 1.0 / np.sqrt(1.0 - two_m_over_r)
 
         # d(ln alpha)/dr = m / (r^2 (1 - 2m/r)) + 2 pi r (Pi^2 + Phi^2).

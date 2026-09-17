@@ -42,6 +42,18 @@ gr = "particlesim.theories.gr:GeneralRelativity"
 "lqg.lqc" = "particlesim.theories.lqg.lqc:EffectiveLQC"
 "asafety.rg_improved" = "particlesim.theories.asafety.rg_improved:RGImprovedSchwarzschild"
 
+[project.entry-points."particlesim.inflaton_potentials"]
+"inflation.quadratic" = "particlesim.cosmo.potentials:Quadratic"
+"inflation.power_law" = "particlesim.cosmo.potentials:PowerLaw"
+"inflation.exponential" = "particlesim.cosmo.potentials:Exponential"
+"inflation.starobinsky" = "particlesim.cosmo.potentials:Starobinsky"
+"inflation.natural" = "particlesim.cosmo.potentials:Natural"
+"string.cosmo.plateau" = "particlesim.cosmo.string_potentials:PlateauInflation"
+"string.cosmo.kahler" = "particlesim.cosmo.string_potentials:KahlerModuli"
+"string.cosmo.fibre" = "particlesim.cosmo.string_potentials:FibreInflation"
+"string.cosmo.monodromy" = "particlesim.cosmo.string_potentials:AxionMonodromy"
+"string.cosmo.dbrane" = "particlesim.cosmo.string_potentials:DBraneInflation"
+
 [project.entry-points."particlesim.em_sectors"]
 "gr.maxwell" = "particlesim.theories.em:Maxwell"
 "string.eft4d.born_infeld" = "particlesim.theories.em:BornInfeld"

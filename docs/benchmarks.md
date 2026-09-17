@@ -234,6 +234,96 @@ correction and the test checks that it *scales* like `O(ε) ∝ 1/R²` — 1.7e-
 at R = 15 and 4.0e-3 at R = 30, a factor of 4.2 for a factor of 2 in radius
 — rather than only that it is small.
 
+## String-inspired inflation
+
+| Published statement | Source | Reproduced |
+|---|---|---|
+| Linear axion monodromy, `r ≈ 0.07` | McAllister, Silverstein, Westphal, PRD 82:046003 | 0.0664 at N = 60, through the mode solver |
+| Fibre inflation, `ε ≃ (3/2)η²` | Cicoli, Burgess, Quevedo, JCAP 0903:013 | 1.5003, to 2e-4 |
+| Fibre inflation, `r ≃ 6(n_s−1)²` | same | to 13%, which is what the relation itself costs |
+| Fibre inflation, `r ≃ 0.005` to `0.01` | same | 0.0069 at N = 50 to 0.0055 at N = 57 |
+| Kähler moduli inflation, `n_s = 1 − 2/N_e = 0.960`–`0.967` at `N_e = 50`–`60` | Conlon, Quevedo, JHEP 0601:146 | 0.9618 at N = 55, 0.9650 at N = 60 |
+| D-brane (KKLMMT) Coulomb tilt `n_s = 1 − 5/(3N)` | Kachru et al., JCAP 0310:013 | to 3e-4 at three brane scales, and to 7e-5 through the mode solver |
+| Monomial family `n_s = 1 − (2p+4)/(4N+p)`, `r = 16p/(4N+p)` | standard slow roll | exact to 1e-10 at `p = 2/3, 1, 3/2` |
+
+Every one of these potentials carries a `provenance` naming the source and a
+`truncation` naming what has been dropped from it. What is *not* claimed:
+none of this derives a compactification. No Kähler potential is computed, no
+modulus is stabilised, and no check is made that a given parameter set is
+attainable in a consistent vacuum — the parameters are inputs, and a caller
+can set them to values no known construction realises. What is checked is
+that the potentials reproduce the observables their source papers quote,
+which is a statement about this pipeline and not about string theory.
+
+### One derivation covers three of the four models
+
+Fibre inflation, Kähler moduli inflation and Starobinsky are all plateaux:
+at large field
+
+    V = V₀ (1 − C exp(−(φ/f)^p))
+
+With `u = (φ/f)^p` and `C e^(−u) ≪ 1`, slow roll gives `√(2ε) = C e^(−u) u'`
+and `η = −C e^(−u) u'²`, while `N = (f²/p²C) e^u u^(2/p−2)`. Multiplying the
+last two, **`ηN = −1` whatever the parameters are** — which is the "robust,
+model-independent" tilt these models are quoted for. A sweep over
+twenty-seven combinations of `(C, f, p)` holds `|n_s − (1 − 2/N)|` below
+6e-3 at N = 55 and below 1.5e-3 at N = 200.
+
+What the parameters *do* change is the tensor ratio,
+
+    r = 16ε = 8η²/u'² = (8f²/p²) u^(2/p−2) / N²
+
+which for `p = 1` is exactly `8f²/N²`: Starobinsky's `12/N²` at `f² = 3/2`,
+fibre inflation's `24/N²` at `f² = 3`, and for a blow-up modulus, whose
+`p = 4/3` brings a `1/√u` suppression, something three orders smaller. **The
+tilt is where these models agree and the tensor ratio is where they can be
+told apart**, which is the reason the tensor ratio is worth measuring.
+
+Two exact statements fall out of the same algebra and are asserted to
+machine precision rather than to a tolerance:
+
+- `ε = (f²/2)η²` for `p = 1`, at any field value, because both parameters
+  carry the same `C e^(−u)/(1 − C e^(−u))`. At `f² = 3` that is fibre
+  inflation's published relation; at `f² = 3/2` it is Starobinsky's `3/4`.
+- `C` is pure gauge for `p = 1`: the shift `φ → φ + f ln C` absorbs it, so
+  the observables must be *identical* across `C`, not merely close. A
+  prediction that drifted with `C` would mean the e-fold integral had picked
+  up the shift somewhere it should have cancelled.
+
+### Where the models differ, and the two that are opposites
+
+Fibre inflation has its tensor ratio **pinned to the tilt**: `r = 24η²`
+exactly in the plateau limit, so measuring `n_s` predicts `r` with no free
+parameter left. The published `r ≃ 6(n_s−1)²` is that relation with `2η`
+replaced by `n_s − 1`, which drops the `−6ε` term and costs 13% at the
+observed tilt; the test asserts the ratio is *below* one and by about that
+much, rather than hiding the discrepancy in a loose tolerance.
+
+D-brane inflation is the opposite. `η = −20μ⁴/φ⁶` and `N = φ⁶/(24μ⁴)` give
+`η = −5/(6N)` with the brane scale `μ` cancelling, so the tilt is robust —
+0.9722 at sixty e-folds, reproduced to 3e-4 across `μ = 1` to `μ = 0.01`.
+But `ε = 8μ^(4/3)/(24N)^(5/3)` keeps the scale, and over those two decades
+of `μ` the tensor ratio moves by 8/3 decades. **`r` is a free parameter of
+that model, not a prediction of it**, and a test asserts the `μ^(4/3)`
+scaling so that the asymmetry is recorded rather than glossed.
+
+### The one feature that is not a monomial
+
+Axion monodromy's monomial part is exactly the `PowerLaw` family, so at
+`p = 1` the closed forms give `n_s = 0.9751` and `r = 0.0664` at sixty
+e-folds, and the mode solver agrees. What makes it monodromy rather than a
+monomial written down by hand is the instanton term: the underlying field is
+still periodic, so `V'' ` picks up a harmonic comparable to the monomial's
+own curvature, and the tilt *oscillates* with the pivot instead of drifting
+smoothly. A test measures the swing at three modulation amplitudes and
+checks it grows with them and vanishes with them — the monomial's tilt is
+monotonic in the pivot and the modulated one is not.
+
+A modulation large enough to turn `V'` round would trap the field, and this
+solver would be the wrong one for it. That is why
+`particlesim.cosmo.inflation.efolds` checks the sign of the gradient over
+the interval rather than assuming a monotonic roll.
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |
@@ -526,9 +616,6 @@ the design document.
 - Two-stream instability growth rate, to 2% (issue #34)
 - One-dimensional laser wakefield amplitude against nonlinear theory, to 5% (issue #34)
 - Free-electron laser gain length, to 5% (issue #35)
-
-### Milestone 3, cosmology
-- One published string-inspired potential's `(n_s, r)` pair (issue #42)
 
 ### Milestone 4, three-dimensional numerical relativity
 - Single Schwarzschild puncture stable to t = 1000 M (issue #51)

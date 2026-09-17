@@ -157,22 +157,50 @@ def slow_roll(potential: Potential, phi: float) -> SlowRoll:
     )
 
 
+def _bracket_towards(excess, lower: float, target: float, name: str) -> float:
+    """Root of ``excess`` between ``lower`` and a point where it diverges.
+
+    Used where ``epsilon_V`` blows up at a boundary -- the quadratic
+    minimum of a potential, or a zero of ``V`` inside the domain -- so the
+    root cannot be bracketed by evaluating at the boundary itself. The
+    bracket closes on it geometrically instead.
+    """
+    gap = target - lower
+    for shrink in (1e-3, 1e-6, 1e-9, 1e-12):
+        probe = target - shrink * gap
+        if excess(probe) > 0.0:
+            return float(brentq(excess, lower, probe, xtol=1e-14, rtol=1e-15))
+    raise InflationNeverEnds(
+        f"epsilon_V stays below one all the way to phi = {target:g} for {name}: "
+        "this potential has no end of inflation on the side the field rolls"
+    )
+
+
 def end_of_inflation(potential: Potential, start: float | None = None) -> float:
     """Field value where ``epsilon_V = 1``, downhill from ``start``.
 
-    The search follows the rolling direction rather than assuming one, so it
-    works for a quadratic rolling towards the origin and for natural
-    inflation rolling away from it. If the domain has a finite edge in that
-    direction the root is bracketed against it; if not, the bracket doubles
-    outward. Either way, failing to find a root raises
-    :class:`InflationNeverEnds` instead of returning the edge.
+    The search follows the rolling direction rather than assuming one, so
+    it works for a quadratic rolling towards the origin and for natural
+    inflation rolling away from it.
+
+    On a bounded domain it scans towards the edge, with the probes graded so
+    that they cluster against it, and stops at the first one where
+    ``epsilon_V`` exceeds one or where ``V`` has gone non-positive.
+    Both cases have to be handled and they are different: ``epsilon_V``
+    diverges at a quadratic minimum sitting exactly on the domain edge, and
+    it diverges at a zero of ``V`` *inside* the domain -- which is what a
+    truncated plateau potential has, and what a search that only refined
+    against the edge would walk straight past, reporting no end of
+    inflation for a potential that has one.
+
+    On an unbounded domain the bracket doubles outward, and failing to find
+    a root raises :class:`InflationNeverEnds` rather than returning the last
+    probe.
     """
     start = potential.typical_field if start is None else float(start)
+    name = type(potential).__name__
     if not bool(potential.contains(start)):
-        raise ValueError(
-            f"phi = {start:g} is outside the domain {potential.domain} of "
-            f"{type(potential).__name__}"
-        )
+        raise ValueError(f"phi = {start:g} is outside the domain {potential.domain} of {name}")
     if float(potential.epsilon(start)) >= 1.0:
         raise ValueError(
             f"epsilon_V = {float(potential.epsilon(start)):g} at the starting point "
@@ -186,36 +214,52 @@ def end_of_inflation(potential: Potential, start: float | None = None) -> float:
     def excess(phi: float) -> float:
         return float(potential.epsilon(phi)) - 1.0
 
+    def positive(phi: float) -> bool:
+        value = float(potential.value(phi))
+        return value > 0.0 and math.isfinite(value)
+
     if math.isfinite(edge):
-        # Approach the edge geometrically: epsilon usually diverges there,
-        # and stopping a hair short keeps V > 0.
-        gap = abs(edge - start)
-        for shrink in (1e-3, 1e-6, 1e-9, 1e-12):
-            probe = edge - direction * shrink * gap
+        fractions = sorted(
+            {*np.linspace(0.0, 1.0, 65)[1:-1], *(1.0 - 10.0 ** -np.arange(3.0, 13.0))}
+        )
+        previous = start
+        for fraction in fractions:
+            probe = start + fraction * (edge - start)
+            if not positive(probe):
+                zero = float(
+                    brentq(
+                        lambda phi: float(potential.value(phi)),
+                        previous,
+                        probe,
+                        xtol=1e-14,
+                        rtol=1e-15,
+                    )
+                )
+                return _bracket_towards(excess, previous, zero, name)
             if excess(probe) > 0.0:
-                return float(brentq(excess, start, probe, xtol=1e-14, rtol=1e-15))
+                return float(brentq(excess, previous, probe, xtol=1e-14, rtol=1e-15))
+            previous = probe
         raise InflationNeverEnds(
             f"epsilon_V stays below one all the way to phi = {edge:g}, the edge of "
-            f"{type(potential).__name__}'s domain: this potential has no end of inflation"
+            f"{name}'s domain: this potential has no end of inflation"
         )
 
     step = 0.1 * max(1.0, abs(start))
     probe = start
     for _ in range(200):
         probe += direction * step
-        value = float(potential.value(probe))
-        if not (value > 0.0 and math.isfinite(value)):
+        if not positive(probe):
             raise InflationNeverEnds(
-                f"V has run out to {value:g} at phi = {probe:g} without epsilon_V "
-                f"reaching one: {type(potential).__name__} has no end of inflation"
+                f"V has run out at phi = {probe:g} without epsilon_V reaching one: "
+                f"{name} has no end of inflation"
             )
         if excess(probe) > 0.0:
             return float(brentq(excess, probe - direction * step, probe, xtol=1e-14, rtol=1e-15))
         step *= 1.5
     raise InflationNeverEnds(
         f"epsilon_V stays below one out to phi = {probe:g} on an unbounded domain: "
-        f"{type(potential).__name__} has no end of inflation (an exponential potential "
-        "has constant epsilon_V by construction)"
+        f"{name} has no end of inflation (an exponential potential has constant "
+        "epsilon_V by construction)"
     )
 
 

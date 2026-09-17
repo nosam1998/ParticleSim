@@ -334,27 +334,32 @@ class YeeSolver:
 
     # --- evolution ------------------------------------------------------
 
+    def advance_magnetic(self, fields: Fields) -> Fields:
+        """Carry ``B`` from one half step to the next."""
+        cE = self.curl_E(self.medium.electric(fields.D, fields.B))
+        B = tuple(b - self.dt * c for b, c in zip(fields.B, cE, strict=True))
+        return fields.with_B(self.boundary.after_magnetic(B))
+
+    def advance_electric(self, fields: Fields, current=None) -> Fields:
+        """Carry ``D`` forward a full step against ``B`` at the half step.
+
+        ``current`` is ``J`` at that half step, laid out like ``D``.
+        """
+        dt = self.dt
+        cH = self.curl_H(self.medium.magnetic(fields.D, fields.B))
+        if current is None:
+            D = tuple(d + dt * c for d, c in zip(fields.D, cH, strict=True))
+        else:
+            D = tuple(d + dt * (c - j) for d, c, j in zip(fields.D, cH, current, strict=True))
+        return fields.with_D(self.boundary.after_electric(D), time=fields.time + dt)
+
     def step(self, fields: Fields, current=None) -> Fields:
         """Advance ``B`` by a half step, then ``D`` by a full one.
 
         ``current`` is ``J`` at the half step, in the same component layout
         as ``D``. Passing ``None`` is vacuum propagation.
         """
-        dt = self.dt
-        E = self.medium.electric(fields.D, fields.B)
-        cE = self.curl_E(E)
-        B = tuple(b - dt * c for b, c in zip(fields.B, cE, strict=True))
-        B = self.boundary.after_magnetic(B)
-        fields = fields.with_B(B)
-
-        H = self.medium.magnetic(fields.D, fields.B)
-        cH = self.curl_H(H)
-        if current is None:
-            D = tuple(d + dt * c for d, c in zip(fields.D, cH, strict=True))
-        else:
-            D = tuple(d + dt * (c - j) for d, c, j in zip(fields.D, cH, current, strict=True))
-        D = self.boundary.after_electric(D)
-        return fields.with_D(D, time=fields.time + dt)
+        return self.advance_electric(self.advance_magnetic(fields), current)
 
     def run(self, fields: Fields, steps: int, current=None) -> Fields:
         for _ in range(steps):

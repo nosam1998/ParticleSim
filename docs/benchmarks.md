@@ -100,6 +100,26 @@ are all required to be caught or reported rather than passed.
 | PML reflection | Falls with layer thickness | 5.4e-5 at 8 cells, 1.1e-5 at 12, 1.4e-6 at 20 | `test_the_layer_absorbs_and_absorbs_better_when_thicker` | A sponge layer reflects at its own edge and does not improve this way |
 | Constitutive hook | `E = D/ε` gives phase velocity `1/√ε` | exact discrete mode to 1e-12 | `test_a_dielectric_slows_the_wave_by_the_refractive_index` | Shows the hook is inside the update, not beside it |
 
+### Particles
+
+| Benchmark | Reference | Tolerance | Test |
+|---|---|---|---|
+| Gauss's law over 1e4 steps | `div D − ρ` is an exact invariant of the cycle | 1e-11 relative, achieved 2e-13 | `test_gauss_law_is_preserved_to_round_off_over_ten_thousand_steps` |
+| Esirkepov continuity | `(ρⁿ⁺¹ − ρⁿ)/Δt + div J = 0` identically | 1e-12 relative, 1D and 2D, orders 1 and 2 | `test_deposited_current_satisfies_discrete_continuity_identically` |
+| Magnetic field does no work | `γ` constant | 1e-12 over 20000 steps, both pushers | `test_a_static_magnetic_field_does_no_work` |
+| Boris rotation angle | `tan(θ/2) = qBΔt/2mγ`, the discrete gyrofrequency | 1e-14 after a full turn | `test_boris_rotates_by_exactly_the_angle_its_construction_implies` |
+| Crossed-field equilibrium | `E + v×B = 0` is exact, so the particle never accelerates | Vay to 1e-12 at Δt = 0.05, 0.2 and 1.0; Boris fails and worsens with Δt | `test_vay_holds_the_crossed_field_equilibrium_and_boris_does_not` |
+| Shape partition of unity and centroid | 1 and the particle position | 1e-15, 1e-14 | `test_shapes_are_a_partition_of_unity_with_the_right_centroid` |
+| Deposited charge total | the charge present | 1e-12 | `test_deposited_charge_totals_the_charge_present` |
+
+Gauss's law is never solved for and never corrected. The Yee lattice makes
+`div curl` identically zero and Esirkepov's deposition makes discrete
+continuity an identity, so `div D − ρ` cannot drift and what is left is the
+accumulation of floating-point round-off. Single-precision particle storage
+costs that: the same run holds the invariant to 1e-13 in double precision and
+about 3e-5 in single, which is why the accumulators stay double whatever the
+particles are stored in.
+
 The plane-wave tests use the scheme's own eigenmode rather than a sampled
 continuum wave. The Yee update reproduces that mode step for step at
 round-off, so the tolerance measures the implementation and not the

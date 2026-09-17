@@ -87,6 +87,25 @@ check that cannot fail proves nothing: a wrong declared limit, a
 curvature-coupled term invisible on a flat metric, and a limit at infinity
 are all required to be caught or reported rather than passed.
 
+## Electromagnetics
+
+| Benchmark | Reference | Tolerance | Test | Notes |
+|---|---|---|---|---|
+| Yee plane wave, 1D | The scheme's own dispersion relation, `sin(ωΔt/2)²/Δt² = Σ sin(k_iΔx_i/2)²/Δx_i²` | 1e-12, achieved 5e-15 | `test_exact_discrete_plane_wave_in_one_dimension` | Both polarizations; the lattice frequency is 0.3% off the continuum here, so a continuum-relation solver fails |
+| Yee plane wave, 2D | Same, with both wavevector components | 1e-11, achieved 2e-14 | `test_exact_discrete_plane_wave_in_two_dimensions` | Three wavevectors × two polarizations |
+| Dispersion error order | 2 in the spacing | 1.9–2.1 across 8 → 64 cells per wavelength | `test_lattice_frequency_approaches_the_continuum_as_the_grid_refines` | First order would mean the stagger was lost |
+| Gauss's law under vacuum propagation | `div D` constant, since `div curl = 0` discretely | 1e-12 | `test_gauss_law_is_preserved_exactly_in_vacuum` | Exact identity, not a cancellation |
+| Periodic energy conservation | constant | 1e-12 over 5000 steps | `test_periodic_propagation_conserves_energy_to_round_off` | |
+| Conducting cavity mode | Discrete standing mode at the box frequency | 1e-12 over 2000 steps; `E` on the wall exactly 0 | `test_conducting_walls_hold_an_exact_standing_mode` | |
+| PML reflection | Falls with layer thickness | 5.4e-5 at 8 cells, 1.1e-5 at 12, 1.4e-6 at 20 | `test_the_layer_absorbs_and_absorbs_better_when_thicker` | A sponge layer reflects at its own edge and does not improve this way |
+| Constitutive hook | `E = D/ε` gives phase velocity `1/√ε` | exact discrete mode to 1e-12 | `test_a_dielectric_slows_the_wave_by_the_refractive_index` | Shows the hook is inside the update, not beside it |
+
+The plane-wave tests use the scheme's own eigenmode rather than a sampled
+continuum wave. The Yee update reproduces that mode step for step at
+round-off, so the tolerance measures the implementation and not the
+discretization — which is why 1e-12 is reasonable where a sampled continuum
+wave would need 1e-3.
+
 ## Critical collapse: what is measured, and what a uniform grid cannot reach
 
 The threshold and the exponent are separate claims and only one of them is

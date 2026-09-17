@@ -32,6 +32,9 @@ class Boundary(Protocol):
 
     def after_electric(self, D): ...
 
+    def shift(self, cells: int) -> None:
+        """Relabel the boundary's own state when a moving window slides the grid."""
+
 
 def _roll_forward(f: np.ndarray, axis: int, delta: float) -> np.ndarray:
     return (np.roll(f, -1, axis=axis) - f) / delta
@@ -65,6 +68,9 @@ class Periodic:
     def attach(self, solver) -> None:
         self.solver = solver
 
+    def shift(self, cells: int) -> None:
+        """Nothing to carry: a periodic difference has no state."""
+
     def forward(self, f, axis, delta, key):
         return _roll_forward(f, axis, delta)
 
@@ -95,6 +101,9 @@ class Conducting:
     def attach(self, solver) -> None:
         self.solver = solver
         self.ndim = solver.grid.ndim
+
+    def shift(self, cells: int) -> None:
+        """Nothing to carry: the condition is imposed afresh every step."""
 
     def forward(self, f, axis, delta, key):
         return _open_forward(f, axis, delta)
@@ -228,6 +237,29 @@ class PerfectlyMatchedLayer:
 
     def after_electric(self, D):
         return D
+
+    def shift(self, cells: int) -> None:
+        """Carry the convolution history along with a moving window.
+
+        The auxiliary arrays are the memory of the field in each cell, so
+        relabelling the cells has to relabel them too. Leaving them behind
+        pairs each field with another cell's history and the layer stops
+        absorbing: measured, a pulse followed for two thousand cells gains
+        five orders of magnitude in energy instead of holding it.
+
+        Inside the layer the carried memory now sits under a slightly
+        different conductivity than it accumulated under, since the layer
+        stays at the edge of the window while the field moves through it.
+        That mismatch is bounded by the layer's own absorption and is the
+        standard treatment; the alternative, discarding the history, throws
+        away the absorption that has already happened.
+        """
+        if cells <= 0 or not self._psi:
+            return
+        for key, psi in self._psi.items():
+            moved = np.roll(psi, -cells, axis=0)
+            moved[-cells:] = 0.0
+            self._psi[key] = moved
 
     def reset(self) -> None:
         """Forget the convolution history, for reusing a layer across runs."""

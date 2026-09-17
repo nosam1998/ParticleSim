@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>ParticleSim Demos</title>
+<meta name="description" content="Static browser demos for the ParticleSim research simulation framework.">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f9f9f7; --surface: #fcfcfb; --text: #0b0b0b; --text-2: #52514e;
+  --border: rgba(11, 11, 11, 0.10); --link: #1c5cab;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0d0d0d; --surface: #1a1a19; --text: #ffffff; --text-2: #c3c2b7;
+    --border: rgba(255, 255, 255, 0.10); --link: #6da7ec;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d0d0d; --surface: #1a1a19; --text: #ffffff; --text-2: #c3c2b7;
+  --border: rgba(255, 255, 255, 0.10); --link: #6da7ec;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 720px; margin: 0 auto; padding: 32px 16px 48px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+p { color: var(--text-2); }
+a { color: var(--link); }
+ul { list-style: none; padding: 0; margin: 24px 0; }
+li { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px 16px; margin-bottom: 12px; }
+li a { font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ParticleSim demos</h1>
+  <p>Static browser demos from the
+    <a href="https://github.com/nosam1998/ParticleSim">ParticleSim</a> research simulation
+    framework, as described in Section 5.7 of the
+    <a href="https://github.com/nosam1998/ParticleSim/blob/main/docs/DESIGN.md">design document</a>.
+    No backend: everything on these pages runs in your browser.</p>
+  <ul>
+    <li>
+      <a href="warp-energy-explorer/">Warp energy-density explorer</a><br>
+      <span>Alcubierre warp bubble: sliders for velocity, radius and wall thickness over a live
+      heatmap of the analytic Eulerian energy density.</span>
+    </li>
+  </ul>
+</main>
+</body>
+</html>

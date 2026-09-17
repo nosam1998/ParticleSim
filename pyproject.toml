@@ -22,7 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 plot = ["matplotlib>=3.8"]
 notebook = ["ipywidgets>=8.1", "matplotlib>=3.8", "jupyterlab>=4.2"]
-jax = ["jax>=0.4.30"]
+jax = ["jax[cpu]>=0.4.30"]
 dev = [
   "pytest>=8.0",
   "pytest-timeout>=2.3",
@@ -30,6 +30,7 @@ dev = [
   "matplotlib>=3.8",
   "pre-commit>=3.7",
   "ipywidgets>=8.1",
+  "jax[cpu]>=0.4.30",
 ]
 
 [project.scripts]

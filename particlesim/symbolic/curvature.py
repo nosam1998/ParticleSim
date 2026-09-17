@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from functools import cached_property
+from typing import Any
 
 import numpy as np
 import sympy as sp
@@ -198,19 +199,24 @@ def generate_source(
     exprs: Sequence[sp.Expr],
     coords: Sequence[sp.Symbol],
     params: dict[sp.Symbol, float] | None = None,
+    free_params: Sequence[sp.Symbol] = (),
 ) -> str:
     """Generate NumPy source for a function of the coordinates returning ``exprs``.
 
     Parameter symbols are substituted first, then common subexpressions are
     eliminated. The source is plain text so it can be cached on disk.
     """
-    subs = params or {}
+    subs = dict(params or {})
+    # A parameter left free stays symbolic, which is what makes the emitted
+    # kernel differentiable with respect to it.
+    for sym in free_params:
+        subs.pop(sym, None)
     exprs = [sp.sympify(e).subs(subs) for e in exprs]
     replacements, reduced = sp.cse(exprs, optimizations="basic")
     lines = [f"    {lhs} = {sp.pycode(rhs)}" for lhs, rhs in replacements]
     body = "\n".join(lines)
     outs = ", ".join(sp.pycode(e) for e in reduced)
-    args = ", ".join(str(s) for s in coords)
+    args = ", ".join(str(s) for s in (*coords, *free_params))
     src = (
         "def _f(" + args + "):\n"
         "    import numpy as np\n"
@@ -224,31 +230,92 @@ def generate_source(
     return src.replace("math.", "np.")
 
 
-def compile_source(src: str, coords: Sequence[sp.Symbol]) -> Callable[..., np.ndarray]:
+def compile_source(
+    src: str, coords: Sequence[sp.Symbol], n_params: int = 0
+) -> Callable[..., np.ndarray]:
     """Compile source from ``generate_source`` into a broadcasting NumPy callable."""
     ns: dict = {}
     exec(src, ns)  # noqa: S102 - generated from our own SymPy expressions
     f = ns["_f"]
+    n_coords = len(coords)
 
-    def wrapped(*coord_arrays):
-        arrs = np.broadcast_arrays(*[np.asarray(a, dtype=float) for a in coord_arrays])
-        out = f(*arrs)
+    def wrapped(*args):
+        coord_args = args[:n_coords]
+        extra = args[n_coords : n_coords + n_params]
+        arrs = np.broadcast_arrays(*[np.asarray(a, dtype=float) for a in coord_args])
+        out = f(*arrs, *extra)
         return np.stack([np.broadcast_to(o, arrs[0].shape) for o in out])
 
     return wrapped
+
+
+def compile_source_jax(
+    src: str, coords: Sequence[sp.Symbol], n_params: int = 0
+) -> Callable[..., Any]:
+    """Compile the same generated source against JAX instead of NumPy.
+
+    The source is emitted once and executed against whichever array library
+    is bound as ``np`` inside it, so the NumPy and JAX kernels are the same
+    arithmetic by construction rather than by two implementations agreeing.
+    That matters because a divergence between them would show up as a wrong
+    gradient, which is far harder to notice than a wrong value.
+
+    JAX is an optional dependency; this raises a clear error when it is
+    missing instead of failing inside generated code.
+    """
+    try:
+        import jax
+        import jax.numpy as jnp
+    except ImportError as exc:  # pragma: no cover - exercised by a skip-guarded test
+        raise ImportError("JAX emission needs the jax extra: `uv sync --extra jax`") from exc
+
+    # JAX defaults to single precision. Computing curvature in float32 would
+    # violate ADR-004, and it would not look like a failure: the first
+    # comparison against NumPy here matched to six digits and differed in the
+    # seventh, which is exactly the size of discrepancy that gets dismissed as
+    # noise while constraint residuals quietly stop converging.
+    if not jax.config.read("jax_enable_x64"):
+        jax.config.update("jax_enable_x64", True)
+
+    ns: dict = {"jnp": jnp}
+    # The generated source imports numpy itself; shadow that binding with
+    # jax.numpy so the identical text runs on either backend.
+    jax_src = src.replace("import numpy as np", "import jax.numpy as np")
+    exec(jax_src, ns)  # noqa: S102 - generated from our own SymPy expressions
+    f = ns["_f"]
+    n_coords = len(coords)
+
+    def wrapped(*args):
+        coord_args = [jnp.asarray(a, dtype=jnp.float64) for a in args[:n_coords]]
+        extra = args[n_coords : n_coords + n_params]
+        arrs = jnp.broadcast_arrays(*coord_args)
+        out = f(*arrs, *extra)
+        return jnp.stack([jnp.broadcast_to(o, arrs[0].shape) for o in out])
+
+    return jax.jit(wrapped)
 
 
 def lambdify_exprs(
     exprs: Sequence[sp.Expr],
     coords: Sequence[sp.Symbol],
     params: dict[sp.Symbol, float] | None = None,
-) -> Callable[..., np.ndarray]:
-    """Compile a list of expressions into one NumPy function with CSE.
+    free_params: Sequence[sp.Symbol] = (),
+    backend: str = "numpy",
+) -> Callable[..., Any]:
+    """Compile a list of expressions into one function with CSE.
 
-    The returned callable takes coordinate arrays and returns an array of shape
-    ``(len(exprs), *grid_shape)``.
+    The returned callable takes coordinate arrays followed by any
+    ``free_params`` values, and returns an array of shape
+    ``(len(exprs), *grid_shape)``. ``backend`` is ``"numpy"`` or ``"jax"``;
+    the JAX kernel is jitted and differentiable in the free parameters.
     """
-    return compile_source(generate_source(exprs, coords, params), coords)
+    src = generate_source(exprs, coords, params, free_params)
+    n = len(free_params)
+    if backend == "numpy":
+        return compile_source(src, coords, n)
+    if backend == "jax":
+        return compile_source_jax(src, coords, n)
+    raise ValueError(f'unknown backend {backend!r}; use "numpy" or "jax"')
 
 
 def independent_riemann_indices(n: int) -> list[tuple[int, int, int, int]]:

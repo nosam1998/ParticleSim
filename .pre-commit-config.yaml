@@ -1,0 +1,25 @@
+# Fast local checks that mirror CI, so a contributor learns about a problem
+# before pushing rather than after. Install once with: pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.1
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^docs/DESIGN\.md$
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        # Simulation output belongs in a run directory, not in git history,
+        # where it is permanent and clones pay for it forever.
+        args: [--maxkb=512]
+      - id: mixed-line-ending
+        args: [--fix=lf]

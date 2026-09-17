@@ -29,6 +29,17 @@ uv run pytest -q -m "not slow"
 The Alcubierre run writes `fields.npz`, `report.json`, `energy_density.png`,
 and `manifest.json` under `runs/warp_alcubierre/`.
 
+## Notebook
+
+```bash
+uv sync --extra notebook
+uv run jupyter lab examples/warp_explorer.ipynb
+```
+
+`warp_explorer()` gives sliders over bubble velocity, radius and wall
+thickness with a live energy-density map. The physics is in
+`explorer_state()`, a plain function usable without a notebook.
+
 ## Demos
 
 - [Warp energy-density explorer](https://nosam1998.github.io/ParticleSim/warp-energy-explorer/):

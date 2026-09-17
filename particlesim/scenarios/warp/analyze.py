@@ -73,12 +73,22 @@ class WarpAnalysisResult:
         if "csv" in formats:
             export_reduced_csv(self.report, out / "report.csv")
         if "h5" in formats:
+            from particlesim.core import units as u
+
             save_fields(
                 out / "fields.h5",
                 self.fields,
                 self.grid,
                 attrs={"family": self.metric.name, "report": self.report},
                 xdmf=True,
+                # The analyzer works in geometric units with one solar mass as
+                # the mass unit; recording that is what lets a reader years
+                # later know what these numbers are.
+                unit_system=u.geometric_solar_mass(),
+                dimensions={
+                    "energy_density": u.ENERGY_DENSITY,
+                    "energy_density_full": u.ENERGY_DENSITY,
+                },
             )
         manifest = build_manifest(
             self.config.model_dump(), self.config.seed, {"timings": self.timings}

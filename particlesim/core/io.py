@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -21,8 +22,16 @@ import h5py
 import numpy as np
 
 from particlesim.core.grid import UniformGrid
+from particlesim.core.units import Dimension, UnitSystem
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Version 2 records the unit system a checkpoint's numbers are in, and each
+# field's physical dimension. Version 1 stored neither, so a file written in
+# geometric units and one written in SI were indistinguishable once the
+# writing process exited. That is the same ambiguity Quantity exists to
+# prevent, and a checkpoint outlives the session that produced it, so it is
+# worth a schema bump rather than a convention nobody can check.
 
 
 def save_fields(
@@ -31,12 +40,29 @@ def save_fields(
     grid: UniformGrid,
     attrs: dict[str, Any] | None = None,
     xdmf: bool = False,
+    unit_system: UnitSystem | None = None,
+    dimensions: dict[str, Dimension] | None = None,
 ) -> Path:
-    """Write ``fields`` (each with trailing grid axes) to an HDF5 file."""
+    """Write ``fields`` (each with trailing grid axes) to an HDF5 file.
+
+    ``unit_system`` and ``dimensions`` record what the numbers mean. They
+    default to unrecorded, which is honest but leaves the same ambiguity
+    version 1 had, so pass them when you know.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    dimensions = dimensions or {}
     with h5py.File(path, "w") as f:
         f.attrs["schema_version"] = SCHEMA_VERSION
+        if unit_system is not None:
+            f.attrs["unit_system"] = json.dumps(
+                {
+                    "name": unit_system.name,
+                    "length_m": unit_system.length_m,
+                    "time_s": unit_system.time_s,
+                    "mass_kg": unit_system.mass_kg,
+                }
+            )
         f.attrs["extent"] = json.dumps(grid.extent)
         f.attrs["shape"] = json.dumps(list(grid.shape))
         f.attrs["spacing"] = json.dumps(list(grid.spacing))
@@ -46,7 +72,9 @@ def save_fields(
         g = f.create_group("fields")
         for name, arr in fields.items():
             data = grid.interior(np.asarray(arr))
-            g.create_dataset(name, data=data, compression="gzip", compression_opts=4)
+            ds = g.create_dataset(name, data=data, compression="gzip", compression_opts=4)
+            if name in dimensions:
+                ds.attrs["dimension"] = json.dumps(list(dimensions[name]))
         if xdmf:
             gx = f.create_group("xdmf")
             for name, arr in fields.items():
@@ -63,19 +91,81 @@ def save_fields(
     return path
 
 
+class SchemaMigrationError(RuntimeError):
+    """Raised when a checkpoint cannot be brought up to the current schema."""
+
+
+def _migrate_v1_to_v2(meta: dict[str, Any]) -> dict[str, Any]:
+    """Version 1 files record no units, and nothing can recover them.
+
+    The migration is therefore explicit about what it does not know rather
+    than guessing a unit system, because a wrong guess here is worse than a
+    missing value: it would be believed.
+    """
+    meta["unit_system"] = None
+    meta["dimensions"] = {}
+    meta["migrated_from"] = 1
+    meta["migration_notes"] = [
+        "schema 1 recorded no unit system or field dimensions; they are unknown, not assumed"
+    ]
+    return meta
+
+
+MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    1: _migrate_v1_to_v2,
+}
+
+
+def _apply_migrations(version: int, meta: dict[str, Any]) -> dict[str, Any]:
+    if version > SCHEMA_VERSION:
+        raise SchemaMigrationError(
+            f"checkpoint schema version {version} is newer than this build "
+            f"understands ({SCHEMA_VERSION}); upgrade particlesim rather than "
+            "reading it with an older reader, which would misinterpret fields"
+        )
+    while version < SCHEMA_VERSION:
+        migrate = MIGRATIONS.get(version)
+        if migrate is None:
+            raise SchemaMigrationError(
+                f"no migration registered from schema version {version} to "
+                f"{version + 1}; this checkpoint cannot be read"
+            )
+        meta = migrate(meta)
+        version += 1
+    return meta
+
+
 def load_fields(path: str | Path) -> tuple[dict[str, np.ndarray], UniformGrid, dict[str, Any]]:
+    """Read a checkpoint, migrating older schema versions forward.
+
+    The returned metadata always carries ``unit_system`` and ``dimensions``
+    keys, which are ``None`` and empty for files that predate them.
+    """
     with h5py.File(path, "r") as f:
-        if int(f.attrs["schema_version"]) != SCHEMA_VERSION:
-            raise ValueError(f"unsupported fields schema version {f.attrs['schema_version']}")
+        version = int(f.attrs["schema_version"])
         grid = UniformGrid(
             [tuple(e) for e in json.loads(f.attrs["extent"])],
             tuple(json.loads(f.attrs["shape"])),
             axis_names=tuple(json.loads(f.attrs["axis_names"])),
         )
         fields = {name: ds[()] for name, ds in f["fields"].items()}
-        skip = {"schema_version", "extent", "shape", "spacing", "axis_names"}
-        attrs = {k: v for k, v in f.attrs.items() if k not in skip}
-    return fields, grid, attrs
+        dimensions = {
+            name: tuple(json.loads(ds.attrs["dimension"]))
+            for name, ds in f["fields"].items()
+            if "dimension" in ds.attrs
+        }
+        reserved = {"schema_version", "extent", "shape", "spacing", "axis_names", "unit_system"}
+        meta: dict[str, Any] = {k: v for k, v in f.attrs.items() if k not in reserved}
+        raw_system = f.attrs.get("unit_system")
+        if raw_system is not None:
+            d = json.loads(raw_system)
+            meta["unit_system"] = UnitSystem(d["name"], d["length_m"], d["time_s"], d["mass_kg"])
+        else:
+            meta["unit_system"] = None
+        meta["dimensions"] = dimensions
+    meta["schema_version"] = version
+    meta = _apply_migrations(version, meta)
+    return fields, grid, meta
 
 
 def write_xdmf(

@@ -23,6 +23,9 @@ dependencies = [
 plot = ["matplotlib>=3.8"]
 notebook = ["ipywidgets>=8.1", "matplotlib>=3.8", "jupyterlab>=4.2"]
 jax = ["jax[cpu]>=0.4.30"]
+# Compiles CLASS from source and needs a C compiler, so it is an extra and
+# not part of the dev group: the adapter's live tests skip without it.
+boltzmann = ["classy>=3.2"]
 dev = [
   "pytest>=8.0",
   "pytest-timeout>=2.3",

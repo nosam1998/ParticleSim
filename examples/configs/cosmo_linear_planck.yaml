@@ -1,0 +1,25 @@
+# Planck 2018 TT,TE,EE+lowE+lensing best fit (A&A 641, A6, Table 2), run
+# through the CLASS adapter. The 0.06 eV neutrino is part of that fit and is
+# not decoration: leaving it massless raises sigma_8 by 1.4 per cent, which
+# is twice Planck's uncertainty on it.
+#
+# ln(10^10 A_s) = 3.044 is exp(3.044) * 1e-10 below.
+#
+# Needs the optional CLASS wrapper: pip install particlesim[boltzmann]
+scenario: cosmo.linear
+cosmology:
+  hubble_parameter: 0.6736
+  omega_b: 0.02237
+  omega_cdm: 0.1200
+  scalar_amplitude: 2.0989031673191437e-09
+  spectral_index: 0.9649
+  optical_depth: 0.0544
+  neutrino_masses: [0.06]
+  ultra_relativistic: 2.0328
+  lensing: true
+  max_multipole: 2600
+  max_wavenumber: 3.0
+output:
+  dir: runs/cosmo_linear_planck
+  formats: [npz, json, png]
+seed: 0

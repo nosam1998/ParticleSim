@@ -30,6 +30,14 @@ def _dispatch(config, out: str | None) -> int:
         print(json.dumps(result.report, indent=2, default=str))
         print(f"outputs written to {config.output.dir}", file=sys.stderr)
         return 0
+    if config.scenario == "cosmo.linear":
+        from particlesim.scenarios.cosmo.linear import run
+
+        result = run(config)
+        result.save(config.output.dir)
+        print(json.dumps(result.report, indent=2, default=str))
+        print(f"outputs written to {config.output.dir}", file=sys.stderr)
+        return 0
     print(f"scenario {config.scenario} has no runner yet", file=sys.stderr)
     return 2
 

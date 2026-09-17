@@ -448,6 +448,110 @@ than as a claim. The verdict is a *sign*, so unlike the peak density it is not
 sample-limited — for ordinary matter both terms are positive at every sample
 and no amount of resolution changes that.
 
+## Linear perturbations through CLASS
+
+The adapter is `particlesim.cosmo.linear`, the scenario is `cosmo.linear`,
+and the licence and citation record is `docs/adapters/class.md`. CLASS is an
+optional dependency (`pip install particlesim[boltzmann]`); everything below
+skips without it, and the translation, the data model and the plots are
+tested with or without it.
+
+### Planck's own derived parameters, from Planck's own fitted ones
+
+The config is the six parameters Planck 2018 fitted (A&A 641, A6,
+arXiv:1807.06209, Table 2, TT,TE,EE+lowE+lensing, including its 0.06 eV
+neutrino). What comes back has to be the derived column of the same table.
+
+| Quantity | Planck 2018 | Retrieved | Distance |
+|---|---|---|---|
+| `σ₈` | 0.8111 ± 0.0060 | 0.81066 | 0.07σ |
+| `Ω_m` | 0.3153 ± 0.0073 | 0.31519 | 0.02σ |
+| Age [Gyr] | 13.797 ± 0.023 | 13.7972 | 0.01σ |
+| `r_drag` [Mpc] | 147.09 ± 0.26 | 147.097 | 0.03σ |
+| `z_reio` | 7.67 ± 0.73 | 7.690 | 0.03σ |
+| `S₈` | 0.832 ± 0.013 | 0.83093 | 0.08σ |
+| First peak `ℓ₁` | 220.6 ± 0.6 | 220, at 5730 μK² | within 1 |
+
+Each row is asserted against **its own published error bar** rather than a
+tolerance chosen here. A translation that dropped a factor of `h²` would
+fail every one of them.
+
+The 0.06 eV neutrino is not decoration. Leaving it massless raises `σ₈` to
+0.8229 — 1.4 per cent high, which is twice Planck's uncertainty on it — so a
+"Planck best fit" preset without the neutrino does not reproduce Planck's
+derived parameters, and `LinearRequest.planck2018()` includes it.
+
+### Two of Planck's numbers are *not* reproduced, and that is definitional
+
+| Quantity | Planck 2018 | CLASS | Why |
+|---|---|---|---|
+| `z_*` | 1089.92 ± 0.25 | 1088.78 | CLASS's `z_rec` is the peak of the visibility function; Planck's `z_*` is where the optical depth reaches one |
+| `100θ_*` | 1.04110 | 1.04420 | inherits the above through `r_*` |
+
+Four times Planck's error bar on `z_*`, and it is a definition rather than a
+discrepancy. The numbers are pinned in a test so that a reader comparing
+them against the published table sees the definitional gap instead of
+concluding the adapter is broken.
+
+### The translation is checked against our own background
+
+A config translation is the part of an adapter that fails quietly: swap two
+density parameters and the spectrum is still a plausible CMB spectrum. So
+`LinearRequest.cosmology()` returns the
+`particlesim.cosmo.background.Cosmology` the translated parameters describe,
+and the test compares it with what CLASS reports for the same run.
+
+| Comparison | Tolerance | Measured |
+|---|---|---|
+| `H(z)`, `z` = 0.5 to 1000 | 1e-6 | 1.8e-7 |
+| `H(z)` with CLASS's own `Ω_r` | 1e-13 | 1e-14 |
+| Comoving distance, same range | 1e-7 | 7e-9 |
+| Age | 1e-8 | 9e-10 |
+| `Ω_m` from `ω_b + ω_cdm` | 1e-12 | 2e-16 |
+| `Ω_γ` from `4σT⁴/c³` against CLASS's | 1e-5 | 1.6e-6 |
+
+The second row is the sharpest statement available. The only quantity this
+adapter *derives* rather than passes through is the radiation density —
+CLASS takes a photon temperature and a neutrino count where `Cosmology`
+takes an `Ω` — and substituting CLASS's own `Ω_r` for ours drops the `H(z)`
+disagreement from 1.8e-7 to **1e-14**. So the mapping is exact to machine
+precision and the entire residual is one physical constant: the values of
+`σ` and `G` the two codes carry differ at 1.6e-6.
+
+Distances then agree at 7e-9, which is CLASS's background ODE against this
+repository's Gauss-Legendre quadrature — two different numerical methods
+agreeing on the same physics, which is the reason to have both.
+
+### Two traps the adapter is built around
+
+**Plain CLASS does not fail on Horndeski parameters.** It reports the
+`*_smg` parameters as unread and computes general relativity. A
+general-relativistic spectrum returned for a modified-gravity request is the
+worst kind of wrong answer — it is a perfectly good spectrum — so `run()`
+probes the backend by attempting a minimal `Omega_smg` job and refuses. The
+probe is a real computation rather than a version-string check, because
+hi_class reports itself as the CLASS version it was forked from.
+
+**The scalar amplitude does not transfer from the inflation module.** `n_s`,
+its running and `r` are dimensionless and come across directly, and
+`LinearRequest.from_inflation` takes them from a Mukhanov-Sasaki spectrum.
+`A_s` is quoted at a pivot in inverse megaparsecs, and converting an
+inflationary comoving wavenumber into that unit needs the entire
+post-inflationary expansion history, reheating included. So the amplitude
+stays at the observed value unless it is passed explicitly. Anything else
+would be inventing a reheating history and hiding it in a units conversion.
+
+### What a run records
+
+`particlesim run examples/configs/cosmo_linear_planck.yaml` takes 3.5
+seconds and writes the spectra, both plots, a report and a manifest. The
+report carries **the CLASS parameter dictionary that was actually sent**, not
+only the config that produced it, because a run whose report shows what the
+external code received can be checked by someone who no longer has this
+version of the translation. It also carries the citations CLASS asks for in
+return for its free use, so the condition is discharged by the run rather
+than by the user's memory.
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |

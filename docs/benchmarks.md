@@ -57,6 +57,9 @@ method.
 | Kreiss-Oliger Nyquist damping rate | `−ε/dx` | exact to 1e-12 | `test_dissipation_damps_the_nyquist_mode_at_the_expected_rate` |
 | Finite-difference stencil order | 2, 4, 6 | within 0.3 of nominal | `test_derivative_convergence_order` |
 | Strong versus weak collapse | Lapse collapses only for strong data | `2m/r` reaches 0.998 and stays below 1 | `test_strong_data_collapses_and_weak_data_does_not` |
+| Critical-collapse threshold | Sharp, and converges under refinement | bracketed to 6e-7 relative at n = 400; within 0.7% across dr = 0.067 → 0.025 | `test_the_collapse_threshold_is_sharp_and_resolution_stable` |
+| Origin regularity | Reflected stencils carry the interior's order | ≥ 4 at the two innermost cells; ADM mass does not grow over 22 light-crossing times | `test_parity_stencils_are_fourth_order_at_the_innermost_cells`, `test_the_origin_stays_quiet_long_after_the_pulse_has_left` |
+| Ingoing initial data travels inward | Speed → 1 | centroid moves in by 2.8 over Δt = 3 | `test_ingoing_data_moves_toward_the_origin` |
 | NumPy and JAX kernels agree | identical arithmetic | 1e-12, float64 | `test_jax_and_numpy_kernels_agree` |
 | Autodiff gradient | matches central difference | 2e-3 | `test_gradient_of_negative_energy_with_respect_to_wall_thickness` |
 
@@ -84,13 +87,65 @@ check that cannot fail proves nothing: a wrong declared limit, a
 curvature-coupled term invisible on a flat metric, and a limit at infinity
 are all required to be caught or reported rather than passed.
 
+## Critical collapse: what is measured, and what a uniform grid cannot reach
+
+The threshold and the exponent are separate claims and only one of them is
+within reach here.
+
+**The threshold is measured.** Bisecting a thin ingoing shell
+(`r0 = 4`, `width = 0.5`, `r_max = 10`) on whether the lapse collapses gives
+
+| Resolution | `dr` | `p*` |
+|---|---|---|
+| n = 150 | 0.0667 | 8.41535e-4 |
+| n = 300 | 0.0333 | 8.44955e-4 |
+| n = 400 | 0.0250 | 8.47042e-4 |
+
+bracketed at n = 400 to a relative width of 6e-7, and shifting by 0.7% over
+a factor of 2.7 in `dr`. Below it the field disperses and `2m/r` peaks near
+0.51; above it `2m/r` runs up to one and the slicing refuses to continue.
+`particlesim.analysis.critical_collapse` runs this search.
+
+**The exponent is not.** Choptuik's subcritical law
+`max|R| ~ (p* − p)^(−2γ)` predicts a factor of 5.6 per decade in `1 − p/p*`.
+Measured at n = 400:
+
+| `1 − p/p*` | peak `|R|` |
+|---|---|
+| 1e-1 | 9.117e3 |
+| 3e-2 | 9.092e3 |
+| 1e-2 | 9.169e3 |
+| 3e-3 | 9.046e3 |
+| 1e-3 | 9.109e3 |
+| 3e-4 | 9.599e3 |
+| 1e-4 | 9.597e3 |
+
+Three decades in `1 − p/p*`, six per cent in the peak. The fitted exponent
+is γ = 0.004 against Choptuik's 0.374: not a poor measurement of the
+exponent but the absence of one.
+
+The reason is not the run length or the closeness of the bisection. The
+critical solution is discretely self-similar with echoing period Δ = 3.44 in
+the logarithm of scale, so each successive echo lives on a region
+`exp(3.44) ≈ 31` times smaller than the last. A uniform grid from `r_max` in
+steps of `dr` carries a fixed dynamic range — here 10/0.025 = 400, about
+1.9 echoes if every cell counted and rather fewer in practice. Once the
+structure falls below `dr` the peak curvature reports what the grid can
+represent instead of what the solution does, which is the plateau above.
+Reaching even three echoes needs `dr ≈ 5e-4` near the origin; uniformly
+that is n ≈ 20000, and at cost ∝ n² roughly 2500 times the n = 400 run.
+
+Choptuik used adaptive mesh refinement for exactly this reason. Until the
+solver has it, `fit_scaling` detects the plateau and returns no exponent
+rather than a number fitted through it. Issue #22 stays open on that basis.
+
 ## Not implemented yet
 
 Grouped by the milestone that will add them. Each is named in Section 10 of
 the design document.
 
 ### Milestone 1, spherical numerical relativity
-- Choptuik critical collapse: mass-scaling exponent γ ≈ 0.374 and echoing period Δ ≈ 3.44 (issue #22)
+- Choptuik critical collapse: mass-scaling exponent γ ≈ 0.374 and echoing period Δ ≈ 3.44 (issue #22). The threshold itself is measured and benchmarked above; the exponent is out of reach on a uniform grid, for the reason set out below.
 - Oppenheimer-Snyder dust collapse against the closed form (issue #23)
 - Bianchi IX mixmaster Kasner map (issue #23)
 - Loop quantum cosmology bounce at ρ_c ≈ 0.41 ρ_Planck (issue #24)

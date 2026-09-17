@@ -72,30 +72,87 @@ class SphericalState:
         return replace(self, Phi=Phi, Pi=Pi, t=self.t if t is None else t)
 
 
-def _d_dr(f: np.ndarray, r: np.ndarray) -> np.ndarray:
+def _d_dr(f: np.ndarray, r: np.ndarray, parity: int | None = None) -> np.ndarray:
     """Fourth-order centred radial derivative on a uniform grid.
 
-    Edge points fall back to one-sided second-order differences, which the
-    boundary conditions overwrite anyway.
+    ``parity`` is +1 for a field that is even across the origin and -1 for one
+    that is odd. Given it, the innermost two points use the same fourth-order
+    centred stencil as everywhere else, reading its two inner neighbours from
+    the reflection ``f(-r) = parity * f(r)``. The grid is cell-centred, so
+    ``r_{-1} = -r_0`` and ``r_{-2} = -r_1`` and the reflected values are exact
+    rather than extrapolated.
+
+    Without it the two points nearest the origin fall back to one-sided
+    second-order differences. That is not merely a local drop in accuracy: a
+    one-sided stencil has no definite parity, so it returns a small even
+    component for an odd field, and the spherical flux term ``2 f Phi / r``
+    divides that component by ``r ~ dr/2``. The result is an origin
+    instability that stays invisible for several light-crossing times and
+    then grows without bound, which is exactly the regime a collapse
+    threshold search lives in.
+
+    The outermost two points keep one-sided differences, which the outgoing
+    boundary condition overwrites anyway.
     """
     dr = r[1] - r[0]
     out = np.empty_like(f)
     out[2:-2] = (-f[4:] + 8 * f[3:-1] - 8 * f[1:-3] + f[:-4]) / (12 * dr)
-    out[0] = (-3 * f[0] + 4 * f[1] - f[2]) / (2 * dr)
-    out[1] = (f[2] - f[0]) / (2 * dr)
+    if parity is None:
+        out[0] = (-3 * f[0] + 4 * f[1] - f[2]) / (2 * dr)
+        out[1] = (f[2] - f[0]) / (2 * dr)
+    else:
+        if parity not in (1, -1):
+            raise ValueError("parity must be +1 (even), -1 (odd), or None")
+        s = float(parity)
+        # Ghosts through the origin: f[-1] = s f[0], f[-2] = s f[1].
+        out[0] = (-f[2] + 8 * f[1] - 8 * s * f[0] + s * f[1]) / (12 * dr)
+        out[1] = (-f[3] + 8 * f[2] - 8 * f[0] + s * f[0]) / (12 * dr)
     out[-2] = (f[-1] - f[-3]) / (2 * dr)
     out[-1] = (3 * f[-1] - 4 * f[-2] + f[-3]) / (2 * dr)
     return out
 
 
+def _dissipate(f: np.ndarray, dr: float, parity: int, epsilon: float) -> np.ndarray:
+    """Kreiss-Oliger dissipation that reaches the origin.
+
+    :func:`particlesim.core.grid.kreiss_oliger` returns zero within the
+    stencil radius of either end, because a one-sided dissipation operator
+    injects the noise it is meant to remove. At an outer boundary that is
+    the right call. At the origin it is not, because the origin is not a
+    boundary: the solution continues through it with a known parity, so the
+    missing neighbours are available exactly. Leaving the innermost three
+    cells undissipated leaves the shortest grid wavelength undamped in the
+    one place where the ``1/r`` terms amplify it.
+    """
+    g = 3  # stencil radius of the fourth-order operator, order // 2 + 1
+    extended = np.concatenate([parity * f[g - 1 :: -1], f])
+    return kreiss_oliger(extended, 0, dr, order=4, epsilon=epsilon)[g:]
+
+
 class ScalarCollapse:
     """Evolves a massless scalar field in polar-areal spherical symmetry."""
+
+    #: Default Kreiss-Oliger coefficient.
+    #:
+    #: Measured, not guessed. The spherical flux term ``2 f Phi / r``
+    #: amplifies short-wavelength error at the innermost cell at a rate that
+    #: goes as ``1 / r ~ 2 / dr``, while KO damps it at ``epsilon / dr``. The
+    #: two therefore compete at a value of ``epsilon`` that does not shrink
+    #: with the grid, so the coefficient has a floor no amount of refinement
+    #: removes. Below it a run looks clean for a couple of light-crossing
+    #: times and then grows an origin mode that *creates* ADM mass: at
+    #: ``epsilon = 0.02`` a weak pulse that should disperse to nothing
+    #: instead ends with three times the mass it started with. At 0.1 and at
+    #: 0.2 the physical peak agrees to four figures and the late-time origin
+    #: is quiet, which is what says the dissipation is removing noise rather
+    #: than solution.
+    DEFAULT_DISSIPATION = 0.1
 
     def __init__(
         self,
         grid: SphericalGrid,
         courant: float = 0.25,
-        dissipation: float = 0.02,
+        dissipation: float | None = None,
     ):
         if not grid.uniform:
             raise ValueError(
@@ -106,7 +163,7 @@ class ScalarCollapse:
         self.r = grid.radii()
         self.dr = grid.dr
         self.courant = courant
-        self.dissipation = dissipation
+        self.dissipation = self.DEFAULT_DISSIPATION if dissipation is None else float(dissipation)
 
     # --- constraints ----------------------------------------------------
 
@@ -215,14 +272,18 @@ class ScalarCollapse:
         a, alpha = self.solve_metric(Phi, Pi)
         f = alpha / a
 
-        dPhi = _d_dr(f * Pi, r)
+        # Phi is odd across the origin and Pi is even; alpha, a and so f are
+        # even. The products therefore carry the parities passed here, and
+        # their derivatives come out even and odd respectively, as the
+        # evolution equations require.
+        dPhi = _d_dr(f * Pi, r, parity=1)
         # Write the flux term as (1/r^2) d(r^2 f Phi)/dr expanded, which keeps
         # the r^2 factors from cancelling to round-off at large radius.
-        dPi = _d_dr(f * Phi, r) + 2.0 * f * Phi / r
+        dPi = _d_dr(f * Phi, r, parity=-1) + 2.0 * f * Phi / r
 
         if self.dissipation > 0:
-            dPhi = dPhi + kreiss_oliger(Phi, 0, self.dr, order=4, epsilon=self.dissipation)
-            dPi = dPi + kreiss_oliger(Pi, 0, self.dr, order=4, epsilon=self.dissipation)
+            dPhi = dPhi + _dissipate(Phi, self.dr, -1, self.dissipation)
+            dPi = dPi + _dissipate(Pi, self.dr, 1, self.dissipation)
 
         # Outgoing at the outer boundary: both variables fall off as 1/r on
         # an outgoing null ray, so d(f)/dt = -d(f)/dr - f/r.
@@ -275,9 +336,22 @@ def gaussian_pulse(
 
     ``phi = A r^2 exp(-((r - r0)/width)^2)`` has the right parity at the
     origin, so ``Phi`` is odd and regular there.
+
+    ``ingoing`` sets ``Pi = Phi``, which is the sign that makes the shell
+    travel toward the origin. Writing the flat-space system in characteristic
+    variables ``w+- = Phi +- Pi`` gives
+
+        d(w+)/dt = +d(w+)/dr + source,   d(w-)/dt = -d(w-)/dr + source
+
+    so ``w+`` is the ingoing mode and ``w-`` the outgoing one. A purely
+    ingoing pulse is ``w- = 0``, that is ``Pi = +Phi``. The opposite sign
+    kills ``w+`` instead and sends the shell outward, which is the one thing
+    a collapse study cannot afford: the energy leaves the grid before it can
+    focus, no amplitude reaches threshold, and the run looks subcritical at
+    every amplitude the initial data can express.
     """
     r = grid.radii()
     phi = amplitude * r**2 * np.exp(-(((r - r0) / width) ** 2))
-    Phi = _d_dr(phi, r)
-    Pi = -Phi if ingoing else np.zeros_like(r)
+    Phi = _d_dr(phi, r, parity=1)
+    Pi = Phi.copy() if ingoing else np.zeros_like(r)
     return SphericalState(0.0, Phi, Pi)

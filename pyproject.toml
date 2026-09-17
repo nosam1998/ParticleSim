@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "particlesim"
+version = "0.1.0"
+description = "Multi-theory spacetime, matter, and beam simulation framework"
+readme = "README.md"
+license = "GPL-3.0-only"
+requires-python = ">=3.11"
+authors = [{ name = "ParticleSim contributors" }]
+dependencies = [
+  "numpy>=1.26",
+  "sympy>=1.12",
+  "pydantic>=2.5",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.8"]
+jax = ["jax>=0.4.30"]
+dev = [
+  "pytest>=8.0",
+  "pytest-timeout>=2.3",
+  "ruff>=0.5",
+  "matplotlib>=3.8",
+]
+
+[project.scripts]
+particlesim = "particlesim.cli:main"
+
+[project.entry-points."particlesim.theories"]
+gr = "particlesim.theories.gr:GeneralRelativity"
+
+[tool.hatch.build.targets.wheel]
+packages = ["particlesim"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "UP", "NPY"]
+ignore = ["E741"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "benchmark: reproduces a published or closed-form result (Section 10 of the design doc)",
+  "slow: takes more than a few seconds",
+]
+timeout = 600

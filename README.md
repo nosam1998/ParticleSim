@@ -33,6 +33,7 @@ and `manifest.json` under `runs/warp_alcubierre/`.
 
 - [Design document](docs/DESIGN.md) — scope, theory tiers, roadmap.
 - [Theory authoring guide](docs/theory_authoring.md) — how to write a plugin, with a worked example that ships as real code.
+- [Hypothesis guide](docs/hypothesis_guide.md) — how to write a singularity hypothesis the framework can test, and how to read its verdict.
 - [Benchmarks](docs/benchmarks.md) — what the code reproduces, and what it does not yet.
 - [Contributing](CONTRIBUTING.md) — setup, checks, conventions.
 

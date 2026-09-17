@@ -139,6 +139,7 @@ def evolve(
     points: int = 2001,
     rtol: float = 1e-11,
     atol: float = 1e-14,
+    hubble_ceiling: float = 1e3,
 ) -> BackgroundRun:
     """Integrate a theory's FLRW dynamics through whatever it does.
 
@@ -199,8 +200,8 @@ def evolve(
 
     # General relativity's collapse reaches a = 0 in finite time, and an
     # integrator run into it fails with a step-size message rather than
-    # reporting the physics. A terminal event at a floor stops it cleanly, so
-    # a crunch is an outcome the run carries instead of an exception.
+    # reporting the physics. A terminal event stops it cleanly, so a crunch
+    # is an outcome the run carries instead of an exception.
     floor = 1e-8 * scale_factor
 
     def crunch(_t, state):
@@ -208,6 +209,25 @@ def evolve(
 
     crunch.terminal = True
     crunch.direction = -1.0
+
+    # A floor on the scale factor is not enough on its own, and the reason
+    # is arithmetic rather than physical. For a radiation collapse
+    # ``rho ~ a^-4``, so ``a = 1e-8`` means ``|H| ~ 1e13`` and a dynamical
+    # time of 1e-13 -- at a cosmic time of order a hundred, that step is
+    # below the spacing between neighbouring doubles and the integrator
+    # fails with a step-size message before the event can fire. Only ``w =
+    # 0`` survives it. A ceiling on ``|H|`` is reached first and stops the
+    # run where the classical description has run out anyway.
+    #
+    # The default is three orders above anything a bounce reaches: the
+    # loop-quantum ``H^2 = (8 pi/3) rho (1 - rho/rho_c)`` peaks at
+    # ``rho = rho_c/2``, which is ``|H| = 0.93`` at ``rho_c = 0.41``, so a
+    # ceiling of 1e3 cannot cut a bounce short.
+    def curvature(_t, state):
+        return abs(state[1]) - hubble_ceiling
+
+    curvature.terminal = True
+    curvature.direction = 1.0
 
     times = np.linspace(0.0, duration, points)
     solution = solve_ivp(
@@ -218,7 +238,7 @@ def evolve(
         rtol=rtol,
         atol=atol,
         method="DOP853",
-        events=[turning_point, crunch],
+        events=[turning_point, crunch, curvature],
     )
     if not solution.success:
         raise RuntimeError(f"the background integration failed: {solution.message}")
@@ -241,5 +261,5 @@ def evolve(
         equation_of_state=float(equation_of_state),
         bounce_time=float(crossings[0]) if len(crossings) else None,
         bounce_density=at_bounce,
-        reached_singularity=bool(len(solution.t_events[1])),
+        reached_singularity=bool(len(solution.t_events[1]) or len(solution.t_events[2])),
     )

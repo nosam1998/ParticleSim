@@ -101,6 +101,87 @@ It is not a cartoon of the benchmark, it is the benchmark: the same
 deposition, the same push, and the same dispersion relation solved for the
 same exact root, at a size that fits in a browser tab.
 
+### The Friedmann integrator demo
+
+`demos/friedmann/` runs both background solvers in the page: a ΛCDM budget
+for ages and distances, and a theory plugin's own `H²(ρ)` through a crunch
+or a bounce, with a theory dropdown. Its physics is in a separate file,
+`friedmann.js`, for one reason: the test suite loads it in Node and compares
+its numbers with the Python solvers directly, so "reproduces the solver" is
+a measurement.
+
+| Comparison | Page | Python | Tolerance | Measured |
+|---|---|---|---|---|
+| Critical density from `H²(ρ) = 0` | bisection | `brentq` | 1e-12 | exact to 4e-16 |
+| Bounce **time**, three equations of state | RK4, 4×10⁵ steps | DOP853, rtol 1e-11 | 1e-8 | **3e-11** |
+| Density at the turning point | same | same | 1e-4 | 9e-6 to 2e-5 |
+| Run duration `2.5/|H₀|` | — | — | 1e-12 | exact |
+| Constraint drift `max|H² − f(ρ)|` | — | — | 1e-8 | 2e-10 to 3e-9 |
+| Age, four budgets | Simpson | Gauss-Legendre | 1e-9 | converged |
+| Comoving distance to `z = 1` and `z = 1000` | same | same | 1e-9 | converged |
+| Luminosity distance, open and closed | same | same | 1e-9 | converged |
+| `H(z = 1)` | closed form | closed form | 1e-12 | exact |
+
+The bounce *time* is the sharp row. It is where two different integrators'
+trajectories are compared against each other rather than where both land on
+a known root, and they agree to three parts in a hundred billion. The
+density at the turning point is the loose one, at 1e-5, because the page
+locates the crossing by linear interpolation: that error converges as the
+square of the step, which is why the demo takes four hundred thousand steps
+and not twenty thousand. The four ΛCDM budgets are flat, Einstein-de Sitter,
+open and closed, so the page's own `sinh`/`sin` branch is exercised — a sign
+error there would show up as a wrong luminosity distance rather than as
+nothing at all.
+
+Two things the page does *not* do, both recorded in its own text. It does
+not follow a general-relativistic collapse to `a = 0`: no fixed step can,
+and the run ends where the monitored constraint says the method has lost the
+solution, which for a collapse is the same statement as the singularity. And
+it does not use Gauss-Legendre quadrature; on integrands this smooth,
+Simpson's rule on the same substituted variables reaches the same answer to
+twelve digits.
+
+Verified in headless Chromium at 1280×900 in light mode and 390×780 in dark
+mode, in both modes of the page and with the theory dropdown switched:
+
+| Measure | Result |
+|---|---|
+| Console errors | none |
+| Horizontal overflow at 390px | none |
+| Quadrature convergence reported in the page | 5.7e-11 |
+| Bounce density reported in the page | 0.409996, 8.7e-6 from `ρ_c` |
+| Constraint drift reported in the page | 1.75e-10 |
+
+### Cosmology views
+
+`particlesim.viz.cosmo_views` has four: the expansion history with the
+turning point marked, a Hubble diagram over several cosmologies, the
+potential landscape with the inflaton's trajectory and `ε_H` beneath it, and
+the primordial spectra annotated with `n_s`, `r` and the running. The first
+takes anything carrying `time`, `scale_factor` and `hubble`, which is every
+run in `particlesim.cosmo` — the theory-driven background, an ekpyrotic
+contraction, a dilaton-driven branch. They are the same picture, and three
+functions would have meant three places to fix the bounce marker.
+
+### A crunch that was an exception
+
+Writing the demo turned up a bug in the Python solver it was being compared
+against. `cosmo.dynamics.evolve` promised that "a crunch is an outcome the
+run carries instead of an exception", and it was not: only `w = 0` survived.
+Every other equation of state raised `Required step size is less than
+spacing between numbers`.
+
+The cause is arithmetic rather than physical. The terminal event was a floor
+on the scale factor at `1e-8`, and for radiation `ρ ~ a⁻⁴`, so `a = 1e-8`
+means `|H| ~ 1e13` and a dynamical time of `1e-13`. At a cosmic time of
+order a hundred, that step is below the spacing between neighbouring
+doubles, and the integrator fails before the event can fire. A ceiling on
+`|H|` is reached first and stops the run where the classical description has
+run out anyway. The default, `1e3`, is three orders above anything a bounce
+reaches: `H² = (8π/3)ρ(1 − ρ/ρ_c)` peaks at `ρ = ρ_c/2`, which is
+`|H| = 0.93`, and a test asserts that so the ceiling cannot be lowered into
+a bounce without something saying so.
+
 ## Background cosmology
 
 | Benchmark | Reference | Tolerance | Achieved | Test |

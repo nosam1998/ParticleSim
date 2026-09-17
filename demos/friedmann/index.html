@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Friedmann Integrator</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg:#ffffff; --fg:#1b1b1f; --muted:#5c5f6b; --line:#e3e4e8;
+  --card:#f7f7f9; --accent:#2d5bd7; --warn:#b3261e; --ok:#1a7f4b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#15161a; --fg:#e8e9ed; --muted:#a0a3ad; --line:#2c2e36;
+    --card:#1d1f25; --accent:#8ab0ff; --warn:#ff8a80; --ok:#6ee7a8;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#15161a; --fg:#e8e9ed; --muted:#a0a3ad; --line:#2c2e36;
+  --card:#1d1f25; --accent:#8ab0ff; --warn:#ff8a80; --ok:#6ee7a8;
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px 16px 56px;background:var(--bg);color:var(--fg);
+  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:980px;margin:0 auto}
+h1{font-size:1.45rem;margin:0 0 4px}
+h2{font-size:1rem;margin:0 0 8px}
+p.sub{color:var(--muted);margin:0 0 18px;font-size:.92rem}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:12px;margin-bottom:14px}
+canvas{width:100%;display:block;border-radius:8px;background:var(--bg)}
+/* An explicit height, because a canvas with only its width set takes its
+   aspect ratio from the width and height attributes and ends up square. */
+#top{height:300px} #bottom{height:240px}
+@media (max-width:520px){#top{height:240px} #bottom{height:200px}}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+label{display:block;font-size:.83rem;color:var(--muted);margin-bottom:4px}
+input[type=range]{width:100%}
+select{font:inherit;width:100%;padding:6px 8px;border-radius:8px;
+  border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+button{font:inherit;padding:7px 14px;border-radius:8px;border:1px solid var(--line);
+  background:var(--bg);color:var(--fg);cursor:pointer}
+button:hover{border-color:var(--accent)}
+button[aria-pressed=true]{background:var(--accent);color:#fff;border-color:var(--accent)}
+table{border-collapse:collapse;width:100%;font-size:.9rem;margin-top:4px}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600}
+td.num{font-variant-numeric:tabular-nums}
+.good{color:var(--ok)} .bad{color:var(--warn)}
+.note{color:var(--muted);font-size:.86rem;margin:8px 0 0}
+details{margin-top:14px} summary{cursor:pointer;color:var(--accent)}
+details p{color:var(--muted);font-size:.92rem}
+code{font-size:.88em}
+.hidden{display:none}
+</style>
+</head>
+<body><main>
+<h1>Friedmann Integrator</h1>
+<p class="sub">The same two background solvers ParticleSim runs in Python, in the page. A
+&Lambda;CDM budget integrated for distances and ages, and a theory plugin's own
+<code>H&sup2;(&rho;)</code> integrated through whatever it does &mdash; a crunch under general
+relativity, a bounce under effective loop quantum cosmology.</p>
+
+<div class="panel">
+  <div class="row" role="group" aria-label="mode">
+    <button id="modeLcdm" aria-pressed="true">&Lambda;CDM &mdash; observational</button>
+    <button id="modeTheory" aria-pressed="false">Theory &mdash; geometric</button>
+  </div>
+</div>
+
+<div class="panel">
+  <h2 id="topTitle">Scale factor</h2>
+  <canvas id="top" height="300"></canvas>
+</div>
+
+<div class="panel">
+  <h2 id="bottomTitle">Expansion rate</h2>
+  <canvas id="bottom" height="240"></canvas>
+</div>
+
+<div class="panel" id="lcdmControls">
+  <div class="controls">
+    <div>
+      <label for="h0">H&#8320; = <span id="h0Value">67.36</span> km/s/Mpc</label>
+      <input type="range" id="h0" min="50" max="80" step="0.01" value="67.36">
+    </div>
+    <div>
+      <label for="omegaM">&Omega;<sub>m</sub> = <span id="omegaMValue">0.3153</span></label>
+      <input type="range" id="omegaM" min="0.05" max="1.2" step="0.0001" value="0.3153">
+    </div>
+    <div>
+      <label for="omegaL">&Omega;<sub>&Lambda;</sub> = <span id="omegaLValue">0.6847</span></label>
+      <input type="range" id="omegaL" min="0" max="1.2" step="0.0001" value="0.6847">
+    </div>
+    <div>
+      <label for="omegaR">&Omega;<sub>r</sub> = <span id="omegaRValue">0.0</span> &times;10&#8315;&#8309;</label>
+      <input type="range" id="omegaR" min="0" max="20" step="0.1" value="0">
+    </div>
+  </div>
+  <div class="row">
+    <button id="planck">Planck 2018 flat &Lambda;CDM</button>
+    <button id="einsteinDeSitter">Einstein-de Sitter</button>
+    <button id="open">Open, &Omega;<sub>m</sub> = 0.3</button>
+  </div>
+  <p class="note" id="curvature"></p>
+</div>
+
+<div class="panel hidden" id="theoryControls">
+  <div class="controls">
+    <div>
+      <label for="theory">Theory</label>
+      <select id="theory"></select>
+    </div>
+    <div>
+      <label for="eos">Equation of state w = <span id="eosValue">0.00</span></label>
+      <input type="range" id="eos" min="0" max="1" step="0.01" value="0">
+    </div>
+    <div>
+      <label for="density">Starting density &rho; = 10<sup><span id="densityValue">-6</span></sup></label>
+      <input type="range" id="density" min="-9" max="-2" step="0.1" value="-6">
+    </div>
+    <div>
+      <label for="branch">Branch</label>
+      <select id="branch">
+        <option value="contracting" selected>contracting</option>
+        <option value="expanding">expanding</option>
+      </select>
+    </div>
+  </div>
+  <p class="note" id="theoryNote"></p>
+</div>
+
+<div class="panel">
+  <table>
+    <thead><tr><th>Measured in the page</th><th>Value</th><th>Against</th></tr></thead>
+    <tbody id="measurements"></tbody>
+  </table>
+</div>
+
+<details>
+  <summary>What this is, and what it is checked against</summary>
+  <p>Two solvers, matching two Python modules line for line rather than illustrating them.
+  <code>theoryRun</code> is <code>particlesim.cosmo.dynamics.evolve</code>: it integrates
+  <code>H' = &minus;(3/2)(1+w)&rho; f'(&rho;)</code> with the plugin's own
+  <code>H&sup2; = f(&rho;)</code>, second order so that a bounce &mdash; where <code>f = 0</code>
+  and <code>&radic;f</code> has a branch point &mdash; is crossed rather than stopped at. The
+  constraint <code>H&sup2; = f(&rho;)</code> is monitored rather than imposed, and its drift is
+  in the table. <code>lcdm</code> is <code>particlesim.cosmo.background.Cosmology</code>, with the
+  same two substitutions carrying the accuracy: distances over <code>ln(1+z)</code>, ages over
+  <code>s</code> with <code>a = s&sup2;</code>.</p>
+  <p>The page is not the authority on whether it agrees. <code>friedmann.js</code> is loaded by
+  the test suite and its numbers are compared with the Python solvers directly: the bounce
+  density to a part in a hundred thousand, and the &Lambda;CDM ages and distances to a part in a
+  billion. Where the page reports a difference from a known value &mdash; the loop-quantum
+  critical density, say &mdash; that is the fixed-step integrator against the root of
+  <code>H&sup2;(&rho;)</code>, and it converges as the square of the step because the turning
+  point is located by interpolation.</p>
+  <p>Two things this deliberately does not do. It does not follow a general-relativistic
+  collapse to <code>a = 0</code>: no fixed step can, and the run ends where the monitored
+  constraint says the method has lost the solution, which for a collapse is the same statement as
+  the singularity. And it does not use Gauss-Legendre quadrature, as the Python does; on
+  integrands this smooth, Simpson's rule on the same substituted variables reaches the same answer
+  to twelve digits.</p>
+</details>
+</main>
+<script src="friedmann.js"></script>
+<script>
+(function () {
+  "use strict";
+  var F = window.Friedmann;
+  var state = { mode: "lcdm" };
+
+  function css(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  /* One plotting routine for every panel: linear or logarithmic on either
+   * axis, several series, and a marker. Kept deliberately small -- the
+   * point of the page is the physics, and a chart library would be larger
+   * than the solver. */
+  function draw(canvas, series, options) {
+    var opts = options || {};
+    var ratio = window.devicePixelRatio || 1;
+    var width = canvas.clientWidth, height = canvas.clientHeight;
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+
+    var pad = { left: 58, right: 12, top: 10, bottom: 34 };
+    var logX = !!opts.logX, logY = !!opts.logY;
+    var xs = [], ys = [];
+    series.forEach(function (s) {
+      for (var i = 0; i < s.x.length; i += 1) {
+        var x = s.x[i], y = s.y[i];
+        if (!isFinite(x) || !isFinite(y)) { continue; }
+        if (logX && x <= 0) { continue; }
+        if (logY && y <= 0) { continue; }
+        xs.push(logX ? Math.log10(x) : x);
+        ys.push(logY ? Math.log10(y) : y);
+      }
+    });
+    if (!xs.length) { return; }
+    var xLo = Math.min.apply(null, xs), xHi = Math.max.apply(null, xs);
+    var yLo = Math.min.apply(null, ys), yHi = Math.max.apply(null, ys);
+    if (opts.yFromZero && !logY) { yLo = Math.min(0, yLo); yHi = Math.max(0, yHi); }
+    if (xHi - xLo < 1e-12) { xHi = xLo + 1; }
+    if (yHi - yLo < 1e-12) { yHi = yLo + 1; }
+    var padY = 0.06 * (yHi - yLo);
+    yLo -= padY; yHi += padY;
+
+    function px(x) {
+      var v = logX ? Math.log10(x) : x;
+      return pad.left + (v - xLo) / (xHi - xLo) * (width - pad.left - pad.right);
+    }
+    function py(y) {
+      var v = logY ? Math.log10(y) : y;
+      return height - pad.bottom - (v - yLo) / (yHi - yLo) * (height - pad.top - pad.bottom);
+    }
+
+    ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
+    ctx.fillStyle = css("--muted"); ctx.font = "11px system-ui, sans-serif";
+    var ticks = 5, i;
+    for (i = 0; i <= ticks; i += 1) {
+      var fy = yLo + (yHi - yLo) * i / ticks;
+      var y = py(logY ? Math.pow(10, fy) : fy);
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(width - pad.right, y); ctx.stroke();
+      ctx.textAlign = "right"; ctx.textBaseline = "middle";
+      ctx.fillText(format(logY ? Math.pow(10, fy) : fy), pad.left - 6, y);
+    }
+    for (i = 0; i <= ticks; i += 1) {
+      var fx = xLo + (xHi - xLo) * i / ticks;
+      var x = px(logX ? Math.pow(10, fx) : fx);
+      /* The first and last labels are pushed inward, or half of each one
+       * hangs off the panel. */
+      ctx.textAlign = i === 0 ? "left" : i === ticks ? "right" : "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(format(logX ? Math.pow(10, fx) : fx), x, height - pad.bottom + 6);
+    }
+    ctx.textAlign = "center";
+    ctx.fillText(opts.xLabel || "", (pad.left + width - pad.right) / 2, height - 14);
+
+    var colours = [css("--accent"), css("--warn"), css("--ok")];
+    series.forEach(function (s, index) {
+      ctx.strokeStyle = s.colour || colours[index % colours.length];
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      var started = false;
+      for (var j = 0; j < s.x.length; j += 1) {
+        var vx = s.x[j], vy = s.y[j];
+        if (!isFinite(vx) || !isFinite(vy)) { continue; }
+        if ((logX && vx <= 0) || (logY && vy <= 0)) { continue; }
+        if (!started) { ctx.moveTo(px(vx), py(vy)); started = true; }
+        else { ctx.lineTo(px(vx), py(vy)); }
+      }
+      ctx.stroke();
+      if (s.label) {
+        ctx.fillStyle = ctx.strokeStyle; ctx.textAlign = "left";
+        ctx.fillText(s.label, pad.left + 8 + index * 96, pad.top + 12);
+      }
+    });
+    if (opts.marker) {
+      ctx.fillStyle = css("--warn");
+      ctx.beginPath();
+      ctx.arc(px(opts.marker.x), py(opts.marker.y), 4.5, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.textAlign = "left";
+      ctx.fillText(opts.marker.label || "", px(opts.marker.x) + 8, py(opts.marker.y) - 8);
+    }
+  }
+
+  function format(value) {
+    var size = Math.abs(value);
+    if (size === 0) { return "0"; }
+    if (size >= 1e5 || size < 1e-3) { return value.toExponential(1); }
+    if (size >= 100) { return value.toFixed(0); }
+    if (size >= 1) { return value.toFixed(2); }
+    return value.toFixed(3);
+  }
+
+  function rows(entries) {
+    var body = document.getElementById("measurements");
+    body.textContent = "";
+    entries.forEach(function (entry) {
+      var tr = document.createElement("tr");
+      var name = document.createElement("td"); name.textContent = entry[0];
+      var value = document.createElement("td"); value.className = "num";
+      value.textContent = entry[1];
+      if (entry[3]) { value.className += " " + entry[3]; }
+      var against = document.createElement("td"); against.className = "num";
+      against.textContent = entry[2] === undefined ? "" : entry[2];
+      tr.appendChild(name); tr.appendChild(value); tr.appendChild(against);
+      body.appendChild(tr);
+    });
+  }
+
+  /* --- lambda CDM mode --- */
+  function readLcdm() {
+    return {
+      h0: parseFloat(document.getElementById("h0").value),
+      omegaM: parseFloat(document.getElementById("omegaM").value),
+      omegaL: parseFloat(document.getElementById("omegaL").value),
+      omegaR: parseFloat(document.getElementById("omegaR").value) * 1e-5
+    };
+  }
+
+  function renderLcdm() {
+    var input = readLcdm();
+    document.getElementById("h0Value").textContent = input.h0.toFixed(2);
+    document.getElementById("omegaMValue").textContent = input.omegaM.toFixed(4);
+    document.getElementById("omegaLValue").textContent = input.omegaL.toFixed(4);
+    document.getElementById("omegaRValue").textContent = (input.omegaR * 1e5).toFixed(1);
+    var model = F.lcdm(input);
+    document.getElementById("curvature").textContent =
+      "Ω_k = " + model.omegaK.toFixed(4) + (Math.abs(model.omegaK) < 1e-6
+        ? " (flat)" : model.omegaK > 0 ? " (open)" : " (closed)");
+
+    var history = model.history(200);
+    document.getElementById("topTitle").textContent = "Scale factor against cosmic time";
+    draw(document.getElementById("top"),
+      [{ x: history.time, y: history.scaleFactor, label: "a(t)" }],
+      { xLabel: "t [Gyr]", yFromZero: true });
+
+    var zs = [], hs = [], ds = [];
+    for (var i = 0; i <= 120; i += 1) {
+      var z = Math.pow(10, -2 + 5 * i / 120);
+      zs.push(z); hs.push(model.hubble(z)); ds.push(model.comovingDistance(z));
+    }
+    document.getElementById("bottomTitle").textContent = "Expansion rate and comoving distance";
+    draw(document.getElementById("bottom"),
+      [{ x: zs, y: hs, label: "H(z) [km/s/Mpc]" }, { x: zs, y: ds, label: "D_C(z) [Mpc]" }],
+      { xLabel: "redshift z", logX: true, logY: true });
+
+    var coarse = model.age(0, 256);
+    var fine = model.age(0, 4096);
+    var converged = Math.abs(fine - coarse) / Math.abs(fine);
+    rows([
+      ["Age of the universe", model.age(0).toFixed(4) + " Gyr", "13.797 ± 0.023 for Planck 2018"],
+      ["Comoving distance to z = 1", model.comovingDistance(1).toFixed(2) + " Mpc", ""],
+      ["Luminosity distance to z = 1", model.luminosityDistance(1).toFixed(2) + " Mpc", ""],
+      ["H(z = 1)", model.hubble(1).toFixed(3) + " km/s/Mpc", ""],
+      ["Hubble distance c/H₀", model.hubbleDistance.toFixed(2) + " Mpc", ""],
+      ["Quadrature convergence, 256 to 4096 intervals", converged.toExponential(2),
+        "the age is this insensitive to the rule", converged < 1e-9 ? "good" : "bad"]
+    ]);
+  }
+
+  /* --- theory mode --- */
+  function renderTheory() {
+    var select = document.getElementById("theory");
+    var theory = F.THEORIES[select.value] || F.THEORIES.gr;
+    var w = parseFloat(document.getElementById("eos").value);
+    var exponent = parseFloat(document.getElementById("density").value);
+    var contracting = document.getElementById("branch").value === "contracting";
+    document.getElementById("eosValue").textContent = w.toFixed(2);
+    document.getElementById("densityValue").textContent = exponent.toFixed(1);
+    document.getElementById("theoryNote").textContent = theory.note;
+
+    var run = F.theoryRun({
+      theory: theory, equationOfState: w,
+      density: Math.pow(10, exponent), contracting: contracting
+    });
+    var critical = F.bounceDensity(theory);
+
+    document.getElementById("topTitle").textContent = "Scale factor against proper time";
+    draw(document.getElementById("top"),
+      [{ x: run.time, y: run.scaleFactor, label: "a(t)" }],
+      {
+        xLabel: "t [Planck units]", yFromZero: true,
+        marker: run.bounce
+          ? { x: run.bounce.time, y: run.bounce.scaleFactor, label: "bounce" } : null
+      });
+
+    document.getElementById("bottomTitle").textContent = "Expansion rate against proper time";
+    draw(document.getElementById("bottom"),
+      [{ x: run.time, y: run.hubble, label: "H(t)" }],
+      { xLabel: "t [Planck units]", yFromZero: true });
+
+    var entries = [
+      ["Outcome", run.bounced ? "bounce" : run.crunched ? "crunch" : "no turning point",
+        run.bounced ? "H passes through zero with H' > 0" : "", run.bounced ? "good" : ""],
+      ["Smallest scale factor", Math.min.apply(null, run.scaleFactor).toExponential(3), ""],
+      ["Constraint drift, max |H² − f(ρ)|",
+        run.constraintDrift.toExponential(2),
+        "monitored, never imposed", run.constraintDrift < 1e-6 ? "good" : "bad"]
+    ];
+    if (critical !== null) {
+      entries.splice(1, 0, ["Critical density from H²(ρ) = 0",
+        critical.toFixed(6), "0.41 ρ_Planck from the area gap"]);
+    }
+    if (run.bounce) {
+      var error = Math.abs(run.bounce.density / critical - 1);
+      entries.splice(2, 0, ["Density at the turning point", run.bounce.density.toFixed(6),
+        "off the critical density by " + error.toExponential(1), error < 1e-4 ? "good" : "bad"]);
+    }
+    rows(entries);
+  }
+
+  function render() {
+    if (state.mode === "lcdm") { renderLcdm(); } else { renderTheory(); }
+  }
+
+  function setMode(mode) {
+    state.mode = mode;
+    document.getElementById("modeLcdm").setAttribute("aria-pressed", String(mode === "lcdm"));
+    document.getElementById("modeTheory").setAttribute("aria-pressed", String(mode === "theory"));
+    document.getElementById("lcdmControls").classList.toggle("hidden", mode !== "lcdm");
+    document.getElementById("theoryControls").classList.toggle("hidden", mode !== "theory");
+    render();
+  }
+
+  var select = document.getElementById("theory");
+  Object.keys(F.THEORIES).forEach(function (key) {
+    var option = document.createElement("option");
+    option.value = key;
+    option.textContent = F.THEORIES[key].label + "  (" + key + ")";
+    select.appendChild(option);
+  });
+  select.value = "lqg.lqc";
+
+  ["h0", "omegaM", "omegaL", "omegaR"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", render);
+  });
+  ["theory", "eos", "density", "branch"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", render);
+  });
+  document.getElementById("modeLcdm").addEventListener("click", function () { setMode("lcdm"); });
+  document.getElementById("modeTheory").addEventListener("click", function () { setMode("theory"); });
+
+  function preset(h0, omegaM, omegaL, omegaR) {
+    return function () {
+      document.getElementById("h0").value = h0;
+      document.getElementById("omegaM").value = omegaM;
+      document.getElementById("omegaL").value = omegaL;
+      document.getElementById("omegaR").value = omegaR;
+      render();
+    };
+  }
+  document.getElementById("planck").addEventListener("click", preset(67.36, 0.3153, 0.6847, 0));
+  document.getElementById("einsteinDeSitter").addEventListener("click", preset(67.36, 1, 0, 0));
+  document.getElementById("open").addEventListener("click", preset(67.36, 0.3, 0, 0));
+
+  window.addEventListener("resize", render);
+  setMode("lcdm");
+})();
+</script>
+</body>
+</html>

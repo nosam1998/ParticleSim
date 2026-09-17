@@ -474,6 +474,12 @@ wheels = [
 ]
 
 [[package]]
+name = "classy"
+version = "3.3.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7e/fb/1a26610ef00768d10f814331d456d5a6f075786743b4a9a9ecb8f3990123/classy-3.3.4.0.tar.gz", hash = "sha256:9696ae51ac759315cee62ba1fe223f2a6bc0c89eff8ee542c02fbb6597a37fff", size = 5997441, upload-time = "2025-11-24T14:37:28.685Z" }
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -2065,6 +2071,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+boltzmann = [
+    { name = "classy" },
+]
 dev = [
     { name = "ipywidgets" },
     { name = "jax", version = "0.10.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -2095,6 +2104,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "classy", marker = "extra == 'boltzmann'", specifier = ">=3.2" },
     { name = "h5py", specifier = ">=3.10" },
     { name = "ipywidgets", marker = "extra == 'dev'", specifier = ">=8.1" },
     { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=8.1" },
@@ -2114,7 +2124,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.11" },
     { name = "sympy", specifier = ">=1.12" },
 ]
-provides-extras = ["plot", "notebook", "jax", "dev"]
+provides-extras = ["plot", "notebook", "jax", "boltzmann", "dev"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "astropy", specifier = ">=6.0" }]

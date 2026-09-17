@@ -191,6 +191,27 @@ another cell's memory, and the layer stops absorbing. Measured, a pulse
 followed for two thousand cells then gains five orders of magnitude in
 energy instead of holding it.
 
+### Free-electron laser
+
+| Benchmark | Reference | Tolerance | Measured | Test |
+|---|---|---|---|---|
+| Gain length at resonance | `L_g = λ_u/(4π√3 ρ)` | 5% | −0.42% | `test_the_gain_length_matches_theory_at_resonance` |
+| Gain curve across detuning | largest root of `λ³ − iδλ² − i = 0` | 5% | −1.2% to +0.1% over seven detunings | `test_the_whole_gain_curve_matches_the_cubic` |
+| Field energy comes from the beam | `\|A\|² + ⟨p⟩` constant | 1e-9 | exact; at peak field `\|A\|² = 1.3720` and `⟨p⟩ = −1.3720` | `test_field_energy_comes_out_of_the_beam_exactly` |
+| Integrator order | 4 | 3.7–4.3 | exact | `test_the_invariant_converges_at_fourth_order` |
+
+`L_g = λ_u/(4π√3 ρ)` is the scaling's definition, not a result: `ρ` is
+defined so the universal equations grow at `√3` per unit `z̄`, and
+`z̄ = 4πρz/λ_u`. What a simulation can be wrong about is the `√3`, which
+comes from linearizing to a cubic whose growing root at resonance is
+`exp(iπ/6)`. That is what is measured.
+
+Checking the whole gain curve rather than only its peak is what makes this a
+benchmark rather than a calibration. The curve is asymmetric — growth
+survives far below the resonance and cuts off sharply above it — and that
+asymmetry is a property of the cubic, so a model that merely grew at the
+right rate on resonance would fail it.
+
 ### Beam filamentation
 
 | Benchmark | drift | k | measured | theory | error |

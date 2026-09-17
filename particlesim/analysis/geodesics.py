@@ -14,7 +14,7 @@ import numpy as np
 import sympy as sp
 from scipy.integrate import solve_ivp
 
-from particlesim.symbolic.curvature import MetricGeometry, lambdify_exprs
+from particlesim.symbolic.curvature import MetricGeometry, RiemannEvaluator, lambdify_exprs
 
 
 @dataclass
@@ -25,6 +25,7 @@ class GeodesicResult:
     norm: np.ndarray  # (n,) g(u, u) along the path, a conservation check
     success: bool
     message: str
+    tidal_eigenvalues: np.ndarray | None = None  # (n, D) eigenvalues of E^a_b, or None
 
 
 class GeodesicIntegrator:
@@ -39,6 +40,9 @@ class GeodesicIntegrator:
         self.coords = list(coords)
         self.D = len(coords)
         geom = MetricGeometry(metric, coords)
+        self._geom = geom
+        self._params = params
+        self._riemann: RiemannEvaluator | None = None
         G = geom.christoffel
         D = self.D
         self._pairs = [(b, c) for b in range(D) for c in range(b, D)]
@@ -59,6 +63,29 @@ class GeodesicIntegrator:
             out[:, b, c] = vals[:, k]
             out[:, c, b] = vals[:, k]
         return out
+
+    @property
+    def riemann(self) -> RiemannEvaluator:
+        """Compiled Riemann tensor; built on first use because it is the slow part."""
+        if self._riemann is None:
+            self._riemann = RiemannEvaluator(self._geom, self._params)
+        return self._riemann
+
+    def tidal_tensor(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+        """``E_ab = R_acbd u^c u^d`` at ``x`` for four-velocity ``u`` (lower indices)."""
+        return self.riemann.tidal(x, u)
+
+    def tidal_eigenvalues(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+        """Eigenvalues of the mixed tidal tensor ``E^a_b`` (sorted ascending).
+
+        For a unit timelike ``u`` one eigenvalue is zero (the ``u`` direction);
+        the other ``D - 1`` are the principal tidal accelerations per unit
+        separation, negative for stretching in the geodesic-deviation sign
+        convention ``D²ξ^a/dτ² = -E^a_b ξ^b``.
+        """
+        E = self.tidal_tensor(x, u)
+        ginv = np.linalg.inv(self.metric_at(x))
+        return np.sort(np.linalg.eigvals(ginv @ E).real)
 
     def norm(self, x: np.ndarray, u: np.ndarray) -> float:
         g = self.metric_at(x)
@@ -135,6 +162,7 @@ class GeodesicIntegrator:
         rtol: float = 1e-10,
         atol: float = 1e-12,
         stop_when=None,
+        tidal: bool = False,
     ) -> GeodesicResult:
         x0 = np.asarray(x0, dtype=float)
         u0 = np.asarray(u0, dtype=float)
@@ -173,4 +201,7 @@ class GeodesicIntegrator:
         x = sol.y[:D].T
         u = sol.y[D:].T
         norms = np.array([self.norm(xi, ui) for xi, ui in zip(x, u, strict=True)])
-        return GeodesicResult(sol.t, x, u, norms, sol.success, sol.message)
+        eig = None
+        if tidal:
+            eig = np.array([self.tidal_eigenvalues(xi, ui) for xi, ui in zip(x, u, strict=True)])
+        return GeodesicResult(sol.t, x, u, norms, sol.success, sol.message, eig)

@@ -92,3 +92,39 @@ def test_full_path_uses_cache_and_reports_kretschmann(tmp_path, monkeypatch):
     k = first.fields["kretschmann"]
     assert np.isfinite(k).all() and np.abs(k).max() > 0
     np.testing.assert_allclose(second.fields["kretschmann"], k)
+
+
+@pytest.mark.benchmark
+def test_alcubierre_ship_horizon_at_f_equals_one_minus_inverse_speed():
+    """Hiscock 1997: the ship's horizon sits where f(r_s) = 1 − 1/v (v > 1); none for v < 1."""
+    fast = WarpAnalyzeConfig()
+    fast.grid.extent = [(-12.0, 12.0)] * 3
+    fast.grid.resolution = [8, 8, 8]
+    fast.analysis.full_stress_energy = False
+    fast.metric.params = {"v_s": 2.0, "R": 5.0, "sigma": 2.0}
+    res = analyze(fast)
+    hz = res.report["horizon"]
+    assert hz["present"]
+    # f = 1 − 1/v = 0.5 is reached at r_s = R to ~1e-9 for σR = 10.
+    assert hz["front_radius"] == pytest.approx(5.0, abs=1e-3)
+    assert hz["back_radius"] == pytest.approx(5.0, abs=1e-3)
+    fast.metric.params = {"v_s": 0.5, "R": 5.0, "sigma": 2.0}
+    res = analyze(fast)
+    assert not res.report["horizon"]["present"]
+    assert (res.fields["horizon_indicator"] > 0).all()
+
+
+@pytest.mark.benchmark
+def test_eulerian_tidal_tensor_on_alcubierre_wall(tmp_path, monkeypatch):
+    monkeypatch.setenv("PARTICLESIM_CACHE_DIR", str(tmp_path))
+    cfg = WarpAnalyzeConfig()
+    cfg.grid.extent = [(-12.0, 12.0)] * 3
+    cfg.grid.resolution = [8, 8, 8]
+    cfg.analysis.tidal = True
+    cfg.output.formats = ["json", "csv"]
+    cfg.output.dir = str(tmp_path / "run")
+    res = analyze(cfg)
+    res.save(cfg.output.dir)
+    tmax = res.report["tidal"]["max_eigenvalue_abs"]
+    assert np.isfinite(tmax) and tmax > 0
+    assert (tmp_path / "run" / "report.csv").exists()

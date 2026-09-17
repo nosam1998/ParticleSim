@@ -69,6 +69,21 @@ class MetricGeometry:
         return R
 
     @cached_property
+    def riemann_lower(self) -> list[list[list[list[sp.Expr]]]]:
+        """``R_{abcd}`` with all indices down."""
+        n, g, R = self.n, self.g, self.riemann
+        return [
+            [
+                [
+                    [self._simp(sum(g[a, e] * R[e][b][c][d] for e in range(n))) for d in range(n)]
+                    for c in range(n)
+                ]
+                for b in range(n)
+            ]
+            for a in range(n)
+        ]
+
+    @cached_property
     def ricci(self) -> sp.Matrix:
         n, R = self.n, self.riemann
         return sp.Matrix(n, n, lambda b, d: self._simp(sum(R[a][b][a][d] for a in range(n))))
@@ -234,3 +249,52 @@ def lambdify_exprs(
     ``(len(exprs), *grid_shape)``.
     """
     return compile_source(generate_source(exprs, coords, params), coords)
+
+
+def independent_riemann_indices(n: int) -> list[tuple[int, int, int, int]]:
+    """Index tuples of the independent components of ``R_{abcd}``.
+
+    Uses antisymmetry in each pair and symmetry under pair exchange:
+    ``a < b``, ``c < d``, ``(a, b) <= (c, d)``. The cyclic identity is not
+    used, so for n = 4 this returns 21 tuples (one more than the 20 truly
+    independent ones), which keeps reconstruction trivial.
+    """
+    pairs = [(a, b) for a in range(n) for b in range(a + 1, n)]
+    return [(a, b, c, d) for i, (a, b) in enumerate(pairs) for (c, d) in pairs[i:]]
+
+
+class RiemannEvaluator:
+    """Compiles the independent ``R_{abcd}`` components and rebuilds the full tensor."""
+
+    def __init__(
+        self,
+        geom: MetricGeometry,
+        params: dict[sp.Symbol, float] | None = None,
+    ):
+        self.n = geom.n
+        self.idx = independent_riemann_indices(self.n)
+        Rl = geom.riemann_lower
+        self._f = lambdify_exprs([Rl[a][b][c][d] for a, b, c, d in self.idx], geom.x, params)
+
+    def at(self, x: Sequence[float]) -> np.ndarray:
+        """Full ``R_{abcd}`` as an ``(n, n, n, n)`` array at a single point."""
+        vals = self._f(*[np.asarray(v, dtype=float) for v in x])
+        n = self.n
+        R = np.zeros((n, n, n, n))
+        for k, (a, b, c, d) in enumerate(self.idx):
+            v = float(vals[k])
+            for (i, j, s1), (k_, l, s2) in (
+                ((a, b, 1.0), (c, d, 1.0)),
+                ((b, a, -1.0), (c, d, 1.0)),
+                ((a, b, 1.0), (d, c, -1.0)),
+                ((b, a, -1.0), (d, c, -1.0)),
+            ):
+                R[i, j, k_, l] = s1 * s2 * v
+                R[k_, l, i, j] = s1 * s2 * v
+        return R
+
+    def tidal(self, x: Sequence[float], u: Sequence[float]) -> np.ndarray:
+        """Electric part of the Riemann tensor, ``E_ab = R_acbd u^c u^d``."""
+        R = self.at(x)
+        u = np.asarray(u, dtype=float)
+        return np.einsum("acbd,c,d->ab", R, u, u)

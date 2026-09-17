@@ -11,6 +11,7 @@ Time series are one resizable 2D dataset with a ``columns`` attribute.
 
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 from typing import Any
@@ -166,3 +167,30 @@ def read_time_series(path: str | Path, dataset: str = "series") -> dict[str, np.
         cols = json.loads(ds.attrs["columns"])
         data = ds[()]
     return {c: data[:, i] for i, c in enumerate(cols)}
+
+
+def flatten_report(report: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    """Flatten nested dictionaries into ``a.b.c`` keys; lists become JSON strings."""
+    out: dict[str, Any] = {}
+    for k, v in report.items():
+        key = f"{prefix}{k}"
+        if isinstance(v, dict):
+            out.update(flatten_report(v, key + "."))
+        elif isinstance(v, (list, tuple)):
+            out[key] = json.dumps(v, default=str)
+        else:
+            out[key] = v
+    return out
+
+
+def export_reduced_csv(report: dict[str, Any], path: str | Path) -> Path:
+    """Write the flattened scalar observables of a report as a two-column CSV."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flat = flatten_report(report)
+    with path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["key", "value"])
+        for k, v in flat.items():
+            w.writerow([k, v])
+    return path

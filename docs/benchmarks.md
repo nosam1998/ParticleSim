@@ -137,6 +137,34 @@ another cell's memory, and the layer stops absorbing. Measured, a pulse
 followed for two thousand cells then gains five orders of magnitude in
 energy instead of holding it.
 
+### Laser wakefield
+
+| Benchmark | Reference | Tolerance | Measured | Test |
+|---|---|---|---|---|
+| Wake amplitude, a₀ = 0.3 | 1D nonlinear cold wake equation, integrated | 5% | −1.7% | `test_wakefield_amplitude_matches_one_dimensional_theory` |
+| Wake amplitude, a₀ = 0.8 | same | 5% | −0.9% | `test_the_wakefield_benchmark_measures_the_nonlinear_response` |
+| Nonlinear solver in the linear limit | `(√π/4) a₀² k_p σ exp(−k_p²σ²/4)` | 1% | 0.1% at a₀ = 0.01 | `test_the_nonlinear_wake_reduces_to_the_linear_formula` |
+| Resonant pulse length | `k_p σ = √2`, giving `0.3801 a₀²` | 1e-3 | exact | `test_resonance_is_where_the_linear_wake_peaks` |
+
+Measured across a sixteenfold range in wake amplitude:
+
+| a₀ | measured `E_z/E_wb` | theory | error |
+|---|---|---|---|
+| 0.2 | 0.01484 | 0.01510 | −1.7% |
+| 0.3 | 0.03310 | 0.03366 | −1.7% |
+| 0.5 | 0.08931 | 0.09070 | −1.5% |
+| 0.8 | 0.21482 | 0.21665 | −0.9% |
+
+The a₀ = 0.8 row is the one that matters. There the linear formula sits 11%
+above the nonlinear result, twice the tolerance, and the simulation follows
+the nonlinear one. A code reproducing only the linear scaling fails that row
+while passing the rest.
+
+These are full particle-in-cell runs with the carrier resolved and no
+envelope approximation anywhere: the ponderomotive force that drives the
+wake emerges from electrons quivering in a resolved laser field, rather than
+being put in by hand.
+
 ### Cold plasma
 
 | Benchmark | Reference | Tolerance | Measured | Test |

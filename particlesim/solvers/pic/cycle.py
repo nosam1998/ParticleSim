@@ -63,8 +63,15 @@ def advance(
     order: int = 1,
     scheme: str = "boris",
     wrap: bool = True,
+    source=None,
 ) -> tuple[Fields, Species]:
-    """One full cycle: gather, push, deposit, update the fields."""
+    """One full cycle: gather, push, deposit, update the fields.
+
+    ``source`` injects a wave, applied at both halves of the field update
+    exactly as it would be without particles. Its corrections sit outside
+    the current, so a laser entering a plasma and the plasma's own current
+    do not interfere.
+    """
     dt = solver.dt
     grid = solver.grid
 
@@ -84,12 +91,17 @@ def advance(
 
     current = esirkepov_current(grid, moved, previous, dt, order)
 
+    started = fields.time
     fields = fields.with_B(
         solver.boundary.after_magnetic(
             tuple(b - dt * c for b, c in zip(fields.B, curl, strict=True))
         )
     )
+    if source is not None:
+        fields = source.after_magnetic(fields, started)
     fields = solver.advance_electric(fields, current)
+    if source is not None:
+        fields = source.after_electric(fields, started + 0.5 * dt)
 
     if wrap:
         moved = moved.with_position(np.mod(moved.position, np.asarray(grid.extent)))

@@ -38,6 +38,7 @@ particlesim = "particlesim.cli:main"
 
 [project.entry-points."particlesim.theories"]
 gr = "particlesim.theories.gr:GeneralRelativity"
+"gr.lambda" = "particlesim.theories.gr_lambda:GRWithLambda"
 
 [tool.hatch.build.targets.wheel]
 packages = ["particlesim"]

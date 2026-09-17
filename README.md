@@ -29,6 +29,13 @@ uv run pytest -q -m "not slow"
 The Alcubierre run writes `fields.npz`, `report.json`, `energy_density.png`,
 and `manifest.json` under `runs/warp_alcubierre/`.
 
+## Documentation
+
+- [Design document](docs/DESIGN.md) — scope, theory tiers, roadmap.
+- [Theory authoring guide](docs/theory_authoring.md) — how to write a plugin, with a worked example that ships as real code.
+- [Benchmarks](docs/benchmarks.md) — what the code reproduces, and what it does not yet.
+- [Contributing](CONTRIBUTING.md) — setup, checks, conventions.
+
 ## Notebook
 
 ```bash

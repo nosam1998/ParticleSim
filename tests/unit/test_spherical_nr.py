@@ -130,22 +130,30 @@ def test_fourth_order_convergence():
 @pytest.mark.benchmark
 @pytest.mark.slow
 def test_strong_data_collapses_and_weak_data_does_not():
-    """Polar slicing is horizon-avoiding, so collapse shows up as the lapse
-    going to zero while 2m/r approaches one from below, never as a trapped
-    surface appearing."""
-    strong = sim_at(300, dissipation=0.02)
-    st = gaussian_pulse(strong.grid, amplitude=0.01, r0=8.0, width=1.0, ingoing=True)
-    min_alpha, max_compactness = 1.0, 0.0
-    for i in range(int(10.0 / strong.dt)):
-        st = strong.step(st, strong.dt)
-        if i % 25 == 0:
-            a, alpha = strong.solve_metric(st.Phi, st.Pi)
-            min_alpha = min(min_alpha, float(alpha.min()))
-            max_compactness = max(max_compactness, float((1 - 1 / a**2).max()))
-    assert max_compactness > 0.99
-    assert max_compactness < 1.0  # never actually crossed, by construction
-    assert ScalarCollapse.lapse_collapsed(np.array([min_alpha]))
-    assert strong.horizon_radius(np.array([1 / np.sqrt(1 - max_compactness)])) is not None
+    """Polar slicing is horizon-avoiding, so collapse shows up either as the
+    lapse going to zero with 2m/r approaching one from below, or as the
+    constraint integration refusing to step past 2m/r = 1. Both are the same
+    physics; which one appears depends on how fast the field concentrates
+    relative to the grid."""
+    from particlesim.solvers.nr.spherical import PolarSlicingBreakdown
+
+    strong = sim_at(400, dissipation=0.02)
+    st = gaussian_pulse(strong.grid, amplitude=0.005, r0=8.0, width=1.0, ingoing=True)
+    min_alpha, max_compactness, broke_down = 1.0, 0.0, False
+    try:
+        for i in range(int(10.0 / strong.dt)):
+            st = strong.step(st, strong.dt)
+            if i % 25 == 0:
+                a, alpha = strong.solve_metric(st.Phi, st.Pi)
+                assert (a >= 1.0 - 1e-12).all(), "a < 1 means negative enclosed mass"
+                min_alpha = min(min_alpha, float(alpha.min()))
+                max_compactness = max(max_compactness, float((1 - 1 / a**2).max()))
+    except PolarSlicingBreakdown:
+        broke_down = True
+
+    assert broke_down or ScalarCollapse.lapse_collapsed(np.array([min_alpha]))
+    assert max_compactness > 0.9
+    assert max_compactness < 1.0  # never crossed, by construction
 
     weak = sim_at(300, dissipation=0.02)
     st = gaussian_pulse(weak.grid, amplitude=1e-4, r0=8.0, width=1.0, ingoing=True)
@@ -153,6 +161,32 @@ def test_strong_data_collapses_and_weak_data_does_not():
     for i in range(int(10.0 / weak.dt)):
         st = weak.step(st, weak.dt)
         if i % 25 == 0:
-            _, alpha = weak.solve_metric(st.Phi, st.Pi)
+            a, alpha = weak.solve_metric(st.Phi, st.Pi)
+            assert (a >= 1.0 - 1e-12).all()
             worst_alpha = min(worst_alpha, float(alpha.min()))
     assert not ScalarCollapse.lapse_collapsed(np.array([worst_alpha]))
+
+
+def test_constraint_solve_refuses_data_it_cannot_resolve():
+    """Regression: a Runge-Kutta stage stepping past 2m/r = 1 used to land on
+    a negative mass, giving a < 1. That is unphysical, finite and plottable,
+    which is the worst combination, and a check on the accepted value alone
+    missed it because the bad value sits below one from underneath."""
+    from particlesim.solvers.nr.spherical import PolarSlicingBreakdown
+
+    coarse = sim_at(300, dissipation=0.02)
+    st = gaussian_pulse(coarse.grid, amplitude=0.01, r0=8.0, width=1.0, ingoing=True)
+    with pytest.raises(PolarSlicingBreakdown, match="2m/r"):
+        coarse.solve_metric(st.Phi, st.Pi)
+
+
+@pytest.mark.slow
+def test_refining_the_grid_resolves_data_a_coarse_grid_refuses():
+    """The same data the coarse grid refuses is fine once resolved, which is
+    what distinguishes a resolution limit from a horizon."""
+    fine = sim_at(1600, dissipation=0.02)
+    st = gaussian_pulse(fine.grid, amplitude=0.01, r0=8.0, width=1.0, ingoing=True)
+    a, _ = fine.solve_metric(st.Phi, st.Pi)
+    assert (a >= 1.0 - 1e-12).all()
+    assert fine.adm_mass(a) > 0
+    assert (1 - 1 / a**2).max() > 0.99

@@ -79,3 +79,29 @@ def test_figures_are_valid_pngs(tmp_path):
     for png in figs.values():
         assert png.startswith(b"\x89PNG\r\n\x1a\n")
         assert base64.b64encode(png)
+
+
+def test_report_renders_list_sections_not_just_scalars():
+    """Regression: list-valued fields were dropped, which on a hypothesis
+    report card meant the verdict itself never reached the page."""
+    import tempfile
+    from pathlib import Path
+
+    report = {
+        "theory": "test.x",
+        "confirmed": ["bounce", "singularity_resolved"],
+        "contradicted": [],
+        "battery": [
+            {"scenario": "flrw_collapse", "outcome": "turning_point", "max_density": 0.41},
+            {"scenario": "flrw_expansion", "outcome": "ran_to_t_max", "max_density": 1e-3},
+        ],
+    }
+    with tempfile.TemporaryDirectory() as d:
+        text = render_html_report(report, Path(d) / "r.html").read_text()
+    assert "Confirmed" in text and "bounce" in text
+    # An empty list still gets a section: "nothing contradicted" is a result.
+    assert "Contradicted" in text and "none" in text
+    # A list of dicts becomes a table with a column per key.
+    assert "Battery" in text
+    assert "<th>scenario</th>" in text and "flrw_collapse" in text
+    assert "turning_point" in text

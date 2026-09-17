@@ -221,6 +221,43 @@ def _converges(theory: Theory, matter_density: float) -> tuple[bool, list[str]]:
     return True, warnings
 
 
+def collapse_solutions(theory: Theory, matter_density: float = 1e-3):
+    """The collapsing solution under the plugin and under plain general
+    relativity, on identical initial data.
+
+    Returned as a pair because a bounce means nothing on its own: an
+    integrator that stops early also produces a smallest scale factor. The
+    baseline is what turns the corrected run into evidence.
+    """
+    baseline = FLRWBackground(components={W_MATTER: matter_density}).evolve(
+        a0=1.0, t_max=5000.0, expanding=False
+    )
+    corrected = FLRWBackground(
+        components={W_MATTER: matter_density},
+        density_correction=_density_correction(theory),
+    ).evolve(a0=1.0, t_max=5000.0, expanding=False)
+    return baseline, corrected
+
+
+def write_report(
+    card: ReportCard,
+    path,
+    theory: Theory | None = None,
+    matter_density: float = 1e-3,
+):
+    """Render a report card to a self-contained HTML page with its figures."""
+    from particlesim.viz.report import render_html_report
+    from particlesim.viz.singularity_views import hypothesis_figures
+
+    figures: dict[str, bytes] = {}
+    if theory is not None:
+        baseline, corrected = collapse_solutions(theory, matter_density)
+        figures = hypothesis_figures(card, baseline, corrected)
+    return render_html_report(
+        card.summary(), path, figures, title=f"Hypothesis report: {card.theory_id}"
+    )
+
+
 def evaluate(theory: Theory, matter_density: float = 1e-3) -> ReportCard:
     """Run the full battery against ``theory`` and score its declared claims."""
     warnings: list[str] = []

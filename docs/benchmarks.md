@@ -112,6 +112,31 @@ are all required to be caught or reported rather than passed.
 | Shape partition of unity and centroid | 1 and the particle position | 1e-15, 1e-14 | `test_shapes_are_a_partition_of_unity_with_the_right_centroid` |
 | Deposited charge total | the charge present | 1e-12 | `test_deposited_charge_totals_the_charge_present` |
 
+### Cold plasma
+
+| Benchmark | Reference | Tolerance | Measured | Test |
+|---|---|---|---|---|
+| Cold plasma oscillation | `ω_p = √n` | 1e-4 | −3.1e-5 | `test_cold_plasma_oscillates_at_the_plasma_frequency` |
+| Two-stream growth, v₀ = 0.05 | relativistic cold dispersion | 2% | −0.61% | `test_two_stream_growth_rate_matches_linear_theory` |
+| Two-stream growth, v₀ = 0.1 | same | 2% | −0.61% | same |
+| Two-stream growth, v₀ = 0.2 | same | 2% | −0.63% | same |
+| Two-stream growth, v₀ = 0.3 | same | 2% | −0.65% | same |
+| Two-stream classical maximum | `ω_p/2√2` at `k v₀ = √(3/8) ω_p` | 1e-6 | from solving the dispersion relation | `test_two_stream_dispersion_reproduces_the_classical_maximum` |
+| Initial-field Poisson solve | the solver's own discrete divergence | 1e-10 | exact to round-off | `test_poisson_matches_the_solver_s_own_divergence_exactly` |
+
+The two-stream rows are the interesting ones. A longitudinal perturbation of
+a drifting beam sees the longitudinal mass `γ³m`, so the growth rate carries
+`γ^(−3/2)`. Against that the measurement is off by a constant −0.6% at every
+drift; against the textbook non-relativistic result it drifts from −0.8% to
+−7.0% as the beams speed up. The wavenumber spans a factor of six across
+these four rows, so the agreement is not a single coincidence.
+
+The residual −0.6% is a property of the fit window, not a precision claim.
+Both beams are displaced identically, which seeds the stable branches along
+with the growing one, and they beat for the first few e-foldings. Moving the
+window is worth about two per cent either way, and `exponential_window`
+records the measured sensitivity.
+
 Gauss's law is never solved for and never corrected. The Yee lattice makes
 `div curl` identically zero and Esirkepov's deposition makes discrete
 continuity an identity, so `div D − ρ` cannot drift and what is left is the

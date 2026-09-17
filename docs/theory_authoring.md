@@ -262,19 +262,30 @@ def reduced_equations(self, symmetry: str) -> Callable[..., Any]: ...
 def metric_family(self, params: dict[str, float]) -> sp.Matrix: ...
 ```
 
-Both exist on the base class and raise `NotImplementedError` by default, and
-**no solver consumes them yet.** The reduced FLRW and spherical solvers
-(`cosmo.background`, `nr.spherical`) are Milestone 1 and 3 work. Appendix B
-of the design doc shows a `LimitingCurvature` template whose
-`reduced_equations` calls a `gr_spherical_rhs` helper; that helper does not
-exist, and neither does the `particlesim hypothesis run` command the
-appendix mentions.
+Both exist on the base class and raise `NotImplementedError` by default.
+
+**`reduced_equations("flrw")` is consumed.** `cosmo.dynamics.evolve` asks a
+plugin for `H² = f(ρ)` and integrates the background from it, which is how
+the loop-quantum-cosmology bounce drives the scale factor rather than being
+bolted on afterwards, and `theories.limits` calls it as part of the
+automatic GR-limit check. The convention is fixed by those two callers:
+geometric units, `G = c = 1`, densities in Planck units, and a callable of
+one argument returning `H²`. `cosmo.inflation` does **not** go through this
+hook — it solves the scalar-field equations directly in reduced Planck
+units, and a plugin that modifies inflationary dynamics has nothing to hook
+into yet.
+
+**`metric_family` is consumed only by the limit check.** No solver builds a
+spacetime from it. Appendix B of the design doc shows a `LimitingCurvature`
+template whose `reduced_equations` calls a `gr_spherical_rhs` helper; that
+helper does not exist, and neither does the `particlesim hypothesis run`
+command the appendix mentions.
 
 You can write and register a Tier B plugin today, and its `gr_limit`,
-`provenance` and couplings work as for Tier A, but only your own tests will
-exercise `reduced_equations`. If you do write one, keep the signature above,
-document the `state` convention you assume in the docstring, and expect to
-adapt it when the first reduced solver fixes the convention.
+`provenance` and couplings work as for Tier A. If you write one for a
+symmetry other than `"flrw"`, keep the signature above, document the
+`state` convention you assume in the docstring, and expect to adapt it when
+the first solver for that symmetry fixes the convention.
 
 ## 6. Methods for every tier
 

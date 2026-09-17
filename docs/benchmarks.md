@@ -140,6 +140,100 @@ reads the density at the turning point the integrator located rather than at
 the nearest output sample — the sampled maximum understates a sharp peak by
 tens of per cent, which would be a resolution artefact reported as physics.
 
+## Inflation and primordial perturbations
+
+| Benchmark | Reference | Tolerance | Measured | Test |
+|---|---|---|---|---|
+| Power-law inflation `n_s` | exact `1 − 2ε/(1−ε)`, λ = 0.4 | 1e-7 | 4e-10 | `test_power_law_inflation_index_is_exact` |
+| Power-law inflation `r` | exact `16ε` | 1e-7 relative | 2e-10 | `test_power_law_inflation_tensor_to_scalar_is_exact` |
+| Power-law inflation `n_t` | exact `−2ε/(1−ε)` | 1e-7 | 4e-10 | `test_power_law_inflation_tensor_index_equals_the_scalar_tilt` |
+| Starobinsky `n_s` at N = 55 | own convergence, every knob | 5e-5 | 2e-6 | `test_starobinsky_spectral_index_at_fifty_five_e_folds` |
+| Starobinsky `n_s` against `1 − 2/N` | leading order, 0.963636 | three digits | 1.3e-3, and it is the formula's | same test |
+| Starobinsky `r` at N = 55 | 0.003550 | 1% | converged | `test_starobinsky_tensor_to_scalar_at_fifty_five_e_folds` |
+| Power-law family `(n_s, r, n_t)` | closed form at four exponents | 1e-10 | exact | `test_power_law_observables_match_the_closed_form` |
+| Natural inflation `φ_end` | `2f arctan(√2 f)` | 1e-12 | exact | `test_natural_inflation_end_matches_the_closed_form` |
+| Starobinsky `ε, η, ξ²` | closed forms in `e^(−√(2/3)φ)` | 1e-12 | exact | `test_starobinsky_slow_roll_parameters_match_closed_forms` |
+| Tensor amplitude | `P_t = 2H²/π²` | 1e-3 | 1.2e-4 | `test_tensor_amplitude_matches_the_de_sitter_formula` |
+| Raychaudhuri along the run | `d ln H/dN = −ε` | 1e-6 | 1.8e-8 | `test_exact_background_satisfies_the_raychaudhuri_equation` |
+| Two equal masses ≡ one field | single-field solver | 1e-8 e-folds | 1.3e-11 | `test_two_equal_masses_reduce_to_one_field` |
+| δN against the mode spectrum | each other, one field | `O(ε) = 9e-3` | 0.8% amplitude, 1.8e-4 in `n_s` | `test_delta_n_matches_the_mode_spectrum_for_one_field` |
+| δN on a fixed-radius surface | exact `φ_i/2`, unequal masses | `O(ε)` | 1.7e-2 at R = 15, 4.0e-3 at R = 30 | `test_delta_n_on_a_fixed_radius_surface_is_analytic_for_two_quadratics` |
+
+### The one benchmark that tests the mode solver rather than slow roll
+
+An exponential potential has constant `ε`, so the Mukhanov-Sasaki equation
+has a closed-form Hankel solution and the spectrum is an *exact* power law:
+`n_s − 1 = −2ε/(1−ε)` and `r = 16ε`, with no slow-roll expansion anywhere.
+At λ = 0.4 that is `n_s − 1 = −0.173913`, where the first-order formula says
+`−0.16`. The solver reproduces the exact value to 4e-10 — so it is four per
+cent of the tilt away from the approximation it exists to improve on, which
+is the only way to tell a working mode solver from a slow-roll expression
+wearing one's clothes. Every other spectrum in the table is checked for
+agreement with slow roll *and* for disagreement at the expected order.
+
+### The Starobinsky gate, and why the last digit belongs to the formula
+
+Section 10 asks for `n_s = 1 − 2/N` to three digits at N = 55. What the
+pipeline gives is
+
+| Quantity | Value |
+|---|---|
+| Mukhanov-Sasaki `n_s` at N = 55 | 0.964898 |
+| Leading-order `1 − 2/N` | 0.963636 |
+| Difference | 1.26e-3 |
+
+and the difference is not this module's error. It is the subleading term of
+the asymptotic formula, and the evidence is its scaling: `N²` times the gap
+is 3.82 at N = 55, 4.13 at 80, 4.48 at 120, 4.91 at 200 and 5.50 at 400 — a
+`ln N / N²` residual, not a constant offset and not a convergence failure.
+The consequence is that `1 − 2/N` is itself only good to three digits beyond
+about N = 90, so at N = 55 no correct pipeline can reproduce it to 1e-3. The
+same happens to the tensor ratio: `12/N² = 3.967e-3` against the exact
+3.550e-3, ten per cent apart at N = 55 and two per cent at N = 400.
+
+What *is* established to the tolerance asked is the number itself. `n_s =
+0.964898` moves by at most 2e-6 under every knob the calculation has: six to
+eight e-folds of sub-horizon evolution before the mode starts, six to nine
+after it freezes, `rtol` from 1e-10 to 1e-12, a fit half-width from 0.25 to
+1.0 in `ln k` with five or nine points, and eight to fourteen e-folds of
+background margin in front of the pivot. That is three orders below the
+criterion.
+
+### Which surface ends inflation is worth a part in a thousand
+
+Slow roll stops at `ε_V = 1`; the exact evolution runs on to `ε_H = 1`,
+which on the Starobinsky plateau is 1.54 e-folds further. At `dn_s/dN ≈
+2/N²` that is 9.5e-4 of `n_s` — the size of the criterion itself. The pivot
+here is therefore placed by the *numerical* e-fold count, and the slow-roll
+integral is used only to choose where to start the background.
+
+Two conventional errors then nearly cancel, and it is worth naming so that
+the agreement is not mistaken for a virtue: first-order slow roll evaluated
+at the slow-roll pivot gives 0.964977, which is within 8e-5 of the exact
+0.964898, because the convention shift (−9.5e-4) and the second-order
+slow-roll correction (+8.7e-4) happen to be the same size and opposite in
+sign at N = 55. Neither is small on its own.
+
+### What δN covers and what it does not
+
+The multi-field spectrum is `δN`: `P_R = (H/2π)² Σ (∂N/∂φ_i)²`, with the
+gradient obtained by differentiating the *exact* background evolution
+between neighbouring separate universes, so it holds for potentials with no
+closed form. It is a super-horizon, slow-roll statement. For a single field
+it agrees with the mode solver to `O(ε)`, which is how it is calibrated
+here, but it does not integrate isocurvature modes through horizon crossing
+— a mode-by-mode multi-field solver is not in this module, and nothing here
+reports one.
+
+The analytic check for the multi-field case is exact and non-trivial. In
+slow roll `d(Σ φ_i²)/dN = −2 Σ m_i² φ_i² / V = −4` for any set of masses,
+because the numerator is twice the potential. So the e-folds to a surface of
+fixed `Σ φ_i²` are `(R² − R_end²)/4` and `∂N/∂φ_i = φ_i/2` exactly, on a
+trajectory that is genuinely curved. The measured residual is the slow-roll
+correction and the test checks that it *scales* like `O(ε) ∝ 1/R²` — 1.7e-2
+at R = 15 and 4.0e-3 at R = 30, a factor of 4.2 for a factor of 2 in radius
+— rather than only that it is small.
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |
@@ -434,7 +528,6 @@ the design document.
 - Free-electron laser gain length, to 5% (issue #35)
 
 ### Milestone 3, cosmology
-- Starobinsky inflation `n_s = 1 − 2/N`, to three digits (issue #41)
 - One published string-inspired potential's `(n_s, r)` pair (issue #42)
 
 ### Milestone 4, three-dimensional numerical relativity

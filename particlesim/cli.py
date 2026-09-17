@@ -67,7 +67,13 @@ def _cmd_hypothesis(args: argparse.Namespace) -> int:
     from particlesim.scenarios.singularity.harness import evaluate
     from particlesim.theories import get_theory
 
-    card = evaluate(get_theory(args.theory))
+    theory = get_theory(args.theory)
+    card = evaluate(theory)
+    if args.report:
+        from particlesim.scenarios.singularity.harness import write_report
+
+        path = write_report(card, args.report, theory)
+        print(f"report written to {path}", file=sys.stderr)
     if args.json:
         print(json.dumps(card.summary(), indent=2, default=str))
     else:
@@ -101,6 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     hy = sub.add_parser("hypothesis", help="score a theory plugin against the singularity battery")
     hy.add_argument("theory", help="theory id, for example lqg.lqc")
     hy.add_argument("--json", action="store_true", help="machine-readable report card")
+    hy.add_argument("--report", help="also write a self-contained HTML report to this path")
     hy.set_defaults(func=_cmd_hypothesis)
 
     rn = sub.add_parser("run", help="run a scenario from a YAML config")

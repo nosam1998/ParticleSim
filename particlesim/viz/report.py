@@ -51,6 +51,8 @@ figure img { width: 100%; height: auto; display: block; border-radius: 6px; }
 figcaption { color: var(--muted); font-size: 0.85rem; margin-top: 8px; }
 pre { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
       padding: 12px; overflow-x: auto; font-size: 0.82rem; }
+ul { margin: 6px 0 16px; padding-left: 22px; }
+li { margin: 3px 0; }
 details { margin-top: 12px; }
 summary { cursor: pointer; color: var(--accent); }
 """
@@ -78,19 +80,58 @@ def _rows(mapping: dict[str, Any]) -> str:
     return "\n".join(out)
 
 
-def _flat_sections(report: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+def _list_table(rows: list[dict[str, Any]]) -> str:
+    """Render a list of dictionaries as a table with a column per key."""
+    columns: list[str] = []
+    for row in rows:
+        for key in row:
+            if key not in columns:
+                columns.append(key)
+    head = "".join(f"<th>{html.escape(str(c))}</th>" for c in columns)
+    body = []
+    for row in rows:
+        cells = []
+        for c in columns:
+            value = row.get(c)
+            cls = "num"
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value < 0:
+                cls = "num bad"
+            cells.append(f"<td class='{cls}'>{_fmt(value)}</td>")
+        body.append("<tr>" + "".join(cells) + "</tr>")
+    return f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
+
+
+def _bullets(items: list[Any]) -> str:
+    if not items:
+        return "<p class='sub'>none</p>"
+    return "<ul>" + "".join(f"<li>{_fmt(i)}</li>" for i in items) + "</ul>"
+
+
+def _flat_sections(report: dict[str, Any]) -> list[tuple[str, Any]]:
+    """Split a report into renderable sections.
+
+    Lists are sections in their own right. Dropping them, which an earlier
+    version did by filtering for non-dict non-list values, silently removed
+    every list-valued field from the page. On a hypothesis report card those
+    fields are the verdict itself: what was confirmed, what was contradicted,
+    what went untested. A report page that omits its own conclusion is worse
+    than no page, because it looks complete.
+    """
     scalars = {k: v for k, v in report.items() if not isinstance(v, (dict, list))}
-    sections: list[tuple[str, dict[str, Any]]] = []
+    sections: list[tuple[str, Any]] = []
     if scalars:
         sections.append(("Overview", scalars))
     for key, value in report.items():
+        title = key.replace("_", " ").title()
         if isinstance(value, dict):
             flat = {k: v for k, v in value.items() if not isinstance(v, dict)}
             nested = {k: v for k, v in value.items() if isinstance(v, dict)}
             if flat:
-                sections.append((key.replace("_", " ").title(), flat))
+                sections.append((title, flat))
             for sub, subval in nested.items():
                 sections.append((f"{key} / {sub}".replace("_", " ").title(), subval))
+        elif isinstance(value, list):
+            sections.append((title, value))
     return sections
 
 
@@ -112,11 +153,20 @@ def render_html_report(
         f"<p class='sub'>Generated {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}</p>",
     ]
 
-    for heading, mapping in _flat_sections(report):
-        if not mapping:
+    for heading, content in _flat_sections(report):
+        if isinstance(content, list):
+            # An empty list is still rendered, because "nothing was
+            # contradicted" is a result and a missing section is not.
+            if content and all(isinstance(i, dict) for i in content):
+                body = _list_table(content)
+            else:
+                body = _bullets(content)
+            parts.append(f"<h2>{html.escape(heading)}</h2>{body}")
+            continue
+        if not content:
             continue
         parts.append(
-            f"<h2>{html.escape(heading)}</h2><table><tbody>{_rows(mapping)}</tbody></table>"
+            f"<h2>{html.escape(heading)}</h2><table><tbody>{_rows(content)}</tbody></table>"
         )
 
     if figures:

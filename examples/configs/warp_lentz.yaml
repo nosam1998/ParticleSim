@@ -1,0 +1,21 @@
+# Lentz 2021 soliton (CQG 38, 075015), with the Fell-Heisenberg 2021 objection:
+# the report's eulerian.min_density is negative, so the WEC is violated, while
+# eulerian.total_energy cancels to ~0 because the shift is a pure gradient.
+# Flat slices and a unit lapse, so the fast Hamiltonian-constraint path is exact
+# here; the full Einstein-tensor path is left off because the two-component
+# shift makes the symbolic 4-metric expensive.
+scenario: warp.analyze
+theory:
+  gravity: gr
+metric:
+  family: lentz
+  params: {v_s: 2.0, R: 5.0, sigma: 2.0, v_h: 1.0}
+grid:
+  extent: [[-16, 16], [-16, 16], [-16, 16]]
+  resolution: [12, 12, 12]
+analysis:
+  full_stress_energy: false
+output:
+  dir: runs/warp_lentz
+  formats: [npz, json]
+seed: 0

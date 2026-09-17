@@ -338,8 +338,14 @@ independently (design doc Section 4.6).
 Today `build_stack()` in the warp analyzer fills `gravity` from
 `theory.gravity` plus `theory.couplings` and `em` from `theory.em` with
 default couplings only; `eos` is never set from a config, and nothing reads
-`stack.em` beyond the validation and `describe()`. There is no EM-sector
-contract (constitutive relations are Milestone 2 work).
+`stack.em` beyond the validation and `describe()`.
+
+The EM sector does have a contract now: an `EMSector` subclass in
+`particlesim.theories.em` supplies a constitutive relation, which
+`particlesim.solvers.pic` consumes, and those sectors are discovered
+through their own entry-point group (Section 8). They are not registered in
+the gravity group, because a sector has no Lagrangian and no GR limit and
+the limit harness would rightly refuse it.
 
 ## 8. Registering a plugin
 
@@ -347,6 +353,22 @@ Discovery goes through the Python entry-point group `particlesim.theories`
 (design doc ADR-007). `particlesim.theories.registry.list_theories()` starts
 from the built-in `gr` and adds every entry point in the group;
 `get_theory(id, **couplings)` looks an id up and instantiates it.
+
+There are three groups, because three different things are discoverable and
+handing them to each other's consumers would fail in confusing ways:
+
+| Group | Contents | Listed by |
+|---|---|---|
+| `particlesim.theories` | gravitational theory plugins, Tier A and B | `list_theories` |
+| `particlesim.em_sectors` | `EMSector` constitutive relations | `list_em_sectors` |
+| `particlesim.inflaton_potentials` | `Potential` subclasses for `cosmo.inflation` | `list_inflaton_potentials` |
+
+The mechanics below are identical for all three; only the group name and the
+base class change. An inflaton potential is the furthest from a theory
+plugin: it has no field equations, no GR limit and no Lagrangian, and it is
+consumed by the inflation solvers rather than composed into a
+`TheoryStack`. What it shares is the reason for a registry — an id, a
+provenance, and the ability for a package outside this tree to add one.
 
 ### Inside this repository
 

@@ -53,6 +53,18 @@ class Potential(ABC):
 
     #: Field interval on which this potential describes inflation.
     domain: ClassVar[tuple[float, float]] = (-math.inf, math.inf)
+    #: Registry id, keyed as in :func:`particlesim.theories.registry.list_inflaton_potentials`.
+    id: ClassVar[str] = ""
+    #: Where this form comes from, with a reference where there is one.
+    provenance: ClassVar[str] = ""
+    #: What has been dropped from the larger expression this truncates.
+    #:
+    #: Empty means nothing was: a quadratic is a quadratic. It is the
+    #: string-inspired potentials in
+    #: :mod:`particlesim.cosmo.string_potentials` that are expansions of
+    #: something larger, and there the terms left out are the reason two
+    #: papers on the same model can disagree, so they are named.
+    truncation: ClassVar[str] = ""
 
     @property
     @abstractmethod
@@ -124,6 +136,12 @@ class Quadratic(Potential):
     thing to check a numerical pipeline against.
     """
 
+    id: ClassVar[str] = "inflation.quadratic"
+    provenance: ClassVar[str] = (
+        "Chaotic inflation, Linde 1983 (Phys. Lett. B 129, 177); the p = 2 "
+        "member of the exactly solvable power-law family"
+    )
+
     mass: float = 1e-5
     domain: ClassVar[tuple[float, float]] = (0.0, math.inf)
 
@@ -157,6 +175,12 @@ class PowerLaw(Potential):
     numerical spectrum can be checked against an analytic one at several
     exponents instead of at a single lucky point.
     """
+
+    id: ClassVar[str] = "inflation.power_law"
+    provenance: ClassVar[str] = (
+        "Monomial large-field inflation; the closed forms for n_s and r are "
+        "standard slow-roll algebra and are derived in this docstring"
+    )
 
     amplitude: float = 1e-10
     exponent: float = 2.0
@@ -207,6 +231,13 @@ class Exponential(Potential):
     exact index is ``-0.1739`` where slow roll says ``-0.16``.
     """
 
+    id: ClassVar[str] = "inflation.exponential"
+    provenance: ClassVar[str] = (
+        "Power-law inflation, Lucchin and Matarrese 1985 (PRD 32, 1316). The "
+        "exact Hankel-function spectrum is what makes it the reference case "
+        "for a mode solver"
+    )
+
     amplitude: float = 1e-10
     rate: float = 0.4
 
@@ -240,6 +271,12 @@ class Starobinsky(Potential):
     Einstein-frame potential and the ``n_s = 1 - 2/N`` asymptotics are
     standard, e.g. Planck 2018 inflation (A&A 641, A10).
     """
+
+    id: ClassVar[str] = "inflation.starobinsky"
+    provenance: ClassVar[str] = (
+        "Starobinsky 1980 (Phys. Lett. B 91, 99), Einstein-frame potential of "
+        "R + R^2 gravity; the n_s = 1 - 2/N, r = 12/N^2 asymptotics are standard"
+    )
 
     amplitude: float = 1e-10
     domain: ClassVar[tuple[float, float]] = (0.0, math.inf)
@@ -280,6 +317,12 @@ class Natural(Potential):
 
     Provenance: Freese, Frieman and Olinto 1990 (PRL 65, 3233).
     """
+
+    id: ClassVar[str] = "inflation.natural"
+    provenance: ClassVar[str] = (
+        "Freese, Frieman and Olinto 1990 (PRL 65, 3233): a pseudo-Nambu-Goldstone "
+        "inflaton with a single instanton-generated harmonic"
+    )
 
     amplitude: float = 1e-10
     decay_constant: float = 5.0

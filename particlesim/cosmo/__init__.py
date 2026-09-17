@@ -49,19 +49,31 @@ from particlesim.cosmo.potentials import (
     Starobinsky,
     as_multifield,
 )
+from particlesim.cosmo.string_potentials import (
+    AxionMonodromy,
+    DBraneInflation,
+    FibreInflation,
+    KahlerModuli,
+    PlateauInflation,
+)
 
 __all__ = [
+    "AxionMonodromy",
     "BackgroundRun",
     "Component",
     "Cosmology",
+    "DBraneInflation",
     "DeltaNSpectrum",
     "Exponential",
+    "FibreInflation",
     "InflationNeverEnds",
     "InflationRun",
+    "KahlerModuli",
     "ModeResult",
     "MultiFieldPotential",
     "MultiFieldRun",
     "Natural",
+    "PlateauInflation",
     "Potential",
     "PowerLaw",
     "Quadratic",

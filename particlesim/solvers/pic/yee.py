@@ -167,6 +167,10 @@ class Vacuum:
     def magnetic(self, D, B):
         return B
 
+    def energy_density(self, D, B):
+        """``(E.D + H.B) / 2``, which for a linear medium is the field energy."""
+        return 0.5 * sum(d**2 + b**2 for d, b in zip(D, B, strict=True))
+
 
 def _forward(f: np.ndarray, axis: int, delta: float) -> np.ndarray:
     """Difference from integer to half-integer positions along ``axis``."""
@@ -382,10 +386,18 @@ class YeeSolver:
 
         For a travelling wave the two halves are in phase and the value is
         conserved to round-off instead.
+
+        A medium supplying ``energy_density`` is asked for it. Nonlinear
+        electrodynamics does not store ``(E.D + H.B)/2``: Born-Infeld's
+        energy is its Hamiltonian, and using the linear expression there
+        would report a number that is not conserved and not the energy.
         """
+        cell = float(np.prod(self.grid.spacing))
+        density = getattr(self.medium, "energy_density", None)
+        if density is not None:
+            return float(np.sum(density(fields.D, fields.B))) * cell
         E = self.medium.electric(fields.D, fields.B)
         H = self.medium.magnetic(fields.D, fields.B)
-        cell = float(np.prod(self.grid.spacing))
         total = sum(float(np.sum(e * d)) for e, d in zip(E, fields.D, strict=True))
         total += sum(float(np.sum(h * b)) for h, b in zip(H, fields.B, strict=True))
         return 0.5 * total * cell

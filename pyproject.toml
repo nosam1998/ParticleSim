@@ -42,6 +42,11 @@ gr = "particlesim.theories.gr:GeneralRelativity"
 "lqg.lqc" = "particlesim.theories.lqg.lqc:EffectiveLQC"
 "asafety.rg_improved" = "particlesim.theories.asafety.rg_improved:RGImprovedSchwarzschild"
 
+[project.entry-points."particlesim.em_sectors"]
+"gr.maxwell" = "particlesim.theories.em:Maxwell"
+"string.eft4d.born_infeld" = "particlesim.theories.em:BornInfeld"
+"qed.euler_heisenberg" = "particlesim.theories.em:EulerHeisenberg"
+
 [tool.hatch.build.targets.wheel]
 packages = ["particlesim"]
 

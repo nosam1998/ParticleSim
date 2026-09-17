@@ -54,3 +54,12 @@ def test_check_limits_command(capsys):
     assert main(["check-limits", "--no-action"]) == 0
     out = capsys.readouterr().out
     assert "gr" in out and "ok" in out
+
+
+def test_hypothesis_command_reports_and_gates(capsys):
+    assert main(["hypothesis", "lqg.lqc"]) == 0
+    out = capsys.readouterr().out
+    assert "SURVIVED" in out and "lqg.lqc" in out
+    assert main(["hypothesis", "lqg.lqc", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["passed"] is True

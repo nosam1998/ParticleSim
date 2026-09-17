@@ -11,6 +11,7 @@ from particlesim.scenarios.singularity.bianchi import (
     normalized_exponents,
 )
 from particlesim.scenarios.singularity.flrw import FLRWBackground, FLRWSolution, lqc_correction
+from particlesim.scenarios.singularity.harness import ReportCard, evaluate, run_battery
 from particlesim.scenarios.singularity.oppenheimer_snyder import OppenheimerSnyder
 
 __all__ = [
@@ -18,6 +19,9 @@ __all__ = [
     "FLRWBackground",
     "FLRWSolution",
     "OppenheimerSnyder",
+    "ReportCard",
+    "evaluate",
+    "run_battery",
     "epoch_parameters",
     "is_kasner_epoch",
     "kasner_exponents",

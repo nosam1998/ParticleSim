@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import comb
 
 import numpy as np
 
@@ -95,4 +96,46 @@ def derivative(arr: np.ndarray, axis: int, dx: float, order: int = 4) -> np.ndar
     for i in range(r):
         out[i] = (-3 * a[i] + 4 * a[i + 1] - a[i + 2]) / (2 * dx)
         out[n - 1 - i] = (3 * a[n - 1 - i] - 4 * a[n - 2 - i] + a[n - 3 - i]) / (2 * dx)
+    return np.moveaxis(out, 0, axis)
+
+
+def kreiss_oliger(u: np.ndarray, axis: int, dx: float, order: int = 4, epsilon: float = 0.1):
+    """Kreiss-Oliger artificial dissipation, to be added to a right-hand side.
+
+    Centred finite differences do not damp the shortest wavelength the grid
+    can carry, so numerical noise at the Nyquist frequency accumulates until
+    it swamps the solution. KO dissipation removes it while leaving the
+    solution's accuracy order intact, which is why numerical relativity runs
+    do not survive without it.
+
+    For a scheme of accuracy ``order = 2r - 2``, the operator uses the
+    ``2r``-th centred difference:
+
+        Q = (-1)^(r+1) * epsilon / (2^(2r) * dx) * D^(2r)
+
+    so that ``Q`` annihilates polynomials below degree ``2r`` (leaving the
+    scheme's order untouched) and damps the Nyquist mode at rate
+    ``epsilon / dx``. Both properties are pinned by tests rather than
+    asserted here.
+
+    Points within the stencil radius of a boundary get no dissipation, since
+    a one-sided dissipation operator would inject exactly the error it is
+    meant to remove.
+    """
+    if order not in (2, 4, 6):
+        raise ValueError("order must be 2, 4, or 6")
+    if epsilon < 0:
+        raise ValueError("epsilon must be non-negative")
+    r = order // 2 + 1
+    stencil = np.array([(-1) ** k * comb(2 * r, k) for k in range(2 * r + 1)], dtype=float)
+    a = np.moveaxis(np.asarray(u, dtype=float), axis, 0)
+    n = a.shape[0]
+    if n < 2 * r + 1:
+        raise ValueError("array too short for the dissipation stencil")
+    out = np.zeros_like(a)
+    acc = np.zeros_like(a[: n - 2 * r])
+    for k, c in enumerate(stencil):
+        acc = acc + c * a[k : n - 2 * r + k]
+    prefactor = ((-1) ** (r + 1)) * epsilon / (2 ** (2 * r) * dx)
+    out[r : n - r] = prefactor * acc
     return np.moveaxis(out, 0, axis)

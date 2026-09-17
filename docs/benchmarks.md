@@ -70,6 +70,29 @@ each must declare itself completely, have a GR limit that can actually be
 instantiated and checked, and run through the harness. A template that stops
 working fails the build rather than misleading whoever copies it next.
 
+## Electromagnetic sector
+
+| Benchmark | Reference | Tolerance | Measured | Test |
+|---|---|---|---|---|
+| Born-Infeld leaves a null field alone | `E = D`, `H = B` exactly where `D ⊥ B`, `\|D\| = \|B\|` | 1e-14 | exact at b = 0.5, 2 and 100 | `test_a_null_field_is_untouched_by_born_infeld` |
+| Born-Infeld maximum field | `E → b` as `\|D\| → ∞` | 1e-6 | 1.999996 at `\|D\| = 1e3`, b = 2 | `test_born_infeld_saturates_at_its_maximum_field` |
+| Departure from Maxwell | second order in `1/b` | 1.9–2.1 | exact order | `test_departure_from_maxwell_falls_as_the_inverse_square_of_the_scale` |
+| Born-Infeld energy | its Hamiltonian, `b²(W − 1)` | 1e-12 | exact | `test_born_infeld_energy_is_its_hamiltonian` |
+| Cavity frequency shift | `−0.253 A²/b²` | 5% on the coefficient | stable at b = 100, 30 and 10 | `test_born_infeld_shifts_a_cavity_measurably_and_vanishes_with_the_scale` |
+| Euler-Heisenberg correction | first order in its coupling | 5% | exact order over two decades | `test_euler_heisenberg_correction_is_first_order_in_its_coupling` |
+
+Each plugin is parameterized so **Maxwell sits at zero**, not at infinity.
+Born-Infeld's natural parameter is a maximum field `b` and its Maxwell limit
+is `b → ∞`, which no test can evaluate. Carrying `1/b` instead puts the
+limit at a value a test can set, and `check_maxwell_limit` checks both
+halves: the departure at the limit must be zero, and away from it must not
+be. A plugin returning `E = D` unconditionally passes the first perfectly
+and is not a theory.
+
+A travelling plane wave is nearly blind to Born-Infeld, because its
+invariants vanish. A standing wave is not, which is why the benchmark that
+shows the theory is a cavity rather than a propagating pulse.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared

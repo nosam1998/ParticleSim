@@ -432,14 +432,24 @@ def test_the_connection_form_of_the_conformal_ricci_is_the_same_tensor():
 
     Checked on a unimodular metric with every component non-zero, a
     non-zero shift and non-zero extrinsic curvature, so nothing switches
-    off. The difference is not small: it is *exactly zero*, in rational
-    arithmetic.
+    off. The difference is not small: it is *exactly zero*.
+
+    Evaluated at **rational** points rather than the module's floats, which
+    is what makes that claim checkable. At a float point the two forms
+    differ by about 1e-17 -- the rounding of two different orders of
+    summation, not a discrepancy -- and an exact comparison there would be
+    testing floating-point associativity. Rationals keep SymPy in exact
+    arithmetic all the way, so ``== 0`` means what it says.
     """
+    points = (
+        {X: sp.Rational(1, 3), Y: sp.Rational(1, 4), Z: sp.Rational(1, 5)},
+        {X: sp.Rational(-2, 7), Y: sp.Rational(3, 8), Z: sp.Rational(-1, 6)},
+    )
     slice_ = symbolic_slice(*_unimodular(), COORDS)
     variables = bssn.from_adm(slice_)
     plain = ricci(variables.conformal_slice)
     connection_form = bssn.conformal_connection_ricci(variables)
-    for point in POINTS:
+    for point in points:
         scale = _worst(plain, point)
         assert scale > 1e-3
         for i in INDICES:

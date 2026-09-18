@@ -462,9 +462,10 @@ def bssn_rhs(
     Two terms of the connection equation need quantities an ADM slice does
     not carry: ``d_j Gammabar^i`` and the second derivative of the shift.
     Pass them as ``d_connection`` (indexed ``[j][i]``) and ``dd_shift``
-    (indexed ``[j][k][i]`` for ``d_j d_k beta^i``) and the equation is
-    complete. Leave them out and they are dropped -- but only where the
-    shift is certainly zero, because a silently missing term is a wrong
+    (indexed ``[k][j][i]`` for ``d_k d_j beta^i``) and the equation is
+    complete. Leave them out and a symbolic slice differentiates its own
+    shift and connection; a slice built from arrays cannot, and is refused
+    unless the shift vanishes, because a silently missing term is a wrong
     answer that looks like a right one.
 
     ``ricci_form`` selects how ``Rbar_ij`` is written; an evolution wants
@@ -557,8 +558,9 @@ def bssn_rhs(
             row.append(total)
         dt_traceless.append(row)
 
-    # (11.55) d_t Gammabar^i, without the second-derivative-of-shift terms.
+    # (11.55) d_t Gammabar^i.
     conformal_christoffel = christoffel(conformal, conformal_inverse)
+    shift_hessian = _shift_hessian(variables) if dd_shift is None else dd_shift
     dt_connection = []
     for i in INDICES:
         total = _zeros_like(lapse)
@@ -577,17 +579,9 @@ def bssn_rhs(
             total = total + shift[j] * advection[i]
             total = total - variables.connection[j] * physical.d_shift[j][i]
             total = total + 2 * variables.connection[i] * physical.d_shift[j][j] / 3
-            if dd_shift is not None:
-                for k in INDICES:
-                    total = total + conformal_inverse[k][i] * dd_shift[k][j][j] / 3
-                    total = total + conformal_inverse[k][j] * dd_shift[k][j][i]
-            elif not _certainly_zero(shift[j]):
-                raise ValueError(
-                    "the connection equation's second-derivative-of-shift terms need "
-                    "dd_shift, and the shift does not vanish: pass it, or the "
-                    "equation is missing (1/3) gammabar^ki d_k d_j beta^j + "
-                    "gammabar^kj d_k d_j beta^i"
-                )
+            for k in INDICES:
+                total = total + conformal_inverse[k][i] * shift_hessian[k][j][j] / 3
+                total = total + conformal_inverse[k][j] * shift_hessian[k][j][i]
         if momentum is not None:
             total = total - 16 * math.pi * lapse * sum(
                 conformal_inverse[i][j] * momentum[j] for j in INDICES
@@ -617,6 +611,37 @@ def _certainly_zero(value) -> bool:
     if isinstance(value, sp.Basic):
         return bool(sp.simplify(value).is_zero)
     return value == 0
+
+
+def _shift_hessian(variables: BSSNVariables) -> list[list[list[Any]]]:
+    """``d_k d_j beta^i``, indexed ``[k][j][i]``.
+
+    The connection equation needs the shift's second derivative, and a
+    :class:`~particlesim.symbolic.threeplusone.Slice` carries the shift
+    differenced only once. The same split as
+    :func:`_connection_derivative`: a symbolic slice can differentiate it
+    again and does, a slice built from arrays has to be handed it, and
+    where the shift vanishes the terms drop out so zeros are correct.
+    Anything else is refused, because the terms it would silently omit --
+    ``(1/3) gammabar^ki d_k d_j beta^j + gammabar^kj d_k d_j beta^i`` --
+    are a wrong answer that looks like a right one.
+    """
+    coords = variables.physical.coords
+    shift = variables.shift
+    if coords is not None:
+        return [
+            [[sp.diff(shift[i], coords[k], coords[j]) for i in INDICES] for j in INDICES]
+            for k in INDICES
+        ]
+    if all(_certainly_zero(value) for value in shift):
+        zero = _zeros_like(variables.lapse)
+        return [[[zero for _ in INDICES] for _ in INDICES] for _ in INDICES]
+    raise ValueError(
+        "the connection equation's second-derivative-of-shift terms need "
+        "dd_shift, which a slice built from arrays cannot supply, and the "
+        "shift does not vanish: pass it, or the equation is missing "
+        "(1/3) gammabar^ki d_k d_j beta^j + gammabar^kj d_k d_j beta^i"
+    )
 
 
 def _connection_derivative(variables: BSSNVariables, direction: int) -> list[Any]:

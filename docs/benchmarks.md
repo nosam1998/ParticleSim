@@ -870,8 +870,10 @@ on each component of `γ̃_ij` as the whole principal part. It is legitimate
 because it is algebraically the same tensor whenever
 `Γ̄^i = γ̃^jk Γ̄^i_jk` — checked in
 `test_the_connection_form_of_the_conformal_ricci_is_the_same_tensor` on a
-unimodular metric with every component non-zero, where the difference is not
-small but **exactly zero in rational arithmetic**. With it, the table at the
+unimodular metric with every component non-zero, at rational points so that
+SymPy stays in exact arithmetic, where the difference is not small but
+**exactly zero**. (At a float point the two differ by about 1e-17, which is
+the rounding of two different orders of summation.) With it, the table at the
 top of this section.
 
 This is why `Γ̄^i` is an evolved variable in BSSN at all, and it is the kind

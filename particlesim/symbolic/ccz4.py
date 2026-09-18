@@ -211,6 +211,38 @@ def z_derivatives(variables: BSSNVariables, upper, d_upper):
     return divergence, symmetric
 
 
+def ricci_scalar(variables: BSSNVariables, d_connection=None):
+    """``R``, from the same conformal decomposition ``d_t Abar_ij`` uses.
+
+    The point is *which* expression tree, not the value. Tracing back to
+    ``physical_ricci`` in the connection form means the scalar shares every
+    subexpression with the tensor the traceless equation already needs, and
+    common-subexpression elimination charges for it once.
+    """
+    inverse = inverse_metric(variables.physical.metric)
+    tensor = bssn.physical_ricci(variables, d_connection, form="connection")
+    return trace(inverse, tensor)
+
+
+def _hamiltonian(variables: BSSNVariables, scalar, density=0.0):
+    """``H = R + 2 K^2 / 3 - Abar_ij Abar^ij - 16 pi rho`` from a given ``R``."""
+    conformal_inverse = inverse_metric(variables.conformal_slice.metric)
+    traceless = variables.traceless_curvature
+    upper = [
+        [
+            sum(
+                conformal_inverse[i][a] * conformal_inverse[j][b] * traceless[a][b]
+                for a in INDICES
+                for b in INDICES
+            )
+            for j in INDICES
+        ]
+        for i in INDICES
+    ]
+    square = sum(traceless[i][j] * upper[i][j] for i in INDICES for j in INDICES)
+    return scalar + 2 * variables.mean_curvature**2 / 3 - square - 16 * math.pi * density
+
+
 def ccz4_rhs(
     variables: BSSNVariables,
     theta,
@@ -262,7 +294,16 @@ def ccz4_rhs(
 
     # H = R + K^2 - K_ij K^ij, the quantity the textbook BSSN d_t K removes
     # and Z4 puts back.
-    constraint = hamiltonian_constraint(physical, density=density, inverse=inverse)
+    #
+    # Spelled out in the conformal variables rather than called from
+    # ``hamiltonian_constraint``, which would build the Ricci tensor by the
+    # *other* route -- straight from the physical metric instead of through
+    # the conformal decomposition -- and leave the derivation carrying two
+    # structurally different trees for the same tensor. That cost 4 598 655
+    # raw operations and ten minutes of elimination, measured, before this
+    # was changed. :func:`constraint_identity` is the test that the two
+    # forms agree.
+    constraint = _hamiltonian(variables, ricci_scalar(variables, d_connection), density)
 
     # (1) d_t K. The BSSN form plus alpha H is the ADM form, which is what
     # Z4 starts from because it does not assume the constraint.
@@ -329,22 +370,8 @@ def constraint_identity(variables: BSSNVariables, density=0.0):
     """
     physical = variables.physical
     inverse = inverse_metric(physical.metric)
-    conformal_inverse = inverse_metric(variables.conformal_slice.metric)
     scalar = trace(inverse, bssn.physical_ricci(variables))
-    traceless = variables.traceless_curvature
-    upper_traceless = [
-        [
-            sum(
-                conformal_inverse[i][a] * conformal_inverse[j][b] * traceless[a][b]
-                for a in INDICES
-                for b in INDICES
-            )
-            for j in INDICES
-        ]
-        for i in INDICES
-    ]
-    square = sum(traceless[i][j] * upper_traceless[i][j] for i in INDICES for j in INDICES)
-    spelled = scalar + 2 * variables.mean_curvature**2 / 3 - square - 16 * math.pi * density
+    spelled = _hamiltonian(variables, scalar, density)
     return hamiltonian_constraint(physical, density=density, inverse=inverse), spelled
 
 

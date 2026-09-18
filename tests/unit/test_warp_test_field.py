@@ -662,3 +662,72 @@ def test_the_field_is_bounded_on_the_alcubierre_background():
     assert peak == pytest.approx(start, rel=1e-9), (peak, start)
     assert samples == sorted(samples, reverse=True), samples
     assert samples[-1] < start / 20.0, (samples[-1], start)
+
+
+@pytest.mark.slow
+@pytest.mark.benchmark
+def test_fourth_order_self_convergence_on_the_alcubierre_background():
+    """Issue #54's "convergent", on the background with no closed-form solution.
+
+    There is nothing exact to compare against, so successive resolutions are
+    compared with each other -- and **with no interpolation anywhere**. For
+    cell-centred grids a refinement ratio of *three* makes every coarse cell
+    centre exactly a fine one, since ``(i + 1/2) * 3 = (3i + 1) + 1/2``. So
+    the fields are compared point for point and the measured difference is
+    the scheme's error rather than an interpolant's.
+
+    Measured at ``t = 2``, over the fixed physical window ``|x_i| <= 4``:
+
+        n vs 3n     h       wall/h    max|phi_n - phi_3n|   order
+        16 vs 48  1.2500     0.40           3.16e-01
+        24 vs 72  0.8333     0.60           5.45e-02        4.33
+        32 vs 96  0.6250     0.80           1.63e-02        4.20
+
+    Fourth order, and the ``wall/h`` column is why the coarsest point is so
+    far off: the Alcubierre wall is about ``1/sigma = 0.5`` wide, so at
+    ``h = 1.25`` it spans less than half a cell. The orders come out slightly
+    *above* four because the background is becoming better resolved at the
+    same time as the field.
+
+    Two mistakes are designed out of this rather than tolerated. The window
+    is physical, not a point count -- a fixed number of points is a
+    different region at every ``n``, which is what made an earlier version
+    of this study report 0.033, 1.53 and 3.26 for the initial energy. And
+    the ratio is three rather than two, because at ratio two no coarse
+    sample is a fine sample and every comparison would have gone through an
+    interpolation whose own order would cap the measurement.
+    """
+    parameters = {"v_s": 2.0, "R": 5.0, "sigma": 2.0}
+    span, window = 2.0, 4.0
+
+    def solve(count):
+        field, coords = tf.build(
+            "alcubierre",
+            parameters,
+            shape=(count,) * 3,
+            extent=EXTENT,
+            dissipation=0.1,
+            zone=6,
+        )
+        state = tf.spherical_pulse(coords, centre=(0.0, 0.0, 0.0), width=1.5)
+        steps = int(np.ceil(span / field.time_step))
+        final, _ = field.run(state, steps, time_step=span / steps)
+        return final["phi"], coords
+
+    errors, counts = {}, (16, 24)
+    for base in counts:
+        coarse, coords = solve(base)
+        fine, _ = solve(3 * base)
+        picked = 3 * np.arange(base) + 1
+        sampled = fine[np.ix_(picked, picked, picked)]
+        # Coincident points, so this is a difference and not an interpolation.
+        assert sampled.shape == coarse.shape
+
+        inside = np.ones(coarse.shape, dtype=bool)
+        for axis in range(3):
+            inside &= np.abs(np.asarray(coords[axis])) <= window
+        errors[base] = float(np.max(np.abs(coarse[inside] - sampled[inside])))
+
+    order = np.log(errors[counts[0]] / errors[counts[1]]) / np.log(counts[1] / counts[0])
+    assert order > 3.7, (errors, order)
+    assert order < 5.0, (errors, order)

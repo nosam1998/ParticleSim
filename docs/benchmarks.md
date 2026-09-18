@@ -1537,6 +1537,171 @@ a binary's event horizon sweeps out. Finding those needs a representation
 that is not a radius per direction, and this does not have one.
 
 
+## A scalar test field on a warp background: what can be evolved *on* one
+
+Issue #54. Before anything is evolved *with* a warp metric, there is a
+prior question: can anything be evolved *on* it? The shift is large, and for
+a superluminal bubble it exceeds the lapse, so over part of the domain both
+characteristic speeds share a sign. That is a horizon, and a scheme that
+quietly reflected there instead of trapping would look perfectly well
+behaved in every norm.
+
+### The equation, checked before anything is run
+
+A massless scalar obeys `box phi = 0`. With
+`Pi = (1/alpha)(d_t phi - beta^i d_i phi)`, the derivative along the normal
+to the slice, that is
+
+    d_t phi          = alpha Pi + beta^i d_i phi
+    d_t(sqrt(g) Pi)  = d_i ( sqrt(g) beta^i Pi + alpha sqrt(g) gamma^ij d_j phi )
+
+verified symbolically against
+`box phi = (1/sqrt(-g)) d_a (sqrt(-g) g^ab d_b phi)` for a **general** ADM
+metric — arbitrary lapse, arbitrary shift, arbitrary symmetric
+three-metric, every component a function of all four coordinates — along
+with `det g4 = -alpha^2 det gamma`.
+
+### Convergence, and why flat space proves almost nothing
+
+A plane wave on a **constant-shift** background is exact for all time and
+needs no boundary at all, so it measures the scheme and nothing else.
+Maximum error in `phi` at `t = 2` on a periodic box of extent 20:
+
+| shift | n=24 | n=32 | n=48 | n=64 | order |
+|---|---|---|---|---|---|
+| 0.0 | 9.77e-06 | 3.10e-06 | 6.15e-07 | 1.95e-07 | 4.00 |
+| −0.6 | 6.32e-05 | 2.00e-05 | 3.97e-06 | 1.26e-06 | 4.00 |
+| −2.0 | 1.99e-04 | 6.32e-05 | 1.25e-05 | 3.97e-06 | 4.00 |
+
+**The constant-shift rows are the ones that carry weight.** Flat space
+multiplies every advective term by zero, so a sign error in
+`beta^i d_i phi` or `beta^i d_i Pi` passes a flat-space convergence test at
+full fourth order. The `−2.0` row is superluminal: the shift exceeds the
+lapse, both characteristics share a sign, and it still converges cleanly.
+
+On Alcubierre there is nothing exact to compare against, so successive
+resolutions are compared with each other — and with **no interpolation
+anywhere**. For cell-centred grids a refinement ratio of *three* makes every
+coarse cell centre exactly a fine one, since `(i + 1/2) * 3 = (3i + 1) + 1/2`,
+so the fields compare point for point:
+
+| n vs 3n | h | wall/h | max\|φ_n − φ_3n\| | order |
+|---|---|---|---|---|
+| 16 vs 48 | 1.2500 | 0.40 | 3.16e-01 | |
+| 24 vs 72 | 0.8333 | 0.60 | 5.45e-02 | 4.33 |
+| 32 vs 96 | 0.6250 | 0.80 | 1.63e-02 | 4.20 |
+
+Fourth order. The `wall/h` column explains the coarsest row: the Alcubierre
+wall is about `1/sigma = 0.5` wide, so at `h = 1.25` it spans less than half
+a cell. The orders come out slightly *above* four because the background is
+becoming better resolved at the same time as the field.
+
+### Stability, and what "stable" has to mean here
+
+Measured at `n = 40` out to three crossing times:
+
+| t/L | 0.5 | 1.0 | 1.5 | 2.0 | 2.5 | 3.0 |
+|---|---|---|---|---|---|---|
+| max\|φ\| | 2.8e-02 | 6.9e-03 | 1.7e-03 | 6.9e-04 | 2.4e-04 | 8.5e-05 |
+| E | 6.3e-02 | 2.4e-03 | 2.8e-04 | 3.3e-05 | 6.1e-06 | 7.9e-07 |
+
+The peak over the whole run equals the initial value **exactly**
+(`peak/start = 1.0000`), and the decay rate is resolution-independent:
+−0.218, −0.296, −0.225 per unit time at `h = 1.0, 0.714, 0.5`. That
+independence is what identifies it as the wave leaving rather than the
+scheme dissipating — a numerical instability in the principal part would
+go as `1/h` and the rate would track it.
+
+That the *growth* is the thing to check is not pedantry. The bubble wall
+carries a genuine source term `Pi (1/sqrt(g)) d_i (sqrt(g) beta^i)`,
+reaching ±0.78 for these parameters, so amplification was a live
+possibility rather than a hypothetical.
+
+### The horizon, from two directions that share nothing
+
+Along `x`, the characteristic speeds are `-beta^x +- alpha`. Inside the
+default bubble `beta^x = -2`, so they are **+3 and +1 — both positive**, and
+nothing propagates upstream. Outside the shift vanishes and they are the
+usual ±1.
+
+The same number arrives independently. A radial null ray obeys
+`(-alpha^2 + beta^2) dt^2 + 2 beta dt dx + dx^2 = 0`, so its coordinate
+velocity is also `-beta +- alpha`. Integrating one through
+`GeodesicIntegrator` — Christoffels of the full four-metric — gives `{1.0,
+3.0}` to 2e-3 inside the bubble, matching the ADM characteristic speeds
+computed in the solver. The two routes share only the metric. No light
+escapes upstream there either, which says the scalar field's trapping is a
+property of the spacetime and not of the scheme.
+
+Coordinate time is *spacelike* inside a superluminal bubble — `g_tt = +3`
+for these parameters — so a null tangent cannot be built from spatial
+components alone, and `normalize` refuses and says why. The Eulerian-frame
+constructor is what works there.
+
+The ship-frame horizon indicator `alpha^2 - (beta^x + v_s)^2 =
+1 - v_s^2 (1 - f)^2` is positive only where `f > 1 - 1/v_s`, Hiscock's
+surface, which for `v_s = 2` is the bubble interior out to the middle of the
+wall — 6.6% of a box of extent 20 at `R = 5`. Far outside it tends to
+`1 - v_s^2 = -3`: a ship-frame observer in flat space moving at twice the
+speed of light is spacelike, which is the whole reason the bubble is needed.
+
+### Three bugs, and what each of them looked like
+
+**The flux form is the identity and not the implementation.** Evaluating it
+directly means differencing a flux that already holds `d_j phi`, which
+composes two centred first derivatives. The centred first derivative
+annihilates the grid-scale mode `a_i = (-1)^i` *exactly*, so its square does
+too and the Nyquist mode is left with no restoring force at all. Measured
+with a superluminal shift: 5.6e-02, 4.1e-02, 4.8e-02, 1.0e-01 at
+`n = 24, 32, 48, 64` — not converging, and growing once the resolution was
+high enough. Dissipation improved it without fixing it, because damping a
+mode is not the same as giving it a wave speed. The divergence is expanded
+instead and the principal part uses a *direct* second-derivative stencil,
+whose symbol is maximal at Nyquist rather than zero. The extra coefficients
+that expansion produces belong to the background alone and are
+differentiated symbolically, so the only finite differences taken anywhere
+are on the field.
+
+**The outflow zone must difference without wrapping.** The interior uses
+`roll`, so at the `+x` face its stencil reads the `-x` face, and a
+Sommerfeld condition built on *that* gradient asks which way is outward
+using values from the opposite side of the box. The symptom is not a
+boundary artefact — it looks like the warp background amplifying the field,
+at 0.167, 0.252 and 0.420 per unit time for `h = 1.0, 0.714, 0.5`. The
+giveaway is that `rate * h` is 0.167, 0.180, 0.210: near enough constant, so
+the rate goes as `1/h` and it is the discretisation. With the zone removed
+altogether the same run *decays*, at a resolution-independent −0.06. The
+identical warning was already on `nr.boundary.Radiative.rates`, from the
+radiative-boundary work, and it was still walked into.
+
+**And the coordinate symbols have to be imported, not re-created.** This one
+is worth generalising from. `particlesim/scenarios/warp/metrics.py` declares
+its coordinates `sp.symbols("t x y z", real=True)`, and to SymPy a symbol
+with different assumptions is a *different symbol*: `Symbol("x") !=
+Symbol("x", real=True)`. Re-declaring them without the assumption produced a
+pair that compare unequal but print identically — and the two things this
+module does with them behave differently under that. **`sp.lambdify` matches
+on the printed name and worked perfectly; `sp.diff` matches on identity and
+returned zero.** So every directly evaluated coefficient was right while
+every symbolically differentiated one was silently zero, and the evolution
+dropped the `Pi d_i beta^i` source term on every varying background.
+Nothing raised, nothing looked wrong, and the first Alcubierre stability
+result was measured against an equation missing a term. Anything else in
+this codebase that re-creates coordinate symbols rather than importing them
+has the same exposure.
+
+### What is not done
+
+`box phi = 0` is a *test* field: it is evolved on the warp background and
+does not source it. Issue #54's second task — a dynamical evolution with a
+user-supplied sourcing matter model, where the field and the geometry evolve
+together — is a substantially larger piece and is not attempted here, so the
+issue stays open for it.
+
+Light rays are covered only as far as the characteristic cross-check above
+goes. Rendering them, which is issue #55, is a separate matter.
+
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |

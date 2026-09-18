@@ -13,6 +13,15 @@ this one against a plugin that claims a bounce and does not deliver it.
 
 What is checked, in increasing cost:
 
+0. **Exact results.** Before anything is evolved, the declared predictions
+   are scored against :mod:`particlesim.theories.exact_cft`, which records
+   the singular backgrounds string theory has already settled. A hypothesis
+   claiming that every singularity is resolved is contradicted there by the
+   null orbifold, and finding that out costs a dictionary lookup rather than
+   a run. :func:`prescreen` is that step on its own, and it touches no
+   dynamics at all -- a plugin whose ``reduced_equations`` raises still gets
+   scored, which is how the suite establishes that nothing ran.
+
 1. **Declaration.** Tier, formulation, provenance and a regime of validity
    are present. A plugin that does not say what it is cannot be held to it.
 2. **General-relativistic limit.** Delegated to the limit harness, which
@@ -34,6 +43,7 @@ import numpy as np
 
 from particlesim.scenarios.singularity.flrw import W_MATTER, FLRWBackground
 from particlesim.theories.base import Theory
+from particlesim.theories.exact_cft import ReferenceScore, score_hypothesis
 from particlesim.theories.limits import GRLimitReport, check_gr_limit
 
 #: Scale factor below which a collapsing solution is treated as singular.
@@ -77,6 +87,7 @@ class ReportCard:
     density_bounded: bool
     converged: bool
     in_regime: bool = True
+    reference_score: ReferenceScore | None = None
     predictions: dict[str, Any] = field(default_factory=dict)
     confirmed: list[str] = field(default_factory=list)
     contradicted: list[str] = field(default_factory=list)
@@ -107,6 +118,9 @@ class ReportCard:
             "max_density": self.max_density,
             "converged": self.converged,
             "in_regime": self.in_regime,
+            "reference_score": (
+                self.reference_score.as_row() if self.reference_score is not None else None
+            ),
             "confirmed": list(self.confirmed),
             "contradicted": list(self.contradicted),
             "untested": list(self.untested),
@@ -131,6 +145,10 @@ class ReportCard:
             f"  converged            : {self.converged}",
             f"  within declared regime: {self.in_regime}",
         ]
+        if self.reference_score is not None and self.reference_score.refuted:
+            lines.append("  REFUTED BY EXACT RESULTS, before any run:")
+            for entry in self.reference_score.contradicted:
+                lines.append(f"    {entry}")
         for b in self.battery:
             lines.append(f"  scenario {b.scenario:<22} {b.outcome}")
         if self.confirmed:
@@ -258,9 +276,26 @@ def write_report(
     )
 
 
+def prescreen(theory: Theory) -> ReferenceScore:
+    """Score a hypothesis against known exact results, running nothing.
+
+    This is the design document's "before any evolution runs" step, and it is
+    separable on purpose: it reads ``observable_predictions`` and nothing
+    else, so it returns an answer even for a plugin whose dynamics cannot be
+    integrated at all. That is what makes "before any run" checkable rather
+    than a claim about the order of lines in :func:`evaluate`.
+    """
+    try:
+        predictions = theory.observable_predictions()
+    except Exception:  # noqa: BLE001 - a broken plugin still gets screened
+        return ReferenceScore()
+    return score_hypothesis(predictions)
+
+
 def evaluate(theory: Theory, matter_density: float = 1e-3) -> ReportCard:
     """Run the full battery against ``theory`` and score its declared claims."""
     warnings: list[str] = []
+    reference_score = prescreen(theory)
     declaration_ok = _declaration_complete(theory, warnings)
     limit_report = check_gr_limit(type(theory))
     if not limit_report.checked:
@@ -296,9 +331,15 @@ def evaluate(theory: Theory, matter_density: float = 1e-3) -> ReportCard:
         )
 
     predictions = theory.observable_predictions()
-    confirmed: list[str] = []
-    contradicted: list[str] = []
+    confirmed: list[str] = list(reference_score.supported)
+    contradicted: list[str] = list(reference_score.contradicted)
     untested: list[str] = []
+    if reference_score.refuted:
+        warnings.append(
+            "this hypothesis is contradicted by a background string theory has already "
+            "settled; the battery below was run anyway, but its outcome cannot rescue the "
+            "claim that was refuted before it started"
+        )
     for name, claimed in predictions.items():
         observed = _observe(name, collapse, resolved, max_density)
         if observed is None:
@@ -321,6 +362,7 @@ def evaluate(theory: Theory, matter_density: float = 1e-3) -> ReportCard:
         density_bounded=density_bounded,
         converged=converged,
         in_regime=in_regime,
+        reference_score=reference_score,
         predictions=predictions,
         confirmed=confirmed,
         contradicted=contradicted,

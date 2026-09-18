@@ -211,19 +211,6 @@ def z_derivatives(variables: BSSNVariables, upper, d_upper):
     return divergence, symmetric
 
 
-def ricci_scalar(variables: BSSNVariables, d_connection=None):
-    """``R``, from the same conformal decomposition ``d_t Abar_ij`` uses.
-
-    The point is *which* expression tree, not the value. Tracing back to
-    ``physical_ricci`` in the connection form means the scalar shares every
-    subexpression with the tensor the traceless equation already needs, and
-    common-subexpression elimination charges for it once.
-    """
-    inverse = inverse_metric(variables.physical.metric)
-    tensor = bssn.physical_ricci(variables, d_connection, form="connection")
-    return trace(inverse, tensor)
-
-
 def _hamiltonian(variables: BSSNVariables, scalar, density=0.0):
     """``H = R + 2 K^2 / 3 - Abar_ij Abar^ij - 16 pi rho`` from a given ``R``."""
     conformal_inverse = inverse_metric(variables.conformal_slice.metric)
@@ -267,6 +254,11 @@ def ccz4_rhs(
     ``theta`` and ``d_theta`` are the field and its gradient. ``damping`` is
     ``kappa_1`` and ``damping_mix`` is ``kappa_2``; ``kappa_3`` is one.
     """
+    if d_connection is None:
+        d_connection = [_connection_derivative(variables, k) for k in INDICES]
+    # Built once and used twice: the traceless equation needs the tensor and
+    # the Hamiltonian constraint needs its trace.
+    ricci_tensor = bssn.physical_ricci(variables, d_connection, form="connection")
     geometry = bssn.bssn_rhs(
         variables,
         density=density,
@@ -275,6 +267,7 @@ def ccz4_rhs(
         d_connection=d_connection,
         dd_shift=dd_shift,
         ricci_form="connection",
+        ricci_tensor=ricci_tensor,
     )
 
     physical = variables.physical
@@ -287,23 +280,20 @@ def ccz4_rhs(
     traceless = variables.traceless_curvature
     factor = variables.conformal_exponent
 
-    if d_connection is None:
-        d_connection = [_connection_derivative(variables, k) for k in INDICES]
     upper_z, d_upper_z = z_vector(variables, d_connection)
     divergence, symmetric = z_derivatives(variables, upper_z, d_upper_z)
 
     # H = R + K^2 - K_ij K^ij, the quantity the textbook BSSN d_t K removes
     # and Z4 puts back.
     #
-    # Spelled out in the conformal variables rather than called from
-    # ``hamiltonian_constraint``, which would build the Ricci tensor by the
+    # Traced from the tensor above rather than called from
+    # ``hamiltonian_constraint``, which builds the Ricci tensor by the
     # *other* route -- straight from the physical metric instead of through
-    # the conformal decomposition -- and leave the derivation carrying two
-    # structurally different trees for the same tensor. That cost 4 598 655
-    # raw operations and ten minutes of elimination, measured, before this
-    # was changed. :func:`constraint_identity` is the test that the two
-    # forms agree.
-    constraint = _hamiltonian(variables, ricci_scalar(variables, d_connection), density)
+    # the conformal decomposition. That left the derivation carrying two
+    # structurally different trees for the same tensor, and cost 4 598 655
+    # raw operations against BSSN's 1 451 185, measured.
+    # :func:`constraint_identity` is the test that the two forms agree.
+    constraint = _hamiltonian(variables, trace(inverse, ricci_tensor), density)
 
     # (1) d_t K. The BSSN form plus alpha H is the ADM form, which is what
     # Z4 starts from because it does not assume the constraint.

@@ -451,6 +451,7 @@ def bssn_rhs(
     d_connection=None,
     dd_shift=None,
     ricci_form: str = "metric",
+    ricci_tensor=None,
 ):
     """The BSSN right-hand sides as Baumgarte and Shapiro write them.
 
@@ -470,6 +471,11 @@ def bssn_rhs(
 
     ``ricci_form`` selects how ``Rbar_ij`` is written; an evolution wants
     ``"connection"``. See :func:`conformal_connection_ricci`.
+
+    ``ricci_tensor`` lets a caller that has already built ``R_ij`` hand it
+    in rather than have it built again. CCZ4 needs the same tensor for the
+    Hamiltonian constraint, and two structurally identical trees cost twice
+    as much to build even though elimination charges for them once.
     """
     physical = variables.physical
     conformal = variables.conformal_slice
@@ -525,7 +531,8 @@ def bssn_rhs(
 
     # (11.54) d_t Abar_ij
     factor = variables.conformal_exponent
-    ricci_tensor = physical_ricci(variables, d_connection, form=ricci_form)
+    if ricci_tensor is None:
+        ricci_tensor = physical_ricci(variables, d_connection, form=ricci_form)
     trace_free_source = _trace_free(
         [[lapse * ricci_tensor[i][j] - hessian[i][j] for j in INDICES] for i in INDICES],
         physical.metric,

@@ -2763,6 +2763,96 @@ of gravity. In the string frame that would be false — which is why the declare
 frame is what makes the statement checkable, and why #74's `matter_frame`
 distinction matters for anything composed with this.
 
+## Toroidal compactification: an acceptance that a rename would pass
+
+Issue #76 asks that the emitted plugin's couplings "match hand-derived
+values". That is satisfiable by writing the same formula twice, so the two
+checks that carry the weight here are the ones that are not: the no-scale
+identity, which is asserted symbolically and is exactly an integer, and the
+Kaluza-Klein scale, which is read off a *different module's* torus.
+
+### The identity is exactly 3, and 3 is the whole story
+
+For the three Kähler moduli of a factorised `T²×T²×T²`, `K = −Σ ln(T_i+T̄_i)`
+gives
+
+    K^{i j̄} K_i K_j̄ = 3
+
+exactly — an algebraic identity in the fields, not a value at a point. Four
+dimensional `N = 1` supergravity has a fixed `−3|W|²` in its F-term potential,
+so a superpotential independent of the `T_i` gives `V = 0` **identically**.
+The Kähler moduli are flat at tree level and the vacuum energy vanishes with
+nothing tuned.
+
+The reason to trust that as a cancellation rather than a coincidence is that
+the identity is a *count of logarithms*, and the sign of `V` turns over as the
+count passes three:
+
+| Kähler moduli | identity | `V` at `T_i = T̄_i = 1`, `W = 1` |
+|---|---|---|
+| 1 | 1 | −1 (AdS) |
+| 2 | 2 | −1/4 (AdS) |
+| **3** | **3** | **0, exactly** |
+| 4 | 4 | +1/16 |
+
+Three factors, three logarithms, and the `−3` that the supergravity potential
+supplies independently. It is a knife edge, and both sides of it are asserted.
+
+### And the cancellation belongs to the Kähler sector, not to "the moduli"
+
+The axio-dilaton enters `K` logarithmically too. Include it and the same
+computation returns **4**, so the same constant superpotential leaves
+`V = e^K|W|² = +1/16 > 0` at the same point. A module that summed over
+whatever moduli happened to be in scope would get 4 and report a cancellation
+that does not happen. Which set the identity is taken over is the physics, so
+`kahler_moduli()` is a separate method from `moduli()`.
+
+### The orbifold rule is computed, not tabulated
+
+A diagonal twist `v = (v₁,v₂,v₃)` acts as a phase on each `dz_i`. A Kähler
+modulus `T_i ~ dz_i ∧ dz̄_i` is invariant under *any* such phase, so all three
+always survive. A complex structure modulus `U_i` survives only when the twist
+preserves the `i`-th torus's complex structure, which needs `2v_i ∈ ℤ`.
+
+| vacuum | surviving untwisted moduli | count |
+|---|---|---|
+| plain `T⁶` | `T₁₂₃`, `U₁₂₃`, `S` | 7 |
+| `Z₂`, `v = (½,−½,0)` | `T₁₂₃`, `U₁₂₃`, `S` | 7 |
+| `Z₃`, `v = (⅓,⅓,−⅔)` | `T₁₂₃`, `S` | 4 |
+
+The `Z₃` line is the known `h^{2,1}_untwisted = 0`, and the `Z₂` line is what
+stops the rule from collapsing to "a twist removes the `U`". A twist whose
+entries do not sum to an integer is refused outright: the holonomy is then not
+in `SU(3)`, no supersymmetry survives, and the Kähler-potential derivation has
+nothing to stand on.
+
+### The couplings, and why the tower is the real cross-check
+
+`g_s → Re S = 1/g_s → g² = 1/Re S` is the gauge coupling, from the heterotic
+gauge kinetic function `f = S`. Keeping `dilaton_vev()` as its own step is what
+makes that a chain a test can walk rather than a rename of `string_coupling`.
+
+The Kaluza-Klein scale is the one number here that is not restated. The
+compactification carries no tower formula of its own: it asks the same
+`Torus` that `string.kk` uses — the one whose lattice Laplacian is
+*diagonalised* against the continuum limit — and the result is compared
+against `min_i 1/R_i` computed independently. For `R = (2,3,5)` that is `1/5`,
+and it halves when every radius doubles.
+
+### What is not here
+
+**Twisted sectors.** An orbifold's twisted states live at the fixed points and
+are invisible to the invariant projection this module performs; they need the
+orbifold conformal field theory. Every count above is an untwisted-sector
+count and the plugin's `validity_statement` says so, which matters because the
+twisted sector is where most of an orbifold's chiral matter comes from.
+
+**Stabilisation.** `W = 0` at tree level — no flux, no non-perturbative
+effects — so the moduli are exactly flat and `observable_predictions()`
+reports `moduli_stabilised: False` rather than leaving it to a docstring.
+Presenting a vacuum with unlifted flat directions as a finished model is the
+substantive error available here, so it is asserted against.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared

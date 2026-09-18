@@ -530,16 +530,33 @@ def test_the_two_bssn_derivations_agree_except_through_the_constraint(
         assert difference == pytest.approx(-constraint, rel=1e-10)
 
 
-def test_the_connection_advection_term_is_refused_when_it_cannot_be_computed():
-    """A missing term is worse than an error, so a grid slice with shift refuses."""
+def test_the_connection_equation_refuses_what_a_grid_slice_cannot_supply():
+    """Two terms an array slice cannot compute, and neither is dropped silently.
+
+    ``Gammabar^i`` is itself a derivative of the state, so its advection term
+    needs a *third* derivative of the metric; and the equation needs
+    ``d_k d_j beta^i``, a second derivative of the shift. A ``Slice`` built
+    from arrays carries one pass of differences and so has neither. A
+    symbolic slice differentiates both itself, and a vanishing shift kills
+    both terms -- but an array slice with a shift has to refuse, because a
+    missing term is worse than an error.
+
+    Both refusals are checked, one after the other: supplying the shift
+    Hessian gets past the first and straight into the second.
+    """
     shape = (8, 8, 8)
     ones, zeros = np.ones(shape), np.zeros(shape)
     metric = [[ones if i == j else zeros for j in INDICES] for i in INDICES]
     curvature = [[zeros for _ in INDICES] for _ in INDICES]
     moving = grid_slice(ones, [0.1 * ones, zeros, zeros], metric, curvature, 0.1)
     variables = bssn.from_adm(moving)
-    with pytest.raises(ValueError, match="advection term"):
+
+    with pytest.raises(ValueError, match="second-derivative-of-shift"):
         bssn.bssn_rhs(variables)
+
+    hessian = [[[zeros for _ in INDICES] for _ in INDICES] for _ in INDICES]
+    with pytest.raises(ValueError, match="advection term"):
+        bssn.bssn_rhs(variables, dd_shift=hessian)
 
     still = grid_slice(ones, [zeros, zeros, zeros], metric, curvature, 0.1)
     rhs = bssn.bssn_rhs(bssn.from_adm(still))

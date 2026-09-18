@@ -2230,6 +2230,139 @@ The pair graph comes from a periodic k-d tree and the grouping from
 traditional chaining mesh with a hand-rolled union-find adds code to get wrong
 for no gain at these sizes.
 
+## Classical-statistical lattice fields: what a leapfrog actually conserves
+
+Issue #65, Level C4 groundwork. A scalar field on a periodic lattice, stepped
+by velocity Verlet, on Minkowski or a fixed FLRW background.
+
+### "Energy conserved to round-off" is a true statement about the wrong energy
+
+The acceptance asks for energy conserved to round-off in flat space. Taken
+literally of `H`, that is not a property a symplectic integrator has: it
+conserves a *modified* Hamiltonian differing from `H` at `O(dt²)`. Finding `H`
+constant to ten digits would mean the step was small, not the scheme good; and
+finding it oscillate at `O(dt²)` says nothing either, because that is what a
+symplectic scheme is supposed to do. Three quantities, three exact claims:
+
+| | expression | flat-space behaviour |
+|---|---|---|
+| `energy` | `H` | `O(dt²)` oscillation, **no drift** |
+| `quadratic_invariant` | `H − (dt²/8)‖a‖²` | **exact for a free field** |
+| `modified_energy` | `H + (dt²/24)(2⟨π,U″π⟩ − ‖U′‖²)` | `O(dt⁴)` for any potential |
+
+Measured on a 16³ lattice with a quartic coupling, halving the step:
+
+| | `dt = 0.04` | `dt = 0.02` | ratio |
+|---|---|---|---|
+| `H` | 3.3e−2 | 1.0e−2 | 3.3 |
+| quadratic invariant | 5.2e−5 | 1.3e−5 | 4.0 |
+| shadow energy | 1.2e−3 | 8.3e−5 | **14.0** |
+
+The *orders* are what to read there, not the sizes. The quadratic invariant is
+smaller than the shadow energy at these steps even though it converges more
+slowly, because this configuration is only weakly nonlinear — the field
+amplitude is 0.1 — so the theory is nearly free and its exact-for-free
+invariant is nearly exact. Push the coupling or the amplitude up and the
+ordering reverses. `H`'s own ratio comes out at 3.3 rather than 4.0 because a
+peak-to-peak spread depends on where the sampling lands in the oscillation; the
+two corrected quantities are cleaner because their oscillations are smaller.
+
+For a *free* field the quadratic invariant is conserved to **8.7e−16**,
+independent of the step — there is nothing for a smaller step to improve. That
+is the acceptance, met literally.
+
+These are not three tolerances on one object. The quadratic invariant is exact
+where the shadow energy is merely fourth order, and fourth order where the
+quadratic invariant is merely second: the harmonic invariant and the
+Baker-Campbell-Hausdorff shadow differ by a multiple of `H` itself, which is
+constant only to `O(dt²)`.
+
+### Symplecticity buys bounded error, not small error
+
+Over 8000 steps with a quartic coupling, `H` swings by 1.0e−2 while the mean of
+its first tenth and the mean of its last tenth differ by 5.6e−6 — 0.06% of the
+oscillation. The drift estimate itself moves between 7e−7 and 6e−6 depending on
+the window, because it is dominated by where the oscillation's phase lands
+rather than by any trend; the *ratio* is the stable statement and the one worth
+making.
+
+Velocity Verlet is also exactly time-reversible: run 300 steps forward, flip the
+momentum, run 300 back, and the field returns to **7e−16**. That holds with the
+quartic coupling on, because reversibility is a property of the splitting rather
+than of the problem being linear.
+
+### The lattice dispersion is a definition, not an approximation
+
+A classical-statistical lattice theory *is* the lattice theory, so
+
+    ω²(k) = m² + (4/h²) Σ_i sin²(k_i h/2)
+
+is exact rather than an approximation to `m² + k²`. At `k = 7·2π/L` on a
+16-point lattice the lattice `ω²` is **0.51** of the continuum value — half —
+so a spectral Laplacian would give a different theory, not a better-resolved
+one.
+
+The sharpest check available on the whole solver follows from it. A single mode
+started at rest evolves under Verlet as the exact discrete oscillator,
+
+    χ_n = χ_0 cos(n θ),    cos θ = 1 − ω²dt²/2
+
+and it does, to **5e−13** over 500 steps. That pins the dispersion and the
+integrator at once, against a closed form, with no frequency fitting in
+between — fitting a frequency to the time series instead agrees only at 1e−5,
+which would hide a 1e−9 error in either.
+
+### The mode decomposition, and the half-grid again
+
+Weighted by the half-grid weights — 1 on the two self-conjugate planes, 2
+elsewhere, summing to the number of lattice sites — the per-mode energies sum
+to the total to **2.2e−16**, and their corrected form sums to the quadratic
+invariant. This is the third time those self-conjugate planes have mattered in
+this repository; counting the array's entries equally gets both the sum and the
+degree-of-freedom count wrong.
+
+That decomposition makes the coupling visible as a sharp statement. From the
+same initial state, over 2000 steps:
+
+| | per-mode energy change |
+|---|---|
+| free field, corrected | **1.8e−14** |
+| free field, uncorrected | 4.5e−2 |
+| quartic coupling, corrected | **5.1** |
+
+The middle row is why the correction matters: the uncorrected per-mode energy
+moves by 4e−2 for the *free* field too, so a test for mode independence built on
+it would be measuring the step size. Corrected, free modes are independent to
+round-off and a quartic coupling moves energy between them by a factor of five.
+
+The ensemble is classical, not quantum: every mode carries `T` on average with
+no zero-point floor. Measured across five seeds, `⟨E⟩/T` is 0.993, 0.997, 1.009,
+0.984, 1.010 against an ensemble scatter of `sqrt(2/dof)` = 2.2%.
+
+### FLRW by change of variable, and the one case where nothing is approximated
+
+In cosmic time a scalar obeys `φ̈ + 3Hφ̇ − ∇²φ/a² + V′ = 0`, whose friction is
+not separable — a leapfrog would lose the symmetry everything above depends on.
+In conformal time the rescaled field `χ = aφ` obeys
+
+    χ″ − ∇²χ + (a²m² − a″/a) χ + λχ³ = 0
+
+with no first derivative: the expansion has become a time-dependent mass, and
+the quartic term is untouched because `λφ⁴` is conformally invariant in 3+1
+dimensions. This is the same move as the `p = a^{3/2}x′` substitution in the
+N-body solver, and for the same reason — the damping was the Jacobian of a
+change of variables all along.
+
+A radiation era is the sharp case. `a` is linear in conformal time, so `a″ = 0`,
+and a massless field there is *exactly* a free field in flat space: the
+invariant is conserved to **9.3e−16** in an expanding universe. That is a
+statement about conformal invariance, not about the integrator.
+
+A matter era is the companion. `a″/a ≠ 0` is a time-dependent mass, which does
+work on the field, and the invariant moves by 1.1e−2 — eleven orders from the
+radiation case. Without that test, a background that silently did nothing would
+pass everything else here.
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |

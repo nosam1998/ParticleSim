@@ -330,17 +330,28 @@ class HybridMonteCarlo:
         return float(worst)
 
 
-def integrated_autocorrelation(series, window: int = 500) -> float:
+def integrated_autocorrelation(series, window: int | None = None) -> float:
     """``tau_int`` with the self-consistent window of Madras and Sokal.
 
     Summing the autocorrelation function to the end of the series adds noise
     without signal and typically *underestimates* the error, which is the
     failure that makes a correct simulation look wrong. Stopping once the
     window reaches ``6 tau`` is the standard remedy.
+
+    ``window`` caps the lag and defaults to a quarter of the series, so that
+    the ``6 tau`` criterion is what ends the sum rather than an arbitrary
+    constant. A fixed cap is a trap near a critical point: ``tau`` there runs
+    to a hundred or more, ``6 tau`` exceeds any modest constant, and the
+    function silently returns the cap-truncated value -- an *underestimate*,
+    in exactly the regime where the error matters most. Passing a small
+    ``window`` therefore biases the answer low rather than merely saving
+    time.
     """
     values = np.asarray(series, dtype=float)
     if values.size < 4:
         return 0.5
+    if window is None:
+        window = max(4, values.size // 4)
     centred = values - values.mean()
     variance = float(np.dot(centred, centred) / centred.size)
     if variance == 0.0:

@@ -238,6 +238,26 @@ def test_the_autocorrelation_estimator_recovers_a_known_time():
         assert integrated_autocorrelation(series) == pytest.approx(expected, rel=tolerance)
 
 
+def test_a_short_window_biases_the_answer_low_rather_than_saving_time():
+    """A fixed lag cap truncates the sum and *underestimates* the error.
+
+    The trap this guards is near a critical point, where ``tau`` runs to a
+    hundred or more: ``6 tau`` then exceeds any modest constant, the sum stops
+    early, and the function returns a confident number that is too small in
+    exactly the regime where the error matters most. With an order-one
+    autoregressive process at ``rho = 0.99`` the true ``tau`` is 99.5 and a
+    window of 50 returns 39.
+    """
+    rng = np.random.default_rng(4)
+    noise = rng.normal(size=1000000)
+    series = np.zeros(noise.size)
+    for index in range(1, noise.size):
+        series[index] = 0.99 * series[index - 1] + noise[index]
+    assert integrated_autocorrelation(series) == pytest.approx(99.5, rel=0.02)
+    assert integrated_autocorrelation(series, window=200) < 90.0
+    assert integrated_autocorrelation(series, window=50) < 45.0
+
+
 def test_uncorrelated_data_has_the_minimum_autocorrelation_time():
     assert integrated_autocorrelation(np.random.default_rng(9).normal(size=50000)) == (
         pytest.approx(0.5, abs=0.02)

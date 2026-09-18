@@ -77,9 +77,9 @@ caustic forms first.
 
 Nothing cheap fixes it. Not the time step -- at 64 cells, 300 and 1200
 steps give 2.081681 and 2.081308. Not the slab lattice, whose own caustic
-sits at ``(1/A)(kh/2)/sin(kh/2)``, +0.01% at ``128^3``. Not the ``sinc^4``
-softening above, 0.2% at 64 cells, which deconvolving the window does not
-remove. And not resolution: the central error falls 34.4, 17.4, 10.7, 7.7
+sits at ``(1/A)(kh/2)/sin(kh/2)``, +0.01% at ``128^3``. Not the ``sinc(k h)``
+softening above, 0.2% at 64 cells, which deconvolving does not remove.
+And not resolution: the central error falls 34.4, 17.4, 10.7, 7.7
 as the mesh doubles, an effective order of 0.98, then 0.70, then 0.48 --
 decaying, not converging. Once the pancake is thinner than a cell the mesh
 has nothing left to represent it with, and that is true at every
@@ -87,32 +87,53 @@ resolution. **Issue #78's 2% is not reachable this way**, which is exactly
 what the short-range half of TreePM is for, and why the issue asks for
 both.
 
-**What the mesh costs, to four digits.** Cloud-in-cell deposition applies
-``sinc^2(k h / 2)`` to the density and the interpolation back applies it
-again, so a particle feels the true force times ``sinc^4(k h / 2)``. That
-is not a scaling argument, it is what comes out, measured on the box's
-longest mode against the exact ``D A / k``:
+**What the mesh costs is exactly ``sinc(k h)``.** Not to four digits: to
+1.5e-13, over every mode of the box at three resolutions. The textbook
+answer would be ``sinc^4(k h / 2)`` -- cloud-in-cell applies
+``sinc^2(k h/2)`` on the way in and again on the way out -- and it is
+wrong here, for a reason worth keeping.
 
-    cells     measured error      sinc^4(k h/2) - 1
-       16     -2.550e-02          -2.541e-02
-       32     -6.413e-03          -6.407e-03
-       64     -1.606e-03          -1.605e-03
-      128     -4.034e-04          -4.015e-04
+That ``sinc^2`` is the deposition window *averaged over sub-cell phase*,
+which is right for particles that sample the box fairly. A lattice does
+not: every particle sits at the same phase, so the static window is
+``|(1-f) + f e^{-ikh}|``, which is ``cos(k h/2)`` at the cell centres. But
+a displaced lattice also moves *within* its cells, and the cloud-in-cell
+weights respond to that motion, which contributes the derivative of the
+window with respect to phase. Adding the two,
+
+    Omega(f) + i Omega'(f) / (k h)   has magnitude   sinc(k h / 2)
+
+for **any** phase ``f``, the phase dependence cancelling exactly. The force
+then carries that once for the deposit and ``cos(k h/2)`` once for reading
+the field back at the particle, and
+
+    sinc(k h/2) cos(k h/2) = sin(k h) / (k h) = sinc(k h)
+
+The two laws agree to ``O((kh)^4)``, so on the box's longest mode alone --
+where an earlier version of this study stopped -- they are
+indistinguishable: -6.413e-03 measured against -6.407e-03 for ``sinc^4``
+and -6.413e-03 for ``sinc(kh)``. They part company further up: at
+``k h = 3 pi / 4`` the force is suppressed to 0.300105, which is
+``sinc(k h)`` exactly and ``sinc^4(k h/2) = 0.378`` not at all. **Testing
+one mode per resolution cannot tell two models apart when they differ at
+fourth order in that mode.**
 
 The error has to be read off by *projecting* the force onto the mode. A
 maximum over particles will not do it: a lattice of ``cells`` points never
 samples a sine's peak, which costs 8% at ``cells = 8`` and 0.5% at
 ``cells = 32``, and that sampling error is large enough to hide the
-agreement above entirely.
+agreement entirely.
 
-**Deconvolving that window is standard, and is deliberately not done.**
-Dividing the potential by ``sinc^4`` cancels the suppression on the
-fundamental by construction, but it amplifies the aliased power the same
-window was holding down, and measured against the exact Zel'dovich state
-the force comes out *worse*: on a ``32^3`` mesh the maximum error over
-particles goes from 4.1% to 6.4% at ``D = 0.5`` and from 2.9% to 4.2% at
-``D = 1``. Near collapse it helps, but only from 37% to 34%, which is not
-the kind of help that matters.
+**Deconvolving is standard, and is deliberately not done.** Dividing the
+potential by the textbook ``sinc^4`` window -- the usual choice, and the
+one a reader would reach for -- cancels a suppression on the fundamental
+by construction, but it amplifies the aliased power the same window was
+holding down. Measured against the exact Zel'dovich state on a ``32^3``
+mesh, the maximum error over particles goes from 4.1% to 6.4% at
+``D = 0.5`` and from 2.9% to 4.2% at ``D = 1``. Near collapse it helps,
+but only from 37% to 34%, which is not the kind of help that matters --
+and there the field is many modes at once, so no single window is the
+right one to divide by anyway.
 """
 
 from __future__ import annotations
@@ -213,7 +234,7 @@ def deposit(positions, mesh: Mesh) -> np.ndarray:
     return density / mean - 1.0
 
 
-def potential_gradient(density, mesh: Mesh) -> list[np.ndarray]:
+def potential_gradient(density, mesh: Mesh, shift: float = 0.0) -> list[np.ndarray]:
     """``grad phi`` on the mesh, from ``lap phi = delta`` by FFT.
 
     In Fourier space ``-k^2 phi_k = delta_k``, so ``phi_k = -delta_k/k^2``
@@ -221,11 +242,22 @@ def potential_gradient(density, mesh: Mesh) -> list[np.ndarray]:
     ``k = 0`` mode is set to zero, which is the statement that a periodic
     box has no net force -- it is a choice of gauge, not an approximation,
     and dropping it would leave the whole box accelerating.
+
+    ``shift`` moves the evaluation points by that fraction of a cell along
+    every axis, by the phase factor ``exp(i k h s)``. Since the field is
+    already in Fourier space this is **exact**: ``shift = 0.5`` gives the
+    gradient at the cell centres with no interpolation and no window, which
+    is what :func:`zeldovich_from_field` needs and what reading a
+    node-centred field at cell centres by cloud-in-cell would only
+    approximate.
     """
     field = np.fft.rfftn(np.asarray(density, dtype=float))
     grids, squared = mesh.wavenumbers()
     potential = -field / squared
     potential[0, 0, 0] = 0.0
+    if shift:
+        phase = sum(component for component in grids) * (mesh.spacing * float(shift))
+        potential = potential * np.exp(1j * phase)
     return [
         np.fft.irfftn(1j * component * potential, s=mesh.shape, axes=(0, 1, 2))
         for component in grids
@@ -432,15 +464,25 @@ def zeldovich_from_field(mesh: Mesh, density, scale: float = 0.1) -> State:
     comes out as the sine above without that being special-cased anywhere.
 
     ``density`` is sampled on the grid, meaning at ``i * mesh.spacing`` --
-    see :class:`Mesh`. The Lagrangian lattice is that same grid, one
-    particle per cell, which is what makes this exact rather than merely
-    accurate: the displacement is *read off* the mesh at the points where it
-    was computed, with no interpolation to smooth it. A lattice offset to
-    the cell centres would need a cloud-in-cell read-back and would carry
-    that half-cell phase error into the initial conditions.
+    see :class:`Mesh`. The Lagrangian lattice is offset from it by **half a
+    cell**, and the displacement is evaluated there exactly, by a phase
+    factor in the same Fourier space the solve already happened in. So
+    there is no interpolation and no window, and the half-cell offset is
+    not a compromise to be corrected for later.
+
+    **The offset is not cosmetic: a node-aligned lattice is the one phase
+    at which cloud-in-cell degenerates.** A particle sitting exactly on a
+    grid point gives that point all of its mass, and a small displacement
+    moves a fraction ``|s|/h`` to the neighbour *in the direction of
+    travel*. The response is rectified -- it depends on ``|s|``, not ``s``
+    -- so a lattice displaced by a single mode deposits spurious harmonics
+    at 17% of the fundamental for the box's longest mode and 71% at four
+    times that, while the fundamental itself falls below the window. At any
+    other phase, cell centres included, the harmonics are *exactly* zero
+    and the fundamental is exactly ``sinc(k h / 2)``.
     """
-    displacement = [-component for component in potential_gradient(density, mesh)]
-    axes = [np.arange(mesh.cells) * mesh.spacing for _ in range(3)]
+    displacement = [-component for component in potential_gradient(density, mesh, shift=0.5)]
+    axes = [(np.arange(mesh.cells) + 0.5) * mesh.spacing for _ in range(3)]
     lagrangian = np.stack([value.ravel() for value in np.meshgrid(*axes, indexing="ij")])
 
     positions = np.empty_like(lagrangian)

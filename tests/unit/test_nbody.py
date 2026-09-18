@@ -4,8 +4,8 @@ The Zel'dovich pancake is not an approximate solution that the code should
 roughly reproduce -- it is *exact* until shell crossing, so most of what is
 below compares against closed forms rather than against tolerances picked to
 pass. Where the mesh does have an error, it has a predicted one: the
-cloud-in-cell force transfer function is ``sinc^4(k h / 2)``, and that is
-asserted to three digits rather than bounded.
+cloud-in-cell force transfer function is ``sinc(k h)``, and that is
+asserted to round-off rather than bounded.
 
 The exception is the caustic itself, which a plain particle-mesh gets late.
 That is measured rather than excused, because it is the entire argument for
@@ -120,6 +120,56 @@ def test_poisson_is_exact_on_a_resolved_mode():
     assert np.abs(gradient[2]).max() == 0.0
 
 
+def test_the_half_cell_shift_is_exact():
+    """``shift=0.5`` evaluates the gradient at the cell centres, not near them.
+
+    It is a phase factor applied to a field that is already in Fourier
+    space, so it costs nothing and loses nothing -- unlike reading a
+    node-centred field at the centres by cloud-in-cell, which would apply a
+    ``cos(k h/2)`` window.
+    """
+    mesh = Mesh(size=1.0, cells=32)
+    x = np.arange(mesh.cells) * mesh.spacing
+    density = np.sin(WAVENUMBER * x)[:, None, None] * np.ones(mesh.shape)
+
+    shifted = potential_gradient(density, mesh, shift=0.5)[0]
+    centres = (np.arange(mesh.cells) + 0.5) * mesh.spacing
+    want = -np.cos(WAVENUMBER * centres)[:, None, None] / WAVENUMBER * np.ones(mesh.shape)
+    assert np.abs(shifted - want).max() < 1e-15
+
+
+@pytest.mark.parametrize(("modes", "expected"), [(1, 0.167), (4, 0.707)])
+def test_a_node_aligned_lattice_deposits_spurious_harmonics(modes, expected):
+    """Why the Lagrangian lattice is offset half a cell, as a number.
+
+    A particle exactly on a grid point gives it all of its mass, and a
+    displacement ``s`` moves ``|s|/h`` to the neighbour *in the direction of
+    travel*. The response depends on ``|s|``, not ``s``, so it is rectified
+    and a single displaced mode deposits harmonics of itself. At any other
+    phase the cloud-in-cell weights are differentiable in ``s`` and the
+    harmonics vanish identically -- which is the whole reason
+    :func:`zeldovich_from_field` does not put its particles on the grid it
+    solved on, convenient though that would be.
+    """
+    cells, amplitude = 32, 0.02
+    mesh = Mesh(size=1.0, cells=cells)
+    wavenumber = WAVENUMBER * modes
+
+    def harmonic(phase: float) -> float:
+        axis = (np.arange(cells) + phase) * mesh.spacing
+        grid = np.meshgrid(axis, axis, axis, indexing="ij")
+        lagrangian = np.stack([value.ravel() for value in grid])
+        positions = lagrangian.copy()
+        positions[0] = (
+            lagrangian[0] - (amplitude / wavenumber) * np.sin(wavenumber * lagrangian[0])
+        ) % mesh.size
+        line = np.fft.rfftn(deposit(positions, mesh))[:, 0, 0]
+        return float(abs(line[2 * modes]) / abs(line[modes]))
+
+    assert harmonic(0.0) == pytest.approx(expected, abs=0.01)
+    assert harmonic(0.5) < 1e-12
+
+
 def test_poisson_drops_the_zero_mode():
     """A uniform density exerts no force: the box does not accelerate."""
     mesh = Mesh(cells=8)
@@ -169,27 +219,50 @@ def test_the_forces_sum_to_zero():
 # --- what the mesh costs, predicted rather than bounded ------------------
 
 
-@pytest.mark.parametrize("cells", [16, 32])
-def test_the_force_transfer_function_is_sinc_to_the_fourth(cells):
-    """Deposit and interpolate each apply ``sinc^2(k h/2)``; the force sees both.
+@pytest.mark.parametrize("modes", [1, 2, 4, 8, 12])
+def test_the_force_transfer_function_is_sinc_of_k_h(modes):
+    """The mesh multiplies the force by ``sinc(k h)``, to round-off.
 
-    Measured against the exact plane-parallel force ``D A / k`` by
-    projection onto the mode, not by a maximum -- a lattice never samples a
-    sine's peak, and taking one hides the agreement behind a few percent of
-    sampling error.
+    **Several modes, deliberately.** The textbook ``sinc^4(k h/2)`` --
+    ``sinc^2`` for the deposit and ``sinc^2`` for the read-back -- agrees
+    with this to fourth order in ``k h``, so on the box's longest mode the
+    two are indistinguishable and a one-mode test cannot tell them apart.
+    By ``k h = 3 pi / 4`` they are 0.300 against 0.378.
+
+    The textbook value is the deposition window *averaged over sub-cell
+    phase*, which a lattice does not sample: every particle sits at the
+    same phase. What a lattice gets is the static window plus its
+    derivative with respect to phase, because the particles also move
+    inside their own cells -- and that sum is ``sinc(k h/2)`` at every
+    phase, the phase dependence cancelling. Times ``cos(k h/2)`` for
+    reading the field back at the cell centres, that is ``sinc(k h)``.
     """
+    cells = 32
     mesh = Mesh(size=1.0, cells=cells)
-    state = zeldovich_plane_wave(mesh, AMPLITUDE, scale=START)
+    wavenumber = WAVENUMBER * modes
+    state = zeldovich_plane_wave(mesh, 0.02, scale=1.0, modes=modes)
     acceleration = ParticleMesh(mesh).acceleration(state.positions)[0]
 
     q = np.repeat((np.arange(cells) + 0.5) / cells, cells * cells)
-    basis = np.sin(WAVENUMBER * q)
+    basis = np.sin(wavenumber * q)
     measured = -np.dot(acceleration, basis) / np.dot(basis, basis)
 
-    exact = START * AMPLITUDE / WAVENUMBER
-    predicted = exact * np.sinc(1.0 / cells) ** 4
-    assert measured == pytest.approx(predicted, rel=5e-3)
-    assert measured < exact  # the mesh softens, it never sharpens
+    exact = 0.02 / wavenumber
+    predicted = exact * np.sinc(wavenumber * mesh.spacing / np.pi)
+    assert measured == pytest.approx(predicted, rel=1e-9)
+    assert abs(measured) < abs(exact)  # the mesh softens, it never sharpens
+
+
+def test_sinc_of_k_h_is_not_the_textbook_window():
+    """The two candidate laws are far apart where the test above looks.
+
+    Guards the point of that parametrisation: if someone re-derives
+    ``sinc^4(k h/2)`` from the usual argument and swaps it in, the
+    ``modes = 12`` case has to fail outright rather than pass by a whisker.
+    """
+    product = WAVENUMBER * 12 / 32
+    assert np.sinc(product / np.pi) == pytest.approx(0.300105, abs=1e-6)
+    assert np.sinc(product / (2.0 * np.pi)) ** 4 == pytest.approx(0.378213, abs=1e-6)
 
 
 # --- initial conditions --------------------------------------------------
@@ -216,15 +289,19 @@ def test_the_plane_wave_map_is_the_zeldovich_displacement():
 def test_zeldovich_from_a_field_reproduces_the_analytic_plane_wave():
     """The generic path and the closed form agree to round-off, not to a percent.
 
-    The linear density of ``psi = -(A/k) sin(kq)`` is ``delta = +A cos(kq)``,
-    and the lattice is the grid itself, so no interpolation enters.
+    The linear density of ``psi = -(A/k) sin(kq)`` is ``delta = +A cos(kq)``.
+    The lattice is offset half a cell from the grid the density lives on,
+    and the displacement is evaluated there by a Fourier phase factor, so
+    no interpolation enters and the agreement is round-off rather than
+    second order.
     """
     mesh = Mesh(size=1.0, cells=16)
     x = np.arange(mesh.cells) * mesh.spacing
     density = AMPLITUDE * np.cos(WAVENUMBER * x)[:, None, None] * np.ones(mesh.shape)
 
     state = zeldovich_from_field(mesh, density, scale=START)
-    q = np.stack([v.ravel() for v in np.meshgrid(*[x] * 3, indexing="ij")])
+    centres = (np.arange(mesh.cells) + 0.5) * mesh.spacing
+    q = np.stack([v.ravel() for v in np.meshgrid(*[centres] * 3, indexing="ij")])
     psi = -(AMPLITUDE / WAVENUMBER) * np.sin(WAVENUMBER * q[0])
 
     assert np.abs(state.positions[0] - (q[0] + START * psi)).max() < 1e-15
@@ -314,7 +391,7 @@ def test_linear_growth_follows_the_scale_factor(cells):
     weakened by ``eps`` moves the growing exponent to ``1 - 3 eps / 5``,
     from ``n^2 + n/2 - 3(1 - eps)/2 = 0``, so over the ``a/a_i = 10`` run
     the growth falls short by ``1 - 10^(-3 eps / 5)`` -- with ``eps`` the
-    ``sinc^4`` transfer function above and nothing fitted.
+    ``sinc(k h)`` transfer function above and nothing fitted.
 
     What is asserted is the *shortfall*, not ``D`` itself, because a
     fractional tolerance on ``D`` gets vacuously easy as the mesh refines --
@@ -328,7 +405,7 @@ def test_linear_growth_follows_the_scale_factor(cells):
     transfer function cannot account for that, and 15% is how much it
     misses by rather than a tolerance chosen to pass.
     """
-    shortfall = 1.0 - np.sinc(1.0 / cells) ** 4
+    shortfall = 1.0 - np.sinc(2.0 / cells)
     measured = 1.0 - growth(cells, 200)
     predicted = 1.0 - (1.0 / START) ** (-0.6 * shortfall)
     assert measured == pytest.approx(predicted, rel=0.15)

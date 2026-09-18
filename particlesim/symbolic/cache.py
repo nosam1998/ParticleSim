@@ -38,6 +38,28 @@ def key_for(*parts: object) -> str:
     return h.hexdigest()
 
 
+def source_cached(key: str | None, build: Callable[[], str]) -> tuple[str, bool]:
+    """Return ``(source, hit)`` for generated source, building only on a miss.
+
+    The general form of :func:`compile_cached`, for generators that emit a
+    self-contained module rather than the curvature pipeline's fixed shape.
+    A full BSSN right-hand side takes a minute of common-subexpression
+    elimination to produce and microseconds to compile, so the string is
+    what is worth keeping.
+    """
+    if key is None or not enabled():
+        return build(), False
+    path = cache_dir() / f"{key}.py"
+    if path.exists():
+        return path.read_text(), True
+    source = build()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(source)
+    os.replace(tmp, path)
+    return source, False
+
+
 def compile_cached(
     key: str | None,
     coords: Sequence[sp.Symbol],

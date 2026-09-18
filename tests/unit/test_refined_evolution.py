@@ -16,7 +16,16 @@ solution of anything and did not converge (ratios 0.9 and 1.4). Only a
 measuring the scheme.
 
 One real bug came out of it: a buffer refilled once per fine step instead of
-once per Runge-Kutta stage cost exactly one order, 8.5 against 16.
+once per Runge-Kutta stage cost exactly one order, 8.5 against 13.8.
+
+**What is not claimed.** The refined solution error is near fourth order
+over the range tested -- 13.8, 16.2, 12.1 per halving, averaging 13.9, order
+3.80 -- but the sequence is not a clean 16 and the asymptotic rate is not
+established. The Hamiltonian constraint over the same window converges more
+slowly still, around order two to three. Sixth-order prolongation lowers the
+error and *worsens* the rate, which points at a floor the interpolation
+error was masking rather than at the interpolation itself. The thresholds
+here are set to what is measured, not to what fourth order would give.
 """
 
 from __future__ import annotations
@@ -156,15 +165,33 @@ def test_hermite_reproduces_a_cubic_exactly():
 @pytest.mark.slow
 @pytest.mark.benchmark
 def test_refinement_does_not_cost_the_scheme_its_order():
-    """A two-level gauge wave, fourth order over a fixed physical window.
+    """A two-level gauge wave over a fixed physical window, near fourth order.
 
-    Measured 13.77 then 16.23 per halving against the 16 fourth order owes.
-    The first ratio is short because the coarsest run's window is eighteen
-    points wide; the second is the asymptotic one.
+    Measured, with fourth-order prolongation:
 
-    This is the test that caught the once-per-step buffer, which gave 8.48
-    and 8.90 -- one order lost, from stages two to four reading boundary
-    values frozen at the step's start.
+        n      32         64         128        256
+        err    1.429e-4   1.038e-5   6.394e-7   5.301e-8
+        ratio             13.77      16.23      12.06
+
+    Averaged over the three halvings that is 13.9 per halving, order 3.80.
+    **The asymptotic order is not established**: the sequence is not a clean
+    16, 16, 16, and pushing to 256 lowered the last ratio rather than
+    confirming it. The assertion below is therefore that every halving beats
+    third order comfortably, which is what the machinery has to deliver and
+    what a regression would break -- not that the rate is exactly four.
+
+    That matters because this is the test that caught the once-per-step
+    buffer, which gave 8.48 and 8.90: one order lost, from stages two to four
+    reading boundary values frozen at the step's start. A threshold tuned to
+    16 would look more impressive and catch the same bug no better.
+
+    Sixth-order prolongation lowers the error by about ten at n = 32 and
+    makes the *rate* worse (14.0 then 3.1), which is the signature of a floor
+    the interpolation error was masking -- most likely the coarse level's own
+    error arriving through the buffer, since the fine level cannot be more
+    accurate than the boundary data it is handed and that data is sixteen
+    times worse at the same spacing. Consistent with the numbers, not
+    established; order six at n = 256 was not run.
     """
     errors = []
     for n in (32, 64, 128):
@@ -184,10 +211,12 @@ def test_refinement_does_not_cost_the_scheme_its_order():
         errors.append(worst)
 
     ratios = [coarse / fine for coarse, fine in zip(errors, errors[1:], strict=False)]
-    assert ratios[-1] > 13.0, ratios
-    assert ratios[-1] < 20.0, ratios
-    # Every refinement improves on the last by more than third order would.
-    assert all(ratio > 9.0 for ratio in ratios), ratios
+    # Comfortably better than third order at every halving, which is what
+    # the once-per-step buffer failed (8.48, 8.90) and what a regression in
+    # the buffer width or the time interpolant would break.
+    assert all(ratio > 11.0 for ratio in ratios), ratios
+    # And not better than fourth, which would mean the comparison is wrong.
+    assert all(ratio < 20.0 for ratio in ratios), ratios
 
 
 @pytest.mark.slow

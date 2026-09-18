@@ -135,6 +135,13 @@ def test_a_pulse_leaves_instead_of_coming_back():
     Measured at 2.5 crossing times: periodic peaks at 2.23e-03 after the
     pulse re-enters, radiative reaches 2.2e-07. Run here to 1.5 crossings to
     keep the test affordable, which is past the first recurrence.
+
+    **The window is in time, not in sample indices.** The first version of
+    this test took the maximum from the fortieth percentile of the run
+    onwards, which is ``t = 0.5 L`` -- *before* the pulse reaches the edge,
+    where both curves still read 6.6e-04 because nothing has left yet. It
+    failed at a separation of 3.2 while the physics was giving 35, and the
+    bug was entirely in where the window started.
     """
     n, crossings = 32, 1.5
     state, spacing, mesh = _pulse(n)
@@ -146,30 +153,33 @@ def test_a_pulse_leaves_instead_of_coming_back():
 
     steps = int(round(crossings * EXTENT / evolution.time_step))
     step = crossings * EXTENT / steps
-    early = max(1, int(0.4 * steps))
+    every = max(1, steps // 12)
 
     curves = {}
     for label, stepper in (("periodic", evolution), ("radiative", bounded)):
         current = dict(state)
-        series = [_amplitude(current)]
+        series = [(0.0, _amplitude(current))]
         for index in range(1, steps + 1):
             current = stepper.step(current, step)
-            if index % max(1, steps // 12) == 0:
-                series.append(_amplitude(current))
+            if index % every == 0:
+                series.append((index * step, _amplitude(current)))
         curves[label] = series
-        assert all(np.isfinite(value) for value in series), label
+        assert all(np.isfinite(value) for _, value in series), label
 
     # Both start from the same pulse and shed it at the same rate while it is
     # still in flight, which is the check that the boundary is not simply
-    # damping everything.
-    assert curves["radiative"][0] == pytest.approx(curves["periodic"][0])
-    assert curves["radiative"][1] == pytest.approx(curves["periodic"][1], rel=0.2)
+    # damping everything everywhere.
+    assert curves["radiative"][0][1] == pytest.approx(curves["periodic"][0][1])
+    assert curves["radiative"][1][1] == pytest.approx(curves["periodic"][1][1], rel=0.2)
 
-    # After the pulse has reached the edge they part company.
-    periodic_late = max(curves["periodic"][early // max(1, steps // 12) :])
-    radiative_late = max(curves["radiative"][early // max(1, steps // 12) :])
+    # And after the pulse has had time to leave -- 0.9 crossing times, past
+    # where the periodic run's recurrence begins -- they part company.
+    def late(label):
+        return max(value for time, value in curves[label] if time / EXTENT >= 0.9)
+
+    periodic_late, radiative_late = late("periodic"), late("radiative")
     assert radiative_late < periodic_late / 5.0, (radiative_late, periodic_late)
-    assert radiative_late < curves["radiative"][0] / 50.0, curves["radiative"]
+    assert radiative_late < curves["radiative"][0][1] / 50.0, curves["radiative"]
 
 
 @pytest.mark.slow

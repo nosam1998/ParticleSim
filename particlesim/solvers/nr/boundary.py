@@ -31,13 +31,35 @@ The second term is what distinguishes this from a plain outgoing-wave
 condition and what makes it work at finite radius: without it a field
 falling off as ``1/r`` is reflected at the amplitude of its own falloff.
 
-**What this is not.** It is not constraint-preserving. The Sommerfeld
-condition is applied variable by variable to quantities that are not
-characteristic variables of the system, so it injects constraint violation
-at the boundary at the level of its own error. Constraint-preserving
-boundary conditions are a harder problem and are not attempted here; what
-is measured instead is that a pulse leaves and does not come back, and how
-much constraint violation the boundary costs.
+**What this is not.** It is not constraint-preserving. The condition is
+applied variable by variable to quantities that are not characteristic
+variables of the system, so it has no reason to respect the constraints and
+in general does not. Constraint-preserving boundary conditions are a harder
+problem and are not attempted here.
+
+**What that costs turned out to be negative, which was not the guess.** The
+expectation was that a non-constraint-preserving boundary would make the
+Hamiltonian constraint worse. Measured against the same run with periodic
+boundaries, at 1.25 crossing times:
+
+    n     periodic |H|   radiative |H|   ratio
+    32      1.297e-03      3.806e-05      0.03
+    48      1.224e-03      1.938e-05      0.02
+    64      1.243e-03      1.088e-05      0.01
+
+Thirty to a hundred times *better*, because the violation leaves with the
+pulse instead of recirculating forever. The periodic numbers do not converge
+at all -- 1.297, 1.224, 1.243 -- since whatever the pulse deposits stays in
+the domain; the radiative ones converge at order 1.7 to 2.0. So the boundary
+is a second-order condition on a fourth-order interior, which caps the
+constraint's convergence at second order and is the standard limitation of
+Sommerfeld. That is the real reason to want a constraint-preserving
+boundary, and it is not the reason one would have guessed.
+
+**The cost that is real is arithmetic.** :meth:`Radiative.rates` takes three
+bounded-domain derivatives per variable per stage over the *whole* array,
+which is seventy-two array passes a stage for BSSN and dominates the run at
+64^3. Restricting it to a slab is the obvious fix and is not done here.
 """
 
 from __future__ import annotations

@@ -986,6 +986,124 @@ after ten minutes, twice. Compiling the right-hand side alone takes seconds;
 what stays in Python is ninety-six array operations per step.
 
 
+## CCZ4: the same physics, and a constraint that stops growing
+
+Issue [#47](https://github.com/nosam1998/ParticleSim/issues/47)'s remaining
+task, in `particlesim.symbolic.ccz4` and `particlesim.solvers.nr.ccz4`. BSSN
+keeps the constraints as diagnostics; Z4 changes the system so that the
+constraint surface is somewhere the solution is pulled back to rather than
+somewhere it happens to start.
+
+### Written as BSSN plus a difference
+
+Every term that does not involve `Θ` or `Z_i` is BSSN's, so the parts
+already verified against exact solutions stay verified. What is checked is
+that the difference is *only* the Z terms — at `Θ = 0` and `Z_i = 0`,
+residual **exactly zero**, not merely small:
+
+| Right-hand side | Compared against | Residual |
+|---|---|---|
+| `∂_tΘ` | `α H / 2` | 0 |
+| `∂_tK` | ADM's `∂_tK`, via the product rule on `γ^ij K_ij` | 0 |
+| `∂_tφ` | BSSN's | 0 |
+| `∂_tΓ̂^i` | BSSN's, all three | 0 |
+| `∂_tÃ_ij` | BSSN's, all nine | 0 |
+| `H` two ways | `R + 2K²/3 − Ã_ijÃ^ij` | 0 |
+
+The `∂_tK` row is the sharpest, because the value it is compared against is
+computed by a different route entirely — the product rule on `γ^ij K_ij`
+using `adm_rhs` — rather than from anything CCZ4 touches. It comes out equal
+because Z4 does *not* substitute the Hamiltonian constraint where the
+textbook BSSN equation does, and the two therefore differ by exactly `α H`.
+The same `−α H` that [the BSSN section](#the-one-place-bssn-is-not-adm)
+identifies as the one place BSSN is not ADM is the term Z4 puts back.
+
+The `∂_tΘ` row is the point of the formulation rather than a coincidence:
+`Θ` is the Hamiltonian constraint promoted to an evolved variable, which is
+why damping it damps the constraint.
+
+**None of these rows exercise the Z terms.** `2D_iZ^i`, `2D_(iZ_j)` and the
+damping all vanish identically wherever `Θ` and `Z_i` do. Only the runs
+below touch them.
+
+### What the damping is worth
+
+One violating state — gauge-wave data with a smooth bump on `K`, which
+leaves `det γ̃ = 1` and `γ̃^ij Ã_ij = 0` alone and breaks the Hamiltonian
+constraint — through the same integrator, gauge, dissipation, projection and
+diagnostics, so only the right-hand sides differ. `‖H‖₂` sampled once per
+crossing time, because the violation propagates at the coordinate light
+speed on a unit torus and sampling off the period gives a wave rather than
+an envelope:
+
+| t | 0 | 1 | 2 | 3 | 4 | `H(4)/H(0)` |
+|---|---|---|---|---|---|---|
+| BSSN | 1.504e−3 | 2.382e−2 | 4.805e−2 | 7.412e−2 | 1.032e−1 | **68.6** |
+| CCZ4, κ₁ = 0 | 1.504e−3 | 5.723e−3 | 2.714e−3 | 3.768e−3 | 4.861e−3 | **3.2** |
+| CCZ4, κ₁ = 0.1 | 1.504e−3 | 6.226e−3 | 2.579e−3 | 3.347e−3 | 4.583e−3 | **3.0** |
+
+**The formulation is the effect; the damping is a refinement.** BSSN's
+violation grows roughly linearly to sixty-nine times its initial size while
+both CCZ4 runs stay near three — a factor of twenty-one between them, and it
+is there at `κ₁ = 0`, where there is no damping term at all. That is Z4
+making constraint propagation a bounded hyperbolic problem rather than an
+unconstrained one.
+
+`κ₁` is the smaller effect and shows up where it acts, on `Θ` itself: over
+the same four crossing times `max|Θ|` falls from 1.042e−02 to 7.219e−03,
+about a third. It is worth saying plainly that this is not the exponential
+collapse of `‖H‖₂` that a reader might expect from the phrase "constraint
+damping" — at this `κ₁`, on this data, over this duration, it is a six per
+cent improvement on a quantity that was already bounded.
+
+### The gauge wave cannot tell the two apart, and `Θ` says why
+
+Every exact solution is on the constraint surface, so `Θ` and `Z_i` start at
+zero and the Z terms start switched off. CCZ4 reproduces BSSN's initial
+constraints to the last digit and converges at fourth order on the gauge
+wave, as it must.
+
+`Θ` does not *stay* at zero, and should not. The discrete solution violates
+the constraints at truncation level, `∂_tΘ = α H / 2`, so `Θ` picks up
+exactly that: at 32 points it reaches 8.0e−05 against a solution error of
+9.2e−05. A CCZ4 run that reproduced BSSN bit for bit on this data would mean
+the Z terms were dead code.
+
+### Cost
+
+| | BSSN | CCZ4 |
+|---|---|---|
+| Equations | 24 | 25 |
+| Operations as written | 1 451 185 | 4 821 063 |
+| After global CSE | 3 017 | 7 145 |
+| Stencils | 129 | 132 |
+| Derivation, cold | 208 s | 665 s |
+
+Two and a half times the operations for one more equation, which is what the
+Z terms cost: `H` in two right-hand sides, the covariant derivative of `Z_i`
+in three, and `d_k d_j γ̃^ij` to recover `Z_i` without a third derivative of
+the metric.
+
+**One thing that was tried and did not work**, recorded so it is not tried
+again. `∂_tK` and `∂_tΘ` both need `H`, and the first version called
+`hamiltonian_constraint` on the physical slice, which builds the Ricci
+tensor by a different route than the `physical_ricci` that `∂_tÃ_ij` already
+needs. Two structurally different trees for one tensor looked like the
+reason CCZ4 was three times BSSN's size. It was not:
+
+| route | raw ops | after CSE | derivation |
+|---|---|---|---|
+| `hamiltonian_constraint` | 4 598 655 | 7 572 | 637 s |
+| traced from the shared tensor | 4 821 063 | 7 145 | 665 s |
+
+Marginally worse on raw operations and build time. `raw_operations` counts
+`sp.count_ops` on the unexpanded tree, and tracing a tensor duplicates each
+component's subtree in that count however many times the tensor was built;
+elimination removes the duplication either way. The size is inherent to the
+equations. The single-tree form was kept anyway, because it is the right
+shape and it is what makes the two-forms-of-`H` test a test of something.
+
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |

@@ -1308,6 +1308,235 @@ convergence cap, not the constraint injection that turned out not to happen.
   quantitatively correct for radiation extraction.
 
 
+## Quasinormal modes and horizons: the one number that is not a convergence test
+
+Issue #50. Everything else in this file is a convergence study or a
+comparison against a run of our own. The Schwarzschild quasinormal
+frequency is different: it is a number with a value, known to many digits,
+that nothing in this codebase can influence. So it is worth being precise
+about what agreeing with it does and does not establish.
+
+### The frequency, and why the recursion is derived rather than quoted
+
+The method is Leaver's. Both boundary conditions -- ingoing at the horizon,
+outgoing at infinity -- are put into the ansatz as exponents,
+
+    psi = (r-1)^(-i w) r^(2 i w) e^(i w r) phi(r)
+
+which leaves `phi` with indicial exponents 0 and `2 i w` at the horizon. A
+power series in `u = 1 - 1/r` therefore *selects* the ingoing branch, and the
+remaining condition -- that the series converges at `u = 1`, which is
+infinity -- is the statement that the three-term recursion it satisfies takes
+its minimal solution. That is a continued fraction being zero, and rooting it
+is a one-dimensional problem in the complex plane.
+
+The recursion is derived in `particlesim/symbolic/reggewheeler.py` rather than
+written down, and the reason is specific: **a wrong coefficient in a
+three-term recursion gives a continued fraction that still has roots, and
+those roots still look like quasinormal frequencies.** There is no smoke. So
+each step is checked against something that did not produce it -- the cleared
+equation against the master equation, the factored split against its own
+reassembly, the recursion against a truncated series substituted back into the
+ODE -- and `tests/unit/test_symbolic_reggewheeler.py` re-derives the whole
+thing symbolically and compares it to the coefficients the solver actually
+evaluates.
+
+Measured, with the light-ring limit as the only starting guess:
+
+| mode | `M omega` here | published |
+|---|---|---|
+| gravitational l=2 n=0 | 0.373671684418 − 0.088962315689i | 0.373672 − 0.088962i |
+| gravitational l=2 n=1 | 0.346710996879 − 0.273914875291i | 0.346711 − 0.273915i |
+| gravitational l=2 n=3 | 0.251504962186 − 0.705148202433i | 0.251505 − 0.705148i |
+| gravitational l=3 n=0 | 0.599443288598 − 0.092703048801i | 0.599443 − 0.092703i |
+| scalar l=0 n=0 | 0.110454939080 − 0.104895717087i | 0.110455 − 0.104896i |
+| electromagnetic l=1 n=0 | 0.248263264178 − 0.092487717953i | 0.248263 − 0.092488i |
+
+Every published digit agrees, across three spin weights. **Issue #50's
+acceptance criterion is 1% on the fundamental; this clears it by four orders
+of magnitude.** The fundamental barely needs depth either -- 50 terms give ten
+digits, 400 and 1600 return the same floating-point number.
+
+### The check that does not come from a table
+
+Agreement with a table is agreement with whoever typed the table, and two of
+the values above were mistyped from memory on the way in: `l=2 n=2` went in as
+0.478227 when the answer is 0.478277, and the solver is what caught it.
+
+The check that depends on nobody is the eikonal limit. As `l` grows,
+
+    M omega -> ((l + 1/2) - i (n + 1/2)) / (3 sqrt 3)
+
+where the real part is the orbital frequency of the photon sphere at `r = 3M`
+and the imaginary part is that orbit's Lyapunov exponent, both of which come
+out of the null geodesic equation in a line. Measured:
+
+| l | 2 | 4 | 8 | 16 | 32 | 64 | 128 |
+|---|---|---|---|---|---|---|---|
+| relative gap | 2.2e-01 | 6.5e-02 | 1.8e-02 | 4.8e-03 | 1.2e-03 | 3.1e-04 | 7.9e-05 |
+| gap × l² | 0.88 | 1.04 | 1.16 | 1.22 | 1.26 | 1.28 | 1.29 |
+
+The gap closes at *second* order in `1/l` with a coefficient settling near
+1.3, and `Im(M omega)` reaches `-1/(6 sqrt 3) = -0.0962250449` to nine
+figures. Nothing in that comparison was looked up.
+
+### Reading a frequency off a time series
+
+The other half is the extractor, and the two halves meet: the test suite
+synthesises a ringdown *from* the Leaver frequencies and checks that the fit
+returns them. The method is the matrix pencil -- a sum of exponentials
+sampled uniformly satisfies a linear recurrence, so the Hankel matrix has
+rank equal to the mode count and the one-step shift has the `exp(-i w dt)`
+as its eigenvalues. No starting guess, and no nonlinear least-squares walk
+along the curved valleys that complex frequencies produce.
+
+Clean two-mode complex data comes back at 4e-14 relative, with the
+amplitudes recovered as the 1.0 and 0.4i they were built from. With noise:
+
+| noise | 1e-6 | 1e-4 | 1e-2 |
+|---|---|---|---|
+| relative error, n=0 | 5.5e-07 | 1.4e-06 | 1.4e-03 |
+| relative error, n=1 | 3.1e-06 | 2.2e-04 | 3.3e-02 |
+
+The overtone is consistently an order worse, which is the real difficulty of
+ringdown fitting rather than a property of this implementation. The same
+point shows up without any noise at all, by fitting a single mode to a
+two-mode signal and moving the window later:
+
+| window starts at | t=0 | t=10 | t=20 | t=40 |
+|---|---|---|---|---|
+| relative error | 4.7e-02 | 7.5e-03 | 1.2e-03 | 3.2e-05 |
+
+The overtone decays away and the fit improves. Choosing a start time is the
+whole problem.
+
+**One bug is worth recording, because of how it hid.** The right singular
+vectors span the Hankel row space as the *rows* of `Vh`; conjugating them
+spans the Vandermonde vectors of `conj(z)` instead, whose eigenvalues give
+`-conj(omega)` -- the correct damping and the wrong sense of rotation. For
+real data `Vh` is real and the conjugate is a no-op, *and* `-conj(omega)` is
+already in a real signal's spectrum anyway. So the real-signal fit
+reproduced its input to 5e-14 while the complex-signal fit came back with a
+flipped real part. A test on real data alone would never have found it.
+
+### Horizons, and the flow that took four attempts
+
+`particlesim/analysis/horizon.py` finds apparent horizons on a 3-D slice by
+flowing a trial surface, and event horizons by integrating outgoing null
+surfaces backwards in time. Schwarzschild in isotropic coordinates supplies
+four exact numbers: the horizon at `r = M/2`, area `16 pi M^2`, irreducible
+mass exactly `M`, and a surface gravity `1/(4M)`.
+
+| n | spacing | radius/M | area/(16π M²) | M_irr/M | max\|Θ\| M |
+|---|---|---|---|---|---|
+| 32 | 0.1250 | 0.498451 | 0.960773 | 0.980190 | 2.35e-02 |
+| 48 | 0.0833 | 0.498712 | 0.995627 | 0.997811 | 4.94e-03 |
+| 64 | 0.0625 | 0.499577 | 0.999311 | 0.999656 | 2.28e-03 |
+| 96 | 0.0417 | 0.499951 | 0.999996 | 0.999998 | 4.63e-04 |
+
+No convergence order should be read off the last row: by `n = 96` the mass
+error is 2e-06 and the flow's own tolerance is the limit rather than the
+grid's. What the table really measures is how many cells lie between the
+puncture and the horizon -- six at `n = 32`, eighteen at `n = 96`.
+
+A coordinate sphere is a weak test of the area, because every angular
+derivative in the induced metric is zero. Casting rays from a centre offset
+from the puncture keeps the same physical surface and gives it an
+angle-dependent radius:
+
+| offset/M | (max−min)/mean of h | area/(16π M²) | M_irr/M |
+|---|---|---|---|
+| 0.00 | 2.3e-15 | 0.999455 | 0.999727 |
+| 0.10 | 4.0e-01 | 0.999399 | 0.999700 |
+| 0.20 | 8.3e-01 | 0.999579 | 0.999789 |
+
+A radius varying by 83% across directions, and the area still good to four
+digits.
+
+**The flow took four attempts, and the failures are more instructive than the
+result.** The textbook statement is `dh/dlambda = -Theta`, and the obvious
+implementation evolves a level-set field `F` on the grid by
+`dF/dlambda = Theta |grad F|`.
+
+1. *The sign.* `F` increases outwards, so moving a surface out *lowers* `F`:
+   outward motion is `dF/dlambda < 0`, and `dF/dlambda = -Theta|grad F|` gives
+   normal velocity `+Theta`, which sends an expanding surface further out.
+   Every trial surface left the grid, and because a departed surface is worse
+   than the initial one, the finder reported its own guess back with a
+   plausible-looking residual. `F = r - h` makes `dh/dlambda = -Theta` into
+   `dF/dlambda = +Theta`.
+2. *The gradient factor is a feedback loop.* A distorting field has a larger
+   gradient, which lengthens the step, which distorts it more. `max|dF|` ran
+   1.4e-2, 7.2e-2, 0.75, 15, 145, up to 1.5e5 over sixty iterations.
+3. *Removing the factor is not enough.* A spatially varying step puts
+   structure into `grad grad F`, which is exactly what the divergence term of
+   `Theta` differentiates. The first four iterations moved at the intended
+   1.6e-2 per step; then the surface's own residual jumped from 0.27 to 1.22
+   and oscillated between 0.7 and 4.0 while the flow stalled at 1e-4 per step.
+   Restricting the flow to a band around the surface helped and did not fix
+   it.
+4. *What works is flowing the radius.* Represent the surface as `h(theta, phi)`
+   in a basis of monomials in the unit direction -- the same span as `Y_lm`
+   with `l <= degree`, and evaluable on a Cartesian grid with two
+   multiplications per term instead of a special function at `n^3` points --
+   and rebuild `F = r - h` every iteration. The field then carries no history
+   at all, which is a stronger statement than reinitialising it would be. It
+   also confines the under-resolved region to where it cannot matter: a few
+   cells from a puncture the grid reports `Theta = -1.32` where the analytic
+   value tends to zero, and `Theta` is only ever *sampled* on the surface.
+
+There is one more condition, and it is not a numerical accident. `Theta`
+contains the surface Laplacian of `h`, so this flow is a heat equation on the
+sphere -- which is what makes it converge, and also what makes an explicit
+step conditionally stable, with `lambda < 2 h^2 / (l_max(l_max+1))`.
+**Violating it does not look like an instability, it looks like a bad initial
+guess.** From `h = 0.9` the step sat at 3.9 times the limit and converged
+anyway; from `h = 0.3` it sat at 27 times, the surface distorted to a minimum
+radius of 0.21 against a maximum of 0.53, and it oscillated with period two
+forever. The limit scales as `h^2`, so a guess deep inside a hole is the
+expensive one: smallest stable step, furthest to go.
+
+### The event horizon, and the surface gravity as a check
+
+Outgoing null surfaces separate from the event horizon towards the future at
+the surface gravity, so forward integration loses it exponentially and no
+accuracy fixes that; backwards, the same exponential is a contraction. For
+Schwarzschild `d/dr(alpha/psi^2)` at `r = M/2` is exactly `1/(4M)`, which
+makes the convergence *rate* an independent analytic check on top of the
+converged position. Integrating back to `t = -20M` at `n = 64`:
+
+| start/M | r(−20M)/M | measured rate | rate/κ |
+|---|---|---|---|
+| 0.60 | 0.500618 | 0.2531 | 1.013 |
+| 0.70 | 0.501157 | 0.2558 | 1.023 |
+| 1.00 | 0.502544 | 0.2619 | 1.048 |
+| 0.42 | 0.499409 | 0.2468 | 0.987 |
+| 0.35 | 0.498773 | 0.2433 | 0.973 |
+
+From either side, at the surface gravity to within 5%. The same
+Hamilton-Jacobi steepening that broke the apparent-horizon level set broke
+this one harder -- integrated as a grid field it overflowed to `inf` and then
+`NaN` -- and the same fix applies, here not for stability but to let the
+equation run at all.
+
+### What this does not establish
+
+The frequency above is computed from the Regge-Wheeler equation, not
+extracted from a three-dimensional ringdown. It is the *target* such an
+extraction would have to hit, and the extractor that would read it off a
+waveform is tested on synthetic data only -- accurately, and on signals
+built from the Leaver frequencies, but synthetic. Closing that loop end to
+end needs a perturbed black hole evolved far enough to ring, which needs the
+stable puncture of issue #48 and the outer boundary of issue #132; it is
+tracked separately rather than folded in here.
+
+Both horizon finders assume the surface is star-shaped about a given centre,
+because they store one radius per direction. A single hole is; the common
+horizon just after a merger is not, and neither is the pair-of-pants surface
+a binary's event horizon sweeps out. Finding those needs a representation
+that is not a radius per direction, and this does not have one.
+
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |
@@ -1606,7 +1835,6 @@ the design document.
 - Gauge wave and Teukolsky wave convergence (issue #51)
 - Head-on binary black hole final mass and radiated energy, to 5% (issue #51)
 - Einstein-scalar-Gauss-Bonnet scalarized black hole (issue #52)
-- Schwarzschild quasi-normal mode fundamental frequency, to 1% (issue #50)
 
 ### Milestone 5, hydrodynamics
 - Relativistic shock tubes against Martí and Müller profiles (issue #57)

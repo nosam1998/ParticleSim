@@ -47,6 +47,7 @@ gr = "particlesim.theories.gr:GeneralRelativity"
 "string.kk" = "particlesim.theories.kk:KaluzaKlein"
 "string.eft4d.dilaton" = "particlesim.theories.dilaton:Dilaton"
 "string.compactify.torus" = "particlesim.theories.compactify:ToroidalCompactification"
+"string.eft4d.emda" = "particlesim.theories.emda:EMDA"
 
 [project.entry-points."particlesim.inflaton_potentials"]
 "inflation.quadratic" = "particlesim.cosmo.potentials:Quadratic"

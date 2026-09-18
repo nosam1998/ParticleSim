@@ -2853,6 +2853,125 @@ reports `moduli_stabilised: False` rather than leaving it to a docstring.
 Presenting a vacuum with unlifted flat directions as a finished model is the
 substantive error available here, so it is asserted against.
 
+## Charged interiors under EMDA: an absent mechanism, not a modified rate
+
+Issue #71 asks for mass inflation to be reported and compared with general
+relativity. The comparison turns out not to be between two rates.
+
+### In general relativity, one run measures two constants
+
+An outgoing null ray inside a charged hole obeys `dr/dv = f(r)/2` and is
+attracted to `r_-`. Integrated in `ln(r − r_-)` — never in `r` — its approach
+rate agrees with the closed-form inner surface gravity
+`κ_- = (r_+ − r_-)/(2r_-²)` to **7 parts in 10¹⁶**. Feeding the resulting
+crossing radius through the Dray–'t Hooft–Redmount relation `f_A f_D = f_B f_C`
+makes the mass function behind the crossing grow like `v^{−p} e^{κ_- v}`, so
+
+    d ln m / dv = κ_- − p/v
+
+and the *rate* is the geometry while the *correction* is the Price-law
+exponent of the tail. At `M = 1`, `Q = 0.9` (`κ_- = 1.369774385431`):
+
+| Price exponent `p` | measured rate | tail at `v = 120` | mass at `v = 120` |
+|---|---|---|---|
+| 8 | 1.369774385435 | 1.2e−18 | 3.1e+49 |
+| 12 | 1.369774385434 | 5.6e−27 | 1.5e+41 |
+| 16 | 1.369774385431 | 2.7e−35 | 7.2e+32 |
+
+The final mass moves seventeen decades and the rate does not — a rate that
+tracked `p` would mean the fit was absorbing the tail rather than measuring
+the geometry. Nor does it track the model's other free inputs: flip the sign
+of the tail or of the outgoing shell, or move either amplitude six decades,
+and the mass function follows linearly while the rate stays put to `1e−12`.
+And the bottom row is the phenomenon in two numbers: a perturbation that has
+decayed to `1e−35` produces a mass function of `1e32`.
+
+The model being solved is explicitly the cross-flow one: a Reissner-Nordström
+background of mass `M`, an ingoing perturbation `A v^{−p}`, an outgoing shell
+of mass `Δm`, and the crossing radius taken from the integrated ray. The full
+coupled Einstein-Maxwell-scalar evolution is a different and much larger
+computation. What is claimed here is the cross-flow result, and the numbers
+above are measured within it.
+
+### Two ways the arithmetic could have been fake, and what stops them
+
+**Cancellation.** By `v = 120` the gap `r − r_-` is about `1e−71`. Evaluating
+`f = 1 − 2M/r + Q²/r²` there returns exactly zero, and `r_-/r` rounds to one,
+so a radius cannot carry the crossing point at all. Everything downstream of
+the ray therefore takes the *gap*, and `f` is built from it factorised.
+`f(r,m) = f(r,M) − 2(m−M)/r` supplies the shells' metric functions exactly.
+
+**A relation that only ever inflates.** Far from any horizon `f_A → 1` and the
+crossing relation has to degenerate to `m_D = m_B + m_C − m_A`. It does, at
+first order in `1/r`: residuals `1.2e−3`, `1.2e−5`, `1.2e−7` at gaps `10²`,
+`10⁴`, `10⁶`. Mass inflation is entirely the `1/f_A` factor switching on.
+
+### Under EMDA there is no Cauchy horizon to inflate at
+
+The static solution at dilaton coupling `a` is
+
+    f = (1 − r_+/r)(1 − r_-/r)^b,  R² = r²(1 − r_-/r)^{1−b},  b = (1−a²)/(1+a²)
+
+At `a = 0`, `b = 1` and `R = r`: `r_-` is the Reissner-Nordström Cauchy
+horizon. For any `a > 0` the areal radius collapses there and the surface is a
+curvature singularity. The Kretschmann scalar, taken from the metric through
+the symbolic machinery and evaluated at fifty digits, diverges as
+
+    K ~ (r − r_-)^{−(2 + 4a²/(1+a²))}
+
+| `a` | closed form | measured slope |
+|---|---|---|
+| 0 | 0 (finite) | 1.9e−6 |
+| 1/2 | 2.8 | 2.799999709 |
+| 1 | 4 | 4.000000086 |
+| √3 | 5 | 4.999999951 |
+
+**The two columns do not join at zero.** The formula tends to `2` as `a → 0`
+while the value *at* `a = 0` is `0`. The Cauchy horizon's regularity is not a
+continuous property of the dilaton coupling: an arbitrarily small coupling
+replaces a finite-curvature null surface with a singularity at which `K`
+diverges as `(r − r_-)^{−2}`.
+
+The same discontinuity shows up in advanced time. `dv = 2dr/|f|` behaves as
+`(r − r_-)^{−b}` at the inner surface, an integral that converges for every
+`b < 1` and diverges logarithmically at `b = 1`:
+
+| `a` | 0 | 0.02 | 0.05 | 0.1 | 0.3 | 0.6 | 1 | √3 |
+|---|---|---|---|---|---|---|---|---|
+| `Δv` to `r_-` | **∞** | 915.1 | 148.5 | 38.98 | 6.205 | 2.630 | 1.583 | 1.062 |
+
+The ray reaches the singular surface at finite advanced time for every `a > 0`
+and never reaches `r_-` at `a = 0`, which is what makes the blueshift there
+unbounded. The divergence is the `1/(1−b)` of the endpoint integral:
+`Δv(1−b)` = 0.732, 0.741, 0.772 at `a` = 0.02, 0.05, 0.1.
+
+So `crossing_mass` **raises** for a dilaton black hole rather than returning a
+number, and `report_mass_inflation` comes back with `inflates = False` and a
+finite arrival time. A diagnostic that could only find mass inflation would be
+a demonstration rather than a comparison.
+
+### Two things in passing that are worth their own assertions
+
+**The extremality bound moves.** `r_+ = M + √(M² − (1−a²)Q²)`, so the bound is
+`M² ≥ (1−a²)Q²` and dissolves entirely at `a = 1`. A charge of `Q = 1.2` at
+`M = 1` has no horizon in Einstein-Maxwell and is an ordinary heterotic black
+hole with `r_+ = 2`.
+
+**The heterotic hole's temperature does not know its charge.** `b = 0` at
+`a = 1`, so the factor `(1 − r_-/r_+)^b` that carries the charge dependence in
+Reissner-Nordström is identically one and `κ_+ = 1/(4M)` for every `Q` —
+checked at `Q` = 0.1, 0.5, 0.9, 1.4. Reissner-Nordström's runs 0.24999 → 0.21141
+over the same range.
+
+### What is not here
+
+The axion. Static spherically symmetric EMDA has a constant axion; it becomes
+dynamical in the rotating Kerr-Sen family, which this module does not cover and
+says so in `validity_statement`. And the Dray–'t Hooft–Redmount relation is
+taken as the model's input rather than derived from the shell junction
+conditions — what is checked is its two limits, the weak-field addition above
+and the divergence as `f_A → 0`.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared

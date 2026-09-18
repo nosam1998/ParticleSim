@@ -302,9 +302,9 @@ gradient obtained by differentiating the *exact* background evolution
 between neighbouring separate universes, so it holds for potentials with no
 closed form. It is a super-horizon, slow-roll statement. For a single field
 it agrees with the mode solver to `O(ε)`, which is how it is calibrated
-here, but it does not integrate isocurvature modes through horizon crossing
-— a mode-by-mode multi-field solver is not in this module, and nothing here
-reports one.
+here, but it does not integrate isocurvature modes through horizon crossing.
+`particlesim.cosmo.multifield` now does — see below — and the two are
+checked against each other where both are valid.
 
 The analytic check for the multi-field case is exact and non-trivial. In
 slow roll `d(Σ φ_i²)/dN = −2 Σ m_i² φ_i² / V = −4` for any set of masses,
@@ -314,6 +314,90 @@ trajectory that is genuinely curved. The measured residual is the slow-roll
 correction and the test checks that it *scales* like `O(ε) ∝ 1/R²` — 1.7e-2
 at R = 15 and 4.0e-3 at R = 30, a factor of 4.2 for a factor of 2 in radius
 — rather than only that it is small.
+
+### The coupled field-space mode system
+
+Issue #124. `particlesim.cosmo.multifield` evolves the flat-gauge field
+perturbations through horizon crossing,
+
+    dphi_i'' + (3 − ε) dphi_i' + [(k/aH)² δ_ij + M_ij/H²] dphi_j = 0
+
+with the **full** effective mass matrix — the Hessian *and* the
+gravitational back-reaction,
+
+    M_ij/H² = V_ij/H² − [ φ_i'' φ_j' + φ_i' φ_j'' + (3 − ε) φ_i' φ_j' ]
+
+derived in the module docstring from
+`M_ij = V_ij − a⁻³ d/dt(a³ φ̇_i φ̇_j / H)` rather than quoted. Each field
+carries an independent Bunch-Davies vacuum, so what is evolved is an
+`F × F` matrix of mode functions and every spectrum is a sum over solutions
+of a projection over fields.
+
+#### One field: an identity, not a tolerance
+
+Substituting `dphi = φ' R` and using `ε' = φ' φ''` with the background
+equation returns the curvature equation that
+`perturbations.mode_power` already integrates. So the two solve the same
+equation in different variables, and the check is against the *exact*
+power-law result rather than against each other:
+
+| quantity | value |
+|---|---|
+| `n_s` from the mode matrix | 0.826086956602 |
+| exact `1 − 2ε/(1−ε)` | 0.826086956522 |
+| difference | **8.0e-11** |
+
+The acceptance asked for 1e-7. The amplitude agrees too, to 1e-6 relative,
+which is a stronger statement than the tilt: the two normalisations are
+written independently — `1/(2ka²)` for a field perturbation here,
+`1/(4a²εk)` for the curvature perturbation there — so agreeing on the
+amplitude checks the projection `R = φ' dphi/(2ε)` and both normalisations
+at once.
+
+**A finding worth recording**: for the exponential potential the effective
+mass matrix is **identically zero** — 5.6e-17 and 1.1e-16 at N = 10 and 20.
+The Hessian `λ²V` and the back-reaction cancel exactly. That is the same
+statement as `z = a√(2ε)` being proportional to `a` at constant `ε`, and it
+is why the scalar and tensor modes share a solution there and `r = 16ε`
+holds exactly. It also means the exponential potential **cannot test the
+back-reaction term at all**, since both sides of the identity vanish; the
+test that does use a quadratic potential, where `M/H²` is −0.028.
+
+#### Two fields: against δN, and where δN stops
+
+Two quadratic fields with a mass ratio of seven. The heavy field rolls away
+first, so the adiabatic direction rotates from `(−0.02, −1.00)` at the start
+to `(−1.00, 0)` by the end — a genuinely curved trajectory, which is the
+condition for the entropic mode to source the curvature perturbation.
+
+| e-folds remaining | `P_R` (modes) | `P_R` (δN) | ratio | `P_S/P_R` | ε |
+|---|---|---|---|---|---|
+| 60 | 5.10e+02 | 1.18e+03 | 0.431 | **2.40e-01** | 0.020 |
+| 50 | 5.66e+02 | 5.95e+02 | 0.952 | 1.96e-02 | 0.032 |
+| 40 | 1.74e+02 | 1.79e+02 | 0.972 | 2.02e-16 | 0.078 |
+| 30 | 1.53e+01 | 1.50e+01 | 1.015 | 2.22e-27 | 0.017 |
+
+The last two rows are the agreement: 2.8% and 1.5% discrepancy against `ε`
+of 0.078 and 0.017, so the disagreement is a *fraction* of `ε`, which is
+what `O(ε)` means for a slow-roll formula.
+
+**The first row is the half of the acceptance that matters.** At sixty
+e-folds remaining the entropic power is a quarter of the curvature power and
+the two methods differ by 57%, because `R` is still being sourced between
+that reading and the end of inflation. Agreement at an adiabatic pivot
+alone would pass for a solver that had dropped the field-space coupling
+entirely — an adiabatic trajectory has nothing left to couple — which is
+why the criterion is two statements rather than one.
+
+#### What is assumed
+
+Canonical kinetic terms. A curved field-space metric adds Christoffel terms
+to the derivative along the trajectory and a Riemann term to the mass
+matrix. Neither is here, and neither is silently set to zero somewhere it
+would be wrong: there is no field-space metric in `MultiFieldPotential` to
+carry one, so the limitation is structural and visible rather than an
+unstated assumption.
+
 
 ## String-inspired inflation
 

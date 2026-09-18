@@ -29,11 +29,18 @@ def _builtin() -> dict[str, type[Theory]]:
     from particlesim.theories.asafety.rg_improved import RGImprovedSchwarzschild
     from particlesim.theories.gr import GeneralRelativity
     from particlesim.theories.gr_lambda import GRWithLambda
+    from particlesim.theories.kk import KaluzaKlein
     from particlesim.theories.lqg.lqc import EffectiveLQC
 
     return {
         cls.id: cls
-        for cls in (GeneralRelativity, GRWithLambda, EffectiveLQC, RGImprovedSchwarzschild)
+        for cls in (
+            GeneralRelativity,
+            GRWithLambda,
+            EffectiveLQC,
+            RGImprovedSchwarzschild,
+            KaluzaKlein,
+        )
     }
 
 

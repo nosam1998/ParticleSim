@@ -1786,6 +1786,108 @@ Light rays are covered only as far as the characteristic cross-check above
 goes. Rendering them, which is issue #55, is a separate matter.
 
 
+## Warp design search: an objective with a closed-form optimum
+
+Issue #53, Warp Mode W2. W1 analyses a given bubble and W3 evolves fields on
+one; this is the question between them — given a speed, a passenger region
+and a domain, what shape function costs the least negative energy?
+
+### The objective reduces to one dimension, exactly
+
+Alcubierre's Eulerian energy density is known in closed form and holds for
+*any* shape function, not only the `tanh` one:
+
+    ρ = −(v²/32π) (y² + z²)/r_s² f′(r_s)²
+
+Integrating over space in spherical coordinates about the bubble centre,
+with `(y²+z²)/r² = sin²θ` and `∫sin³θ dθ dφ = 8π/3`:
+
+    E = −(v²/12) ∫ f′(r)² r² dr
+
+A one-dimensional functional of the shape alone. Checked against the
+repository's own `closed_form_energy_density` summed over a 200³ grid: the
+two agree to **2.1e-12** relative. That is what licenses optimising the
+reduced form rather than a volume integral.
+
+### So the search has an analytic target, not just a downhill direction
+
+Minimising `∫f′²r²dr` subject to `f = 1` on the passenger region `r ≤ r_p`
+and `f = 0` beyond `r_max` is a classical variational problem.
+`d/dr(r²f′) = 0` gives `r²f′ = const`, so
+
+    f(r) = (1/r − 1/r_max) / (1/r_p − 1/r_max)
+
+with minimum `r_p r_max/(r_max − r_p)`. For `r_p = 5`, `r_max = 20` that is
+`20/3 = 6.667`, against:
+
+| profile | `∫f′²r²dr` |
+|---|---|
+| **analytic (1/r)** | **6.667** |
+| linear taper | 11.67 |
+| cubic smoothstep | 13.14 |
+| raised cosine | 13.46 |
+
+The optimum is not marginal. Issue #53 asks only that a search "reduce a
+violation objective under constraints"; this makes it checkable against a
+known answer in both the objective *and* the shape.
+
+### What the search finds
+
+L-BFGS on an exact reverse-mode JAX gradient, 159 free radial nodes:
+
+| start | initial `|E|` | final `|E|` | exact | reduction | shape error |
+|---|---|---|---|---|---|
+| linear taper | 3.889 | 2.22231 | 2.22222 | 1.75× | 5.1e-06 |
+| `tanh` wall | 17.387 | 2.22233 | 2.22222 | **7.8×** | — |
+
+The residual 3.8e-05 above the continuum optimum is the *grid*, not the
+optimiser, and it converges at second order as the midpoint rule should:
+
+| nodes | 41 | 81 | 161 | 321 |
+|---|---|---|---|---|
+| excess | 6.14e-04 | 1.54e-04 | 3.84e-05 | 9.61e-06 |
+
+A factor of four per doubling.
+
+**Why the answer is a `1/r` profile.** The `r²` weight makes gradient
+expensive at large radius, so the cheap thing is to transition close to the
+passenger region and coast outward. The familiar `tanh` wall does the
+opposite — a narrow, steep transition at a fixed radius, which is the worst
+place for it. This is the quantitative form of the observation that thick
+walls are cheaper, and it costs a factor of 7.8 here.
+
+**Positivity is checked, not imposed.** Staying in `[0, 1]` and falling
+monotonically are not constrained anywhere; the search is free to overshoot
+and does not. That is worth testing rather than assuming, because a shape
+that dipped below zero would be a bubble that reversed and would still score
+well on the objective.
+
+### What this does not claim
+
+The energy is negative for *every* admissible shape: `f(r_p) = 1` with
+`f(r_max) = 0` forces a non-zero gradient and the integrand is a square.
+Nothing here makes a warp bubble satisfy an energy condition — it minimises
+the violation subject to the bubble existing at all, which is a much weaker
+statement. The infimum over unconstrained shapes is zero, attained only by
+`f ≡ 0`, which is flat space.
+
+### A recurrence worth naming
+
+The first search crashed with `expected parameter 0 of size 636 (f32[159])
+but got 1272 (f64[159])`. `_backend` is what turns on `jax_enable_x64`, and
+calling it for the first time *inside* a jitted function enables it
+mid-trace: the executable compiles for the f32 inputs JAX downcast to, and
+the next call passes f64. Touching the backend before anything is traced
+fixes it.
+
+This is the same ordering hazard already documented on
+`particlesim.solvers.nr.bssn._module`, where it did **not** raise — it
+silently produced single-precision initial data, found only because
+`det γ̃ − 1` sat at 1.2e-07, which is 2⁻²³. Here it failed loudly, which was
+luck rather than design: anything that enables `jax_enable_x64` lazily can
+do either.
+
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |

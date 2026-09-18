@@ -150,6 +150,83 @@ class EulerHeisenberg(EMSector):
         return {"birefringent": True, "truncation": "first order in the coupling"}
 
 
+class AxionPhoton(EMSector):
+    """An axion coupled to electromagnetism: ``-(g/4) a F Fdual = g a E.B``.
+
+    This is a *magnetoelectric* constitutive relation. Varying the action
+    gives ``D = E + g a B`` and ``H = B - g a E``: the axion field mixes the
+    two, which is why a photon crossing a magnet can turn into one.
+
+    **It supplies no** :meth:`medium`**, and that is physics rather than an
+    omission.** A constitutive medium is a static map from ``(D, B)`` to
+    ``(E, H)``, which would mean freezing ``a``. But a *constant* axion is
+    invisible: ``theta F Fdual`` at constant ``theta`` is a total derivative,
+    so it cannot change an equation of motion. Substituting the relations
+    above into Ampere's law,
+
+        curl H - d_t D = curl B - g a curl E - d_t E - g a d_t B
+
+    and Faraday's law ``curl E = -d_t B`` cancels the two axion terms
+    exactly, leaving vacuum Maxwell. Only *gradients* of ``a``, in space or
+    in time, do anything at all. So there is no static medium to hand the
+    finite-difference solver, and one built anyway would be a Maxwell solver
+    wearing an axion's name -- it would pass a limit check and predict
+    nothing. Conversion is computed instead in
+    :mod:`particlesim.scenarios.axion`, where the axion evolves.
+
+    The coupling has units of inverse mass, and Maxwell sits at zero, which
+    is the convention the rest of this module uses and the reason the limit
+    is checkable rather than asserted.
+
+    Parity is the whole point: ``a`` is a pseudoscalar and ``E.B`` is a
+    pseudoscalar, so the product is a scalar and the coupling is allowed.
+    That is also why only the polarisation *parallel* to the external field
+    mixes -- the perpendicular one has no ``E.B`` to couple to, and passes
+    through unchanged. A search that saw both polarisations attenuate
+    equally would be seeing something else.
+    """
+
+    id = "string.eft4d.axion_photon"
+    couplings = [
+        Coupling("coupling", 0.0, units="1/mass", bounds=POSITIVE),
+        Coupling("mass", 0.0, units="mass", bounds=POSITIVE),
+    ]
+    provenance = (
+        "Peccei and Quinn 1977, Phys. Rev. Lett. 38, 1440; Sikivie 1983, "
+        "Phys. Rev. Lett. 51, 1415 for the magnetic-field conversion"
+    )
+    validity_statement = (
+        "linear in the axion field and in the propagating photon; the external "
+        "field is a fixed background, so back-reaction on the magnet is not modelled"
+    )
+
+    def constitutive(self, electric, magnetic, axion):
+        """``(D, H)`` from ``(E, B, a)``.
+
+        Linear in ``a`` because the action is. The antisymmetry between the
+        two -- ``+g a B`` in one and ``-g a E`` in the other -- is what makes
+        the mixing energy-conserving rather than a gain medium.
+        """
+        import numpy as np
+
+        strength = self.values["coupling"]
+        field = np.asarray(electric, dtype=float)
+        induction = np.asarray(magnetic, dtype=float)
+        scalar = np.asarray(axion, dtype=float)
+        return field + strength * scalar * induction, induction - strength * scalar * field
+
+    def maxwell_limit(self) -> dict[str, float]:
+        return {"coupling": 0.0}
+
+    def observable_predictions(self) -> dict[str, Any]:
+        strength = self.values["coupling"]
+        return {
+            "birefringent": strength != 0.0,
+            "mixes_parallel_polarisation_only": True,
+            "axion_mass": self.values["mass"],
+        }
+
+
 def check_maxwell_limit(
     sector: type[EMSector],
     scale: float = 0.05,
@@ -200,10 +277,22 @@ def check_maxwell_limit(
 
 
 def check_all_maxwell_limits(scale: float = 0.05) -> dict[str, dict[str, Any]]:
-    """Run :func:`check_maxwell_limit` over every discoverable EM sector."""
+    """Run :func:`check_maxwell_limit` over every sector that supplies a medium.
+
+    Sectors without one are **skipped rather than failed**. The check works
+    by asking a constitutive relation what it does to ``(D, B)``, so a
+    theory whose content is not a constitutive relation -- see
+    :class:`AxionPhoton`, where a static one provably cannot exist -- is
+    outside its scope. Reporting such a plugin as "does not reduce to
+    Maxwell" would be the harness mistaking a question it cannot ask for an
+    answer.
+    """
     from particlesim.theories.registry import list_em_sectors
 
-    return {
-        sector_id: check_maxwell_limit(cls, scale=scale)
-        for sector_id, cls in list_em_sectors().items()
-    }
+    reports: dict[str, dict[str, Any]] = {}
+    for sector_id, cls in list_em_sectors().items():
+        try:
+            reports[sector_id] = check_maxwell_limit(cls, scale=scale)
+        except NotImplementedError:
+            continue
+    return reports

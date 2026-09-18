@@ -2474,6 +2474,81 @@ A travelling plane wave is nearly blind to Born-Infeld, because its
 invariants vanish. A standing wave is not, which is why the benchmark that
 shows the theory is a cavity rather than a propagating pulse.
 
+## Axion-photon conversion: an acceptance that is a limit, not a tolerance
+
+Issue #72. An axion couples to electromagnetism through `−(g/4) a F F̃ = g a E·B`,
+so in an external magnetic field the photon polarisation **parallel** to `B`
+mixes with the axion. That is how every laboratory axion search works.
+
+### A constant axion is invisible, and that decides the design
+
+The plugin supplies no constitutive `medium()`, which is physics rather than an
+omission. A medium is a static map from `(D, B)` to `(E, H)`, which would mean
+freezing `a`. But `θFF̃` at constant `θ` is a total derivative and cannot change
+an equation of motion. Substituting `D = E + gaB` and `H = B − gaE` into
+Ampère's law,
+
+    ∇×H − ∂ₜD = ∇×B − ga∇×E − ∂ₜE − ga∂ₜB
+
+and Faraday's `∇×E = −∂ₜB` cancels the two axion terms **exactly**, leaving
+vacuum Maxwell. Only *gradients* of `a`, in space or time, do anything.
+
+So a static medium built anyway would pass a limit check and predict nothing —
+a Maxwell solver wearing an axion's name. The Maxwell-limit harness therefore
+*skips* sectors with no medium rather than failing them: a question it cannot
+ask is not an answer. That skip is asserted in the tests, so it cannot become
+an accident.
+
+### The formula is an approximation, so the test is a convergence
+
+The usual result
+
+    P(γ→a) = (2Δ_M/Δ_osc)² sin²(Δ_osc L/2)
+
+comes from dropping the second `z`-derivative — the slowly-varying envelope
+approximation. Checking a solver against it to some tolerance would leave open
+whether a gap is the solver's error or the approximation's. So `propagate`
+keeps the second derivative and integrates the exact boundary-value problem,
+and what is asserted is that the gap closes at first order in `Δ_M/ω`. At fixed
+conversion phase `gBL = 2`:
+
+| `gB` | departure from the formula |
+|---|---|
+| 4.0e−2 | 8.1e−3 |
+| 2.0e−2 | 5.9e−3 |
+| 1.0e−2 | 2.8e−3 |
+| 5.0e−3 | 1.4e−3 |
+| 2.5e−3 | 6.4e−4 |
+
+Halving as the parameter halves. A fixed tolerance would have passed a formula
+that was wrong by a constant; only the trend separates *the* approximation from
+*an* approximation that happens to be close.
+
+In the regime where the approximation holds, the two agree to better than
+2e−3 across couplings from 1e−4 to 1e−3 and masses from 0 to 0.05.
+
+### Two details that are quietly wrong if skipped
+
+**A massive axion is slower than light**, so the conversion probability is a
+ratio of *fluxes*, not amplitudes: the axion carries `k_a/k_γ` less flux per
+unit amplitude. The factor vanishes at `m = 0` and grows as the axion
+approaches its mass shell — exactly where the interesting searches sit.
+
+**The mixing is a rotation, not a gain.** Photon plus axion flux is conserved
+to 5e−3 over several oscillation lengths, which also checks that the
+antisymmetry of `+gaB` against `−gaE` survived into the propagation equations.
+A sign slip there produces exponential growth that would still "match the
+formula" near zero length.
+
+### The resonance
+
+With a massive axion in vacuum the oscillation is fast and shallow — its
+ceiling is `(2Δ_M/Δ_osc)²`, which at `m = 0.15`, `g = 10⁻³` is 0.8%. Setting the
+plasma frequency to the axion mass zeroes the detuning and restores full
+conversion, which is the trick every helioscope uses. The mass has to be well
+clear of the coupling for the point to be visible: at `m = 0.05` the ceiling is
+still 0.39.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared

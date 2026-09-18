@@ -2694,6 +2694,75 @@ individually valid, and nothing else would notice. `TheoryStack` now compares
 `matter_frame` as well, and a plugin that leaves it unset inherits its own
 frame, so every existing plugin means exactly what it already meant.
 
+## The NS-NS sector in four dimensions: three things that have to be checked
+
+Issue #70. The bosonic string's massless sector is the metric, the dilaton and
+the Kalb-Ramond two-form. In the string frame,
+
+    √−g_S e^{−2φ} [ R_S + 4(∇φ)² − H²/12 ],   H = dB
+
+Turning that into something a solver can use requires three steps, and each is
+easy to get wrong in a way that still produces the right-looking terms.
+
+### The frame change is a total derivative, not an identity
+
+Setting `g_S = e^{2φ}g_E` does **not** map the string-frame density onto
+`√−g_E[R_E − 2(∇φ)²]` term by term. The two differ by the divergence of
+`−6√−g ∇^μφ`, and only because that is a total derivative do they define the
+same theory.
+
+On a Friedmann metric the difference comes out as `d/dt(6a³φ̇)` — verified to
+**exactly zero** against `divergence(frame_boundary_current(...))`. The
+companion test checks the boundary term is *not* zero, so the first cannot pass
+for the wrong reason.
+
+This is the distinction a coefficient comparison cannot make. A reduction that
+merely reproduced the literature's terms would be a *different action
+containing the same terms*, and nothing about matching `−2(∇φ)²` would notice.
+
+### The dilaton's exponent flips, and the factor is 3!
+
+In four dimensions a three-form is dual to a one-form, so `H` carries the same
+information as an axion. Substituting
+`H^{μνρ} = e^{4φ}ε^{μνρσ}∇_σχ` and contracting,
+
+    ε^{μνρσ} ε_{μνρλ} = 3! δ^σ_λ
+
+turns `−(1/12)e^{−4φ}H²` into a kinetic term with coefficient `1/2` and,
+crucially, `e^{+4φ}`. **The sign of the exponent reverses**: the axion is
+strongly coupled where the two-form was weakly coupled. That reversal is the
+whole reason the dual description is useful and the easiest thing here to get
+backwards, since every other coefficient survives unchanged — so the `6` is
+summed from the Levi-Civita symbol rather than quoted.
+
+| | two-form | axion |
+|---|---|---|
+| coefficient | 1/12 | **1/2** |
+| dilaton factor | `e^{−4φ}` | **`e^{+4φ}`** |
+
+### A dualisation is defined by what happens to the Bianchi identity
+
+`dH = 0` holds *identically* for `H = dB`. After the substitution it becomes
+the axion's **equation of motion**, `∇_μ(e^{4φ}∇^μχ) = 0`. And the two-form's
+equation of motion becomes `d(dχ) = 0`, which is trivial. Swapping a Bianchi
+identity for a field equation is what a duality is.
+
+Checked exactly: the two expressions are proportional with a constant ratio of
+`−1`, which is the orientation convention of the Levi-Civita symbol rather than
+a physical sign. What matters is that the ratio is a **constant**, so one
+vanishes exactly when the other does — a ratio that depended on the fields
+would mean the dual was not a dual.
+
+### The plugin
+
+`string.eft4d.dilaton` carries `coupling` with GR at zero, where a test can
+evaluate it. Its `effective_stress_energy` is `G/8π`, for the same reason as
+`string.kk`: the *Einstein*-frame action has a canonical Einstein-Hilbert term
+by construction, so the dilaton and axion are matter rather than a modification
+of gravity. In the string frame that would be false — which is why the declared
+frame is what makes the statement checkable, and why #74's `matter_frame`
+distinction matters for anything composed with this.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared

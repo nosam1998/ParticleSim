@@ -27,6 +27,7 @@ POTENTIAL_ENTRY_POINT_GROUP = "particlesim.inflaton_potentials"
 
 def _builtin() -> dict[str, type[Theory]]:
     from particlesim.theories.asafety.rg_improved import RGImprovedSchwarzschild
+    from particlesim.theories.dilaton import Dilaton
     from particlesim.theories.gr import GeneralRelativity
     from particlesim.theories.gr_lambda import GRWithLambda
     from particlesim.theories.kk import KaluzaKlein
@@ -40,6 +41,7 @@ def _builtin() -> dict[str, type[Theory]]:
             EffectiveLQC,
             RGImprovedSchwarzschild,
             KaluzaKlein,
+            Dilaton,
         )
     }
 

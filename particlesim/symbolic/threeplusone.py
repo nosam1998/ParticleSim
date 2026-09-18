@@ -344,6 +344,44 @@ def inverse_metric_derivative(inverse, d_metric) -> list[list[list[Any]]]:
     ]
 
 
+def inverse_metric_second_derivative(inverse, d_metric, dd_metric):
+    """``d_k d_l gamma^ij``, indexed ``[k][l][i][j]``.
+
+    Differentiate :func:`inverse_metric_derivative` once more:
+
+        d_l d_k gamma^ij = -(d_l gamma^ia) gamma^jb d_k gamma_ab
+                           - gamma^ia (d_l gamma^jb) d_k gamma_ab
+                           - gamma^ia gamma^jb d_l d_k gamma_ab
+
+    Same reason as the first derivative, one order up. The quantity that
+    wants it is CCZ4's ``Z_i``, which is the difference between the evolved
+    ``Gammahat^i`` and the ``Gammabar^i`` the metric defines; writing that
+    difference as ``Gammahat^i + d_j gammabar^ij`` makes its derivative
+    algebraic in ``gammabar_ij`` and its first two derivatives, where
+    differentiating ``Gammabar^i`` directly would want a third.
+    """
+    d_inverse = inverse_metric_derivative(inverse, d_metric)
+    return [
+        [
+            [
+                [
+                    -sum(
+                        d_inverse[ell][i][a] * inverse[j][b] * d_metric[k][a][b]
+                        + inverse[i][a] * d_inverse[ell][j][b] * d_metric[k][a][b]
+                        + inverse[i][a] * inverse[j][b] * dd_metric[ell][k][a][b]
+                        for a in INDICES
+                        for b in INDICES
+                    )
+                    for j in INDICES
+                ]
+                for i in INDICES
+            ]
+            for ell in INDICES
+        ]
+        for k in INDICES
+    ]
+
+
 def christoffel(slice_: Slice, inverse=None) -> list[list[list[Any]]]:
     """``Gamma^k_ij`` of the spatial metric, indexed ``[k][i][j]``."""
     inverse = inverse_metric(slice_.metric) if inverse is None else inverse

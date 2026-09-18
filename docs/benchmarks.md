@@ -1104,6 +1104,115 @@ equations. The single-tree form was kept anyway, because it is the right
 shape and it is what makes the two-forms-of-`H` test a test of something.
 
 
+## Fixed mesh refinement: nested boxes, and what the convergence study cost
+
+Issue [#48](https://github.com/nosam1998/ParticleSim/issues/48), in
+`particlesim.solvers.nr.mesh` (the operators) and
+`particlesim.solvers.nr.refined` (the hierarchy). A coarse periodic domain
+with one finer box inside it, taking two steps for every coarse one.
+
+### The operators
+
+Vertex-centred grids, sampling at `k h` from zero, so refining by two puts a
+fine sample on *every* coarse sample. That is the whole reason to do it this
+way rather than a preference:
+
+| Property | Result |
+|---|---|
+| `restrict(prolong(u)) − u` | **exactly 0**, all orders |
+| Prolongation, order 2 | 4.0 per halving (target 4) |
+| Prolongation, order 4 | 15.8 per halving (target 16) |
+| Prolongation, order 6 | 63.3 per halving (target 64) |
+| Buffer width, 4th-order scheme | 12 points |
+
+Restriction is injection — the coarse value *is* a fine value, copied — so
+there is nothing to average and nothing to damp. Prolongation interpolates
+only at the midpoints. Cell-centred grids have neither property: every
+coarse point falls between fine points, so restriction averages (second
+order) and prolongation interpolates everywhere.
+
+The buffer width is derived, not tuned: four Runge-Kutta stages times the
+widest radius in play, which is the Kreiss-Oliger operator's three rather
+than the derivative's two.
+
+### One real bug, and two ways of measuring nothing
+
+The refined gauge wave is the test, and getting it to *be* a test took three
+attempts. Worth recording, because two of the three failures produced
+plausible numbers rather than errors.
+
+**The bug.** Refilling the buffer once per fine step leaves it holding values
+correct at the step's start while stages two to four want later times. That
+time error marches inward three points per stage — clear of a twelve-point
+buffer and into the interior. Measured, the scheme converged at **third**
+order: ratios 8.48 and 8.90 where fourth owes 16. Filling at each stage's own
+time fixed it. Exactly one order lost is what that looks like.
+
+**Measuring a moving region.** Stripping a fixed twelve-point buffer and
+comparing what is left compares the middle quarter of the box at `n = 32`
+against four fifths of it at `n = 128`. Three different physical regions,
+reading 11.4 and 11.2 — which looks like a scheme somewhere between third
+and fourth order and is really three different measurements.
+
+**Measuring the wrong field.** Norming `‖H‖₂` over the whole box includes the
+buffer, where the values are prolonged parent data and the constraint
+stencils wrap exactly as the evolution's do. That edge dominated the norm and
+did not converge at all — ratios 0.93 and 1.43 — which looks like the physics
+failing and is a diagnostic pointed at a region that is not a solution of
+anything.
+
+### What the scheme actually does
+
+Fourth-order prolongation, a fixed physical window inside the buffer at every
+resolution, `t = 0.25`:
+
+| n | window error | ratio | window `‖H‖₂` | ratio |
+|---|---|---|---|---|
+| 32 | 1.429e−04 | — | 8.772e−03 | — |
+| 64 | 1.038e−05 | 13.77 | 1.680e−03 | 5.22 |
+| 128 | 6.394e−07 | 16.23 | 2.222e−04 | 7.56 |
+| 256 | 5.301e−08 | 12.06 | 7.397e−05 | 3.00 |
+
+**Near fourth order, and the asymptotic rate is not established.** Averaged
+over the three halvings the solution error falls 13.9 per halving, order
+3.80. But the sequence is not a clean 16, 16, 16: it peaked at 16.23 and fell
+to 12.06 when pushed further. Stopping at `n = 128` and quoting 16.23 would
+have been the flattering reading and the wrong one. The constraint over the
+same window is slower still, around order two to three.
+
+### A hypothesis, tested and refuted
+
+`H` takes second derivatives, and differentiating a fourth-order interpolant
+twice leaves second-order error, so sixth-order prolongation should have
+fixed the constraint. It did not:
+
+| prolongation | n=32 | n=64 | n=128 | error ratios | `‖H‖₂` ratios |
+|---|---|---|---|---|---|
+| order 4 | 1.429e−04 | 1.038e−05 | 6.394e−07 | 13.8, 16.2 | 5.2, 7.6 |
+| order 6 | 1.497e−05 | 1.072e−06 | 3.483e−07 | 14.0, **3.1** | 2.8, **1.9** |
+
+Order six lowers the error by about ten at the coarsest grid and makes the
+*rate* worse. That is the signature of a floor the interpolation error had
+been masking, and the likeliest candidate is the coarse level's own error
+arriving through the buffer: the fine level cannot be more accurate than the
+boundary data it is handed, and that data comes from a level whose error is
+sixteen times larger at the same spacing. Consistent with the numbers, **not
+established** — order six at `n = 256` was not run, and that is the
+measurement that would settle it.
+
+### What issue #48's acceptance criterion needs, and it is not refinement
+
+"Schwarzschild puncture stable to `t = 1000 M` with two levels" is not
+reachable on this code, and the obstacle is not the refinement. **The domain
+is a periodic torus.** A single puncture on it is an infinite lattice of
+punctures rather than an isolated black hole, which `brill_lindquist` already
+says in its own docstring. Getting to `t = 1000 M` needs a non-periodic outer
+boundary — radiative or Sommerfeld conditions, and the one-sided stencils to
+go with them — which is its own piece of work and is what
+[#51](https://github.com/nosam1998/ParticleSim/issues/51)'s benchmarks are
+waiting on too. #48 stays open for it.
+
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |

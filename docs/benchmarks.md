@@ -1213,6 +1213,101 @@ go with them — which is its own piece of work and is what
 waiting on too. #48 stays open for it.
 
 
+## A radiative outer boundary: letting a pulse leave
+
+Issue [#132](https://github.com/nosam1998/ParticleSim/issues/132), in
+`particlesim.solvers.nr.boundary`. The emitted kernels difference with
+`roll`, so the domain is a torus — right for a gauge wave, wrong for
+anything asymptotically flat.
+
+### No change to the kernels, which was not the expectation
+
+This looked like it needed one-sided stencils near an edge: a second emitted
+kernel and a region-split right-hand side. It does not. The trick is the one
+[fixed mesh refinement](#fixed-mesh-refinement-nested-boxes-and-what-the-convergence-study-cost)
+already needed — let the periodic kernel compute everywhere, including a
+zone at the outer edge where its wrap is wrong, and **override the rates in
+that zone** before the stage is combined. The wrapped values never reach the
+interior because the zone is at least a stencil radius wide and its rates are
+discarded. Zero codegen changes, and the eleven-minute derivations stay
+cached.
+
+Applied at every Runge-Kutta stage, not once a step — once a step is exactly
+what cost the refinement an order (8.5 against 16), and the same argument
+applies here.
+
+The condition is Sommerfeld, from taking each variable to behave at large
+radius as an outgoing wave on a constant background `f = f_0 + u(r − vt)/r`:
+
+```
+∂_t f = −v (x^i/r) ∂_i f − v (f − f_0)/r
+```
+
+The second term is what makes it work at finite radius: without it a field
+falling off as `1/r` reflects at the amplitude of its own falloff. `f_0` is
+the Minkowski value — one for the lapse and the conformal metric's diagonal,
+zero elsewhere — and a wrong entry reflects at the amplitude of the
+difference, which is why there is a test that the condition's rate is exactly
+zero on flat data.
+
+### Does a pulse leave?
+
+A norm that only decreases does not answer that: a pulse spreading out of the
+region being measured looks the same as one leaving the domain. The control
+is the **same run with periodic boundaries**, where the pulse is known to come
+back. Gaussian bump on `Ã_ij`, extent 4, 6-point zone, amplitude of the
+traceless curvature in the interior:
+
+| t/L | 0.00 | 0.62 | 0.88 | 1.50 | 2.50 |
+|---|---|---|---|---|---|
+| periodic | 1.0e−02 | 4.8e−04 | 1.3e−03 | 2.1e−03 | 2.2e−03 |
+| radiative | 1.0e−02 | 5.0e−04 | 6.4e−05 | 4.7e−06 | 2.2e−07 |
+
+**Identical until 0.62 L**, which says the boundary does not disturb the
+interior before the pulse arrives — the check that it is absorbing at the
+edge rather than damping everywhere. Then the periodic run rises as the pulse
+re-enters and recirculates around 1e−03 indefinitely, while the radiative one
+keeps falling: **4.7 orders of magnitude** by 2.5 crossing times, with no
+recurrence. #132 asked for two orders and no visible reflection.
+
+### What it costs in constraint violation: the opposite of the guess
+
+The condition is applied variable by variable to quantities that are not
+characteristic variables of the system, so it has no reason to respect the
+constraints, and the expectation was that it would make them worse. At 1.25
+crossing times:
+
+| n | periodic `‖H‖₂` | radiative `‖H‖₂` | ratio |
+|---|---|---|---|
+| 32 | 1.297e−03 | 3.806e−05 | 0.03 |
+| 48 | 1.224e−03 | 1.938e−05 | 0.02 |
+| 64 | 1.243e−03 | 1.088e−05 | 0.01 |
+
+Thirty to a hundred times **better**, because the violation leaves with the
+pulse instead of recirculating. The periodic numbers do not converge at all —
+1.297, 1.224, 1.243 — since whatever the pulse deposits stays in the domain
+forever. The radiative ones converge at order 1.7 to 2.0.
+
+**That is the real limitation, and it is not the one predicted.** A
+second-order boundary on a fourth-order interior caps the constraint's
+convergence at second order. Constraint-preserving boundary conditions are
+the fix and are not attempted here; the argument for wanting them is this
+convergence cap, not the constraint injection that turned out not to happen.
+
+### What is not done
+
+- **Not constraint-preserving**, as above.
+- **Not slab-restricted.** `Radiative.rates` takes three bounded-domain
+  derivatives per variable per stage over the *whole* array — seventy-two
+  array passes a stage for BSSN — and it dominates the run at 64³. The
+  obvious fix is to compute them only in the zone.
+- **Not tested against a Teukolsky wave**, which is #132's stated acceptance
+  test and needs Teukolsky initial data that does not exist yet. What is
+  measured instead is a Gaussian pulse, which is a weaker claim: a pulse that
+  leaves is necessary for a working boundary and not sufficient to call it
+  quantitatively correct for radiation extraction.
+
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |

@@ -30,14 +30,30 @@ it cannot be found by integrating forwards, and why integrating the same
 surfaces *backwards* converges onto it from either side. Measured below at a
 rate that matches ``e^(-kappa t)`` with ``kappa = 1/(4M)``.
 
-**The scale invariance that removes a whole problem.** The flow here moves a
-level-set field ``F``, with the surface at ``F = 0``. ``Theta`` depends on
-``F`` only through the *direction* of its gradient, so it is unchanged by
-``F -> G(F)`` for any increasing ``G``. Level-set methods normally need
-periodic reinitialisation to a signed distance because ``|grad F|`` drifts;
-here that drift changes how fast the surface moves and not where it stops,
-so the converged answer needs no reinitialisation at all. Only the step size
-does.
+**Both surfaces are stored as a radius per direction, not as a level-set
+field.** ``Theta`` and the null condition are both computed from a field
+``F`` whose zero set is the surface, because the geometry they need is
+differenced on the grid -- but ``F`` is *rebuilt* from ``h(theta, phi)``
+every iteration rather than evolved, so it accumulates nothing.
+
+That is not the obvious design and it is not a stylistic preference. Both
+flows were first written as evolutions of ``F`` on the grid and both failed,
+in different ways: the apparent-horizon flow because a varying step puts
+structure into ``grad grad F``, which is exactly what the divergence term of
+``Theta`` differentiates, and the backward null flow because
+``d_t F = beta^i d_i F - alpha |grad F|`` is a Hamilton-Jacobi equation and
+steepening is what those do -- it overflowed to ``inf`` and then ``NaN``.
+The failures and their measurements are recorded on
+:func:`find_apparent_horizon` and :func:`event_horizon_flow`, because the
+symptoms both look like something else: a bad initial guess in the first
+case, and an unstable spacetime in the second.
+
+Rebuilding is stronger than the reinitialisation a level-set method would
+normally use. It is worth being clear about what it does *not* buy, though:
+``Theta`` depends on ``F`` only through the direction of its gradient, so it
+is invariant under ``F -> G(F)`` for increasing ``G``, which means gradient
+drift was never going to move the fixed point. It was the stability and the
+dynamic range that needed fixing, not the answer.
 
 **What is assumed, and where it breaks.** Areas and radii are read off by
 casting rays from a centre, so the surface has to be star-shaped about that
@@ -141,10 +157,10 @@ class Slice:
 
     def __post_init__(self) -> None:
         # The inverse metric, its derivatives and the Christoffels depend on
-        # the slice alone, and the flow asks for them once per iteration --
-        # two hundred times over, for twenty-seven components each needing
-        # three grid derivatives. Recomputing them was the whole cost of the
-        # finder: caching took a 96^3 search from minutes to seconds.
+        # the slice alone, while the flow asks for them once per iteration --
+        # hundreds of times over, for twenty-seven Christoffel components
+        # each built from three grid derivatives. Cached here so they are
+        # built once per slice instead.
         object.__setattr__(self, "_cache", {})
         missing = [
             name
@@ -332,8 +348,12 @@ def ray_radii(level_set, slice_: Slice, theta, phi, samples: int = 400, reach: f
     The outermost crossing is taken, because the apparent horizon is the
     outermost marginally trapped surface and an inner one is a different
     surface. A ray with no crossing gets ``nan``, and the caller decides
-    whether that is a failure -- during a flow it usually means the step was
-    too large.
+    whether that is a failure.
+
+    Neither flow in this module calls this: both carry ``h`` directly and
+    have no level set to search. It is here for the other direction -- a
+    field computed elsewhere, or an ``F`` whose zero set is wanted as a
+    surface -- which is how the trial surfaces in the tests are read back.
     """
     direction = _directions(theta, phi)
     if reach is not None:

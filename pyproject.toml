@@ -44,6 +44,7 @@ gr = "particlesim.theories.gr:GeneralRelativity"
 "gr.lambda" = "particlesim.theories.gr_lambda:GRWithLambda"
 "lqg.lqc" = "particlesim.theories.lqg.lqc:EffectiveLQC"
 "asafety.rg_improved" = "particlesim.theories.asafety.rg_improved:RGImprovedSchwarzschild"
+"string.kk" = "particlesim.theories.kk:KaluzaKlein"
 
 [project.entry-points."particlesim.inflaton_potentials"]
 "inflation.quadratic" = "particlesim.cosmo.potentials:Quadratic"

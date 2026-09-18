@@ -2549,6 +2549,88 @@ conversion, which is the trick every helioscope uses. The mass has to be well
 clear of the coupling for the point to be visible: at `m = 0.05` the ceiling is
 still 0.39.
 
+## Kaluza-Klein reduction: the tower, and a lattice that has to reproduce it
+
+Issue #73. Compactify `D = 4 + n` on a torus or a simple orbifold and the
+higher-dimensional field becomes a 4D tower whose masses are set by the
+geometry. The spectrum is the whole observable content, and it is known in
+closed form — which is what makes the acceptance checkable and also what makes
+it easy to fake.
+
+### Comparing a formula to itself proves nothing
+
+So `lattice_spectrum` puts the extra dimensions on a grid, assembles the
+nearest-neighbour Laplacian and **diagonalises** it. Its eigenvalues are not
+the continuum ones: a lattice has its own dispersion, so level `k` on `N`
+points comes out at `(4/h²)sin²(πk/N)`, which sits *below* the continuum
+`(k/R)²`. Measured against that prediction on a circle of radius 2:
+
+| `N` | level 1 | predicted | agreement |
+|---|---|---|---|
+| 16 | 0.496793 | 0.496793 | 4e−16 |
+| 32 | 0.499197 | 0.499197 | 2e−15 |
+| 64 | 0.499799 | 0.499799 | 1e−14 |
+
+Machine precision — a numerical eigensolve meeting a closed form, not one
+formula meeting another. And the gap to the *continuum* tower closes at second
+order: 6.4e−3, 1.6e−3, 4.0e−4, quartering as the lattice doubles. The error is
+one-signed, because `sin(x)/x < 1`; a scheme whose sign changed with level
+would be aliasing rather than discretising.
+
+This is the same dispersion that governs the real-time lattice fields above.
+
+### Degeneracies are the part a mass formula misses
+
+A 4D observer counts states, not just levels. On a square `T²`:
+
+| level | mass | degeneracy |
+|---|---|---|
+| 0 | 0 | 1 |
+| 1 | 1 | 4 |
+| 2 | √2 | 4 |
+| 4 | 2 | 4 |
+| 5 | √5 | **8** |
+
+Level 5 is eight-fold because `(±1,±2)` and `(±2,±1)` all give `n² = 5` — the
+count is the number of lattice points on a circle, and it is not monotone.
+Unequal radii split it: on a `(1, 2)` rectangle the first level drops to 0.5
+with degeneracy 2. Getting that structure right is most of what "reproduces
+the spectrum" means.
+
+### The orbifold, where the difference is exactly one state
+
+On `S¹/ℤ₂` the circle folds to an interval and fields are classified by
+parity. Even fields keep `cos(ny/R)` from `n = 0`; odd fields keep `sin(ny/R)`
+from `n = 1`. Both lose the two-fold `±n` degeneracy, because the projection
+identifies them — and the odd tower has **no massless mode**. Not a shifted
+mass, an absent state. Projecting a zero mode away by boundary conditions is
+how the model-building literature breaks symmetries on an orbifold, so the
+test asserts the count differs by exactly one.
+
+### The cost model is why `n ≤ 2`
+
+Dense diagonalisation costs `(points^n)³`. At `n = 1` and 64 points that is
+2.6e5 operations; at `n = 3` and 16 points it is 6.9e10. `lattice_cost` reports
+the number before it is paid and `lattice_spectrum` refuses `n > 2` quoting it,
+so the limit can be re-argued when the solver stops being dense rather than
+standing as a policy.
+
+### The plugin's GR limit is the inverse radius
+
+`string.kk` carries `inverse_radius`, not `radius`, so decompactification sits
+at **zero** where a test can evaluate it — the same convention that puts
+Maxwell at zero in the electromagnetic sector, for the same reason: a limit you
+cannot evaluate is a claim, not a check.
+
+Its `effective_stress_energy` is `G/8π` exactly, and at *every* radius rather
+than only at the limit. That is a statement, not a shortcut: a flat, unwarped
+torus with fixed moduli and no flux has zero internal curvature and no
+potential, so the reduction gives 4D Einstein gravity untouched. The observable
+content of the compactification is the tower — matter one can excite — not a
+modified vacuum action. Warping, flux, moduli stabilisation and the tower's own
+Casimir energy would each break that, and the plugin's validity statement names
+them.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared

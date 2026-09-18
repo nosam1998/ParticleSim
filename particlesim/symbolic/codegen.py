@@ -234,22 +234,21 @@ def _eliminate(trees: tuple[Any, ...]):
     return sp.cse(list(trees), optimizations="basic")
 
 
-def emit(
+def build_source(
     expressions: Mapping[str, Any],
     derivatives: Mapping[Any, tuple[str, tuple[int, ...]]],
     order: int = 4,
     backend: str = "numpy",
-    jit: bool = True,
     name: str = "rhs",
-) -> Kernel:
-    """Compile ``expressions`` into a kernel over grid arrays.
+) -> str:
+    """Generate the kernel's source without compiling it.
 
-    ``expressions`` maps an output name to a SymPy expression in field and
-    derivative symbols; ``derivatives`` is the mapping an
-    :func:`~particlesim.symbolic.threeplusone.abstract_slice` returns.
-    Anything in an expression that is neither a derivative symbol nor a
-    number is taken to be a field and read from the ``fields`` mapping the
-    kernel is called with.
+    Split out from :func:`emit` because this is the expensive half -- the
+    elimination over a full BSSN right-hand side is a minute of SymPy --
+    and the result is a string, which is exactly what a cache can hold. The
+    generated module ends with a ``_STATS`` literal so that source loaded
+    from a cache still knows its own operation counts, and nothing has to
+    be recomputed to describe it.
     """
     if order not in FIRST:
         raise ValueError(f"order must be one of {sorted(FIRST)}, got {order}")
@@ -285,36 +284,79 @@ def emit(
         body.append(f"        {key!r}: {printer.doprint(tree)},")
     body.append("    }")
 
-    source = _operator_source(order) + "\n".join(body) + "\n"
+    operations = int(
+        sum(sp.count_ops(value) for _, value in temporaries)
+        + sum(sp.count_ops(tree) for tree in reduced)
+    )
+    stats = {
+        "outputs": list(outputs),
+        "fields": [str(symbol) for symbol in field_symbols],
+        "raw_operations": raw_operations,
+        "operations": operations,
+        "temporaries": len(temporaries),
+        "stencils": stencil_count,
+        "order": order,
+        "name": name,
+    }
+    body.append(f"_STATS = {stats!r}")
+    return _operator_source(order) + "\n".join(body) + "\n"
+
+
+def from_source(source: str, backend: str = "numpy", jit: bool = True) -> Kernel:
+    """Compile source from :func:`build_source`, cache or not.
+
+    The cheap half. Everything the kernel reports about itself comes out of
+    the source's own ``_STATS``, so a kernel restored from a cache is
+    indistinguishable from one just generated.
+    """
     module = _backend(backend)
     namespace: dict[str, Any] = {}
     for function in NAMESPACE_FUNCTIONS:
         if hasattr(module, function):
             namespace[function] = getattr(module, function)
     namespace.setdefault("abs", abs)
-    exec(compile(source, f"<{name}>", "exec"), namespace)  # noqa: S102
-    function = namespace[name]
+    exec(compile(source, "<kernel>", "exec"), namespace)  # noqa: S102
+    stats = namespace.get("_STATS")
+    if stats is None:
+        raise ValueError("this source was not produced by build_source: no _STATS")
+    function = namespace[stats["name"]]
     if backend == "jax" and jit:
         import jax
 
-        function = jax.jit(function, static_argnums=())
-
-    operations = int(
-        sum(sp.count_ops(value) for _, value in temporaries)
-        + sum(sp.count_ops(tree) for tree in reduced)
-    )
+        function = jax.jit(function)
     return Kernel(
-        outputs=outputs,
-        fields=tuple(str(symbol) for symbol in field_symbols),
+        outputs=tuple(stats["outputs"]),
+        fields=tuple(stats["fields"]),
         source=source,
         function=function,
-        raw_operations=raw_operations,
-        operations=operations,
-        temporaries=len(temporaries),
-        stencils=stencil_count,
+        raw_operations=stats["raw_operations"],
+        operations=stats["operations"],
+        temporaries=stats["temporaries"],
+        stencils=stats["stencils"],
         backend=backend,
-        order=order,
+        order=stats["order"],
     )
+
+
+def emit(
+    expressions: Mapping[str, Any],
+    derivatives: Mapping[Any, tuple[str, tuple[int, ...]]],
+    order: int = 4,
+    backend: str = "numpy",
+    jit: bool = True,
+    name: str = "rhs",
+) -> Kernel:
+    """Generate and compile a kernel over grid arrays.
+
+    ``expressions`` maps an output name to a SymPy expression in field and
+    derivative symbols; ``derivatives`` is the mapping an
+    :func:`~particlesim.symbolic.threeplusone.abstract_slice` returns.
+    Anything in an expression that is neither a derivative symbol nor a
+    number is taken to be a field and read from the ``fields`` mapping the
+    kernel is called with.
+    """
+    source = build_source(expressions, derivatives, order=order, backend=backend, name=name)
+    return from_source(source, backend=backend, jit=jit)
 
 
 def sample(functions: Mapping[str, Callable[..., Any]], shape, extent) -> dict[str, Any]:
@@ -342,4 +384,4 @@ def sample(functions: Mapping[str, Callable[..., Any]], shape, extent) -> dict[s
     return {"fields": out, "spacing": spacing, "mesh": mesh}
 
 
-__all__ = ["FIRST", "SECOND", "Kernel", "emit", "sample"]
+__all__ = ["FIRST", "SECOND", "Kernel", "build_source", "emit", "from_source", "sample"]

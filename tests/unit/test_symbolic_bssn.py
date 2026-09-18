@@ -389,6 +389,70 @@ def test_the_conformal_decomposition_reproduces_the_physical_ricci(generic, gene
                 )
 
 
+def _unimodular():
+    """A metric with ``det gamma = 1`` exactly, built as ``L L^T``.
+
+    Unit-diagonal triangular ``L`` makes the determinant one by
+    construction, so ``e^(-4 phi) = 1`` and the conformal metric *is* the
+    metric. Two things follow, and both are wanted here. Everything stays
+    polynomial, so SymPy can carry the third derivatives of the metric that
+    the connection form needs without the expression swell a cube root
+    brings; and ``det gammabar = 1`` is the condition BSSN evolves under, so
+    this is the case the identity has to hold in, not a special one.
+    """
+    small = sp.Rational(1, 5) * X + sp.Rational(1, 7) * Y * Z
+    middle = sp.Rational(1, 6) * Z + sp.Rational(1, 11) * X * Y
+    large = sp.Rational(1, 4) * Y + sp.Rational(1, 9) * X * Z
+    metric = [
+        [1, small, middle],
+        [small, small**2 + 1, small * middle + large],
+        [middle, small * middle + large, middle**2 + large**2 + 1],
+    ]
+    curvature = [
+        [X / 3, Y / 5, Z / 7],
+        [Y / 5, Y * Z / 4, X / 9],
+        [Z / 7, X / 9, Z * X / 6],
+    ]
+    lapse = 1 + X * Z / 4
+    shift = [Y / 6, X * Z / 8, (X + Y) / 7]
+    return lapse, shift, metric, curvature
+
+
+@pytest.mark.slow
+def test_the_connection_form_of_the_conformal_ricci_is_the_same_tensor():
+    """``Rbar_ij`` written with ``Gammabar^i`` equals ``Rbar_ij`` written without it.
+
+    The rewrite an evolution cannot do without -- carrying ``Gammabar^i``
+    as an independent field is what makes BSSN strongly hyperbolic, and
+    running the plain formula instead makes the gauge wave blow up at a
+    rate proportional to ``1/h`` (measured in
+    ``test_bssn_evolution.py``). It is only legitimate because the two are
+    algebraically the same tensor whenever ``Gammabar^i = gammabar^jk
+    Gammabar^i_jk``, which is what ``from_adm`` sets it to.
+
+    Checked on a unimodular metric with every component non-zero, a
+    non-zero shift and non-zero extrinsic curvature, so nothing switches
+    off. The difference is not small: it is *exactly zero*, in rational
+    arithmetic.
+    """
+    slice_ = symbolic_slice(*_unimodular(), COORDS)
+    variables = bssn.from_adm(slice_)
+    plain = ricci(variables.conformal_slice)
+    connection_form = bssn.conformal_connection_ricci(variables)
+    for point in POINTS:
+        scale = _worst(plain, point)
+        assert scale > 1e-3
+        for i in INDICES:
+            for j in INDICES:
+                difference = sp.simplify((connection_form[i][j] - plain[i][j]).subs(point))
+                assert difference == 0, (i, j, difference)
+
+
+def test_the_conformal_ricci_rejects_a_form_it_does_not_have(generic_bssn):
+    with pytest.raises(ValueError, match="unknown Ricci form"):
+        bssn.physical_ricci(generic_bssn, form="whatever")
+
+
 @pytest.mark.slow
 @pytest.mark.benchmark
 def test_the_bssn_equations_evolve_the_gauge_wave_exactly():

@@ -772,6 +772,218 @@ to profile and a GPU run shows whether the same materialisation happens
 there. The measurements above are recorded so that comparison is possible
 rather than starting over.
 
+## BSSN evolution: the gauge wave, and the one rewrite that makes it work
+
+Issue [#47](https://github.com/nosam1998/ParticleSim/issues/47), in
+`particlesim.solvers.nr.bssn`. The equations are not written in that module:
+they come out of `particlesim.symbolic.bssn`, which is the same derivation
+the table above checks against exact solutions. What is measured here is the
+*evolution* — the discretisation, the integrator, the gauge and the
+constraint growth.
+
+### The acceptance test
+
+Gauge wave, amplitude 0.1 along `x`, harmonic slicing, frozen shift,
+fourth-order centred stencils, RK4, Kreiss-Oliger dissipation at ε = 0.1,
+Courant factor 0.25 so the time step refines with the grid. Integrated to
+`t = 0.25` on `(N, 8, 8)` over a unit torus:
+
+| N | steps | ‖H‖₂ | ‖M‖₂ | ‖error‖₂ | `det γ̃ − 1` | `γ̃^ij Ã_ij` |
+|---|---|---|---|---|---|---|
+| 16 | 16 | 1.976e−02 | 8.416e−03 | 6.647e−04 | 2.6e−16 | 1.5e−17 |
+| 32 | 32 | 1.378e−03 | 5.993e−04 | 4.284e−05 | 2.0e−16 | 1.6e−17 |
+| 64 | 64 | 8.819e−05 | 3.842e−05 | 2.687e−06 | 2.5e−16 | 1.4e−17 |
+| 128 | 128 | 5.543e−06 | 2.414e−06 | 1.678e−07 | 2.2e−16 | 1.4e−17 |
+
+Ratios per halving, against the 16 a fourth-order scheme should give:
+
+| Refinement | ‖H‖₂ | ‖M‖₂ | ‖error‖₂ |
+|---|---|---|---|
+| 16 → 32 | 14.3 | 14.0 | 15.5 |
+| 32 → 64 | 15.6 | 15.6 | 15.9 |
+| 64 → 128 | **15.9** | **15.9** | **16.0** |
+
+The constraints converge at the scheme's order and keep converging at the
+finest grid tried, which is the claim issue #47 asks for. The solution error
+is reported alongside them because a scheme can track the solution while the
+constraints do something else, and it is the constraints that say the system
+being solved is still Einstein's.
+
+### Sixth order, same test
+
+Identical run with `order=6` stencils and the sixth-order Kreiss-Oliger
+operator, where fourth order owes 16 per halving and sixth owes 64:
+
+| N | ‖H‖₂ | ratio | ‖error‖₂ | ratio |
+|---|---|---|---|---|
+| 16 | 3.968e−03 | — | 9.018e−05 | — |
+| 32 | 7.719e−05 | 51.4 | 1.674e−06 | 53.9 |
+| 64 | 1.290e−06 | **59.9** | 2.716e−08 | **61.6** |
+
+Approaching 64 from below and still climbing at the finest grid. The time
+step refines with the grid at a fixed Courant factor, so RK4's fourth-order
+temporal error is mixed into this and would eventually cap the rate at 16;
+it has not started to at 64 points, which says the temporal error is still
+well under the spatial one here.
+
+### Why the conformal Ricci tensor is written with `Γ̄^i`
+
+The first version of this evolution computed `R̄_ij` from the conformal
+metric with the same Ricci routine everything else uses. That is the same
+tensor, the symbolic tests pass on it, and the gauge wave converges at
+fourth order from 16 to 32 points. Then:
+
+| N | steps | ‖H‖₂ at t = 0.25 | ratio |
+|---|---|---|---|
+| 16 | 16 | 8.244e−04 | — |
+| 32 | 32 | 5.484e−05 | 15.0 |
+| 64 | 64 | 1.486e−04 | 0.4 |
+| 128 | 128 | 2.196e+05 | 0.0 |
+
+Sampling `‖H‖₂` every sixteen steps at N = 128 shows a clean exponential:
+
+```
+eps=0.1  courant=0.25   3.3e-09  6.3e-08  8.1e-06  1.1e-03  1.4e-01  1.9e+01  2.6e+03
+eps=0.0  courant=0.25   2.7e-09  7.9e-08  1.4e-05  2.7e-03  5.1e-01  9.9e+01  2.1e+04
+eps=0.3  courant=0.25   4.6e-09  2.2e-08  1.0e-06  6.2e-05  3.8e-03  2.3e-01  1.4e+01
+```
+
+Two things this rules out. Tripling the dissipation changes the rate by a
+quarter and does not stop it, so it is not grid-scale noise that damping
+would remove. Dropping the Courant factor to 0.1 made N = 128 run further,
+but the growth rate *per unit time* was unchanged — 155 against 170 — while
+doubling the resolution doubled it — the rate scales like `1/h`, which a
+Courant violation does not.
+
+Growth proportional to `1/h` is the signature of a system that is only
+weakly hyperbolic, and BSSN written that way is: evaluating `R̄_ij` from the
+metric reassembles the mixed second derivatives into the ADM Ricci tensor,
+whose principal part is not a wave operator. The standard rewrite,
+
+```
+R̄_ij = −½ γ̃^lm ∂_l ∂_m γ̃_ij + γ̃_k(i ∂_j) Γ̄^k + Γ̄^k Γ̄_(ij)k
+       + γ̃^lm (2 Γ̄^k_l(i Γ̄_j)km + Γ̄^k_im Γ̄_klj)
+```
+
+uses the *evolved* `Γ̄^i` for those derivatives and leaves a flat Laplacian
+on each component of `γ̃_ij` as the whole principal part. It is legitimate
+because it is algebraically the same tensor whenever
+`Γ̄^i = γ̃^jk Γ̄^i_jk` — checked in
+`test_the_connection_form_of_the_conformal_ricci_is_the_same_tensor` on a
+unimodular metric with every component non-zero, where the difference is not
+small but **exactly zero in rational arithmetic**. With it, the table at the
+top of this section.
+
+This is why `Γ̄^i` is an evolved variable in BSSN at all, and it is the kind
+of thing a derivation pipeline makes easy to get wrong: the symbolic module
+had the mathematically correct tensor, and the correct tensor is the one
+that does not work.
+
+### The algebraic constraints are projected, and measured separately
+
+`det γ̃ = 1` and `γ̃^ij Ã_ij = 0` hold identically at t = 0 and are preserved
+by the continuum equations, so nothing in the right-hand side pulls a
+discrete run back to them. `Evolution.project` restores both after each RK
+step. What that is worth, at `t = 0.25`:
+
+| N | | `det γ̃ − 1` | `γ̃^ij Ã_ij` | ‖H‖₂ |
+|---|---|---|---|---|
+| 16 | projected | 2.6e−16 | 1.5e−17 | 1.976e−02 |
+| 16 | not projected | 2.5e−06 | 5.9e−06 | 2.009e−02 |
+| 32 | projected | 2.0e−16 | 1.6e−17 | 1.378e−03 |
+| 32 | not projected | 9.1e−08 | 2.1e−07 | 1.391e−03 |
+
+All four rows from one double-precision run. Small over a quarter of a
+light-crossing time, and the drift is the thing that grows in a long run. `constraints()` measures the violation and never
+enforces it, and `project` enforces it and never reports: a routine that did
+both would report zero for a drift it was creating.
+
+### Initial data in closed form, including `Γ̄^i`
+
+The gauge wave `ds² = H(−dt² + dl²) + transverse`, `H = 1 − A sin(2π(n·x −
+t))`, is flat spacetime in a wavy gauge, so both constraints vanish
+identically and every BSSN variable follows analytically — including
+
+```
+Γ̄^i = (2/3) H′ H^(−5/3) n^i
+```
+
+which matters because `Γ̄^i` is the one evolved variable that is a spatial
+derivative of the others. Initialising it by differencing would seed exactly
+the error a convergence test is trying to measure. Measured on the closed
+form at 16 points, ‖H‖₂ = 2.0e−13 and ‖M‖₂ = 4.5e−16: the discrete
+constraints are satisfied to round-off, not to truncation order.
+
+That number was 9.3e−05 until the initial data stopped being built in
+single precision. JAX defaults to float32 and the flag that turns that off
+was set by the kernel emitter, which runs *after* the initial data is
+built — so `gauge_wave` returned float32 arrays and `det γ̃ − 1` sat at
+1.1920929e−07, which is 2^−23. The run still looked plausible. `_module`
+now goes through the emitter's own backend resolver, which is the only
+place the flag is set.
+
+### The moving-puncture gauge, and a puncture that was on a grid point
+
+1+log slicing with the Gamma-driver shift on Brill-Lindquist data, one
+puncture of mass 1 on a 32³ box of extent 8, forty steps to `t = 2.5`:
+
+| t | ‖H‖₂ | ‖M‖₂ | `det γ̃ − 1` | `γ̃^ij Ã_ij` |
+|---|---|---|---|---|
+| 0.000 | 4.121e−01 | 0 | 0 | 0 |
+| 0.625 | 6.551e−01 | 2.436e−02 | 2.4e−16 | 1.9e−18 |
+| 1.250 | 4.092e−01 | 2.754e−02 | 2.5e−16 | 3.2e−18 |
+| 1.875 | 4.484e−01 | 2.228e−02 | 2.5e−16 | 3.1e−18 |
+| 2.500 | 3.834e−01 | 2.020e−02 | 2.5e−16 | 3.8e−18 |
+
+The lapse starts pre-collapsed at `ψ^−2` (minimum 0.091) and relaxes to
+0.143; the shift starts at zero and the driver takes it to 0.055. `‖H‖₂` is
+large and bounded, which is the right result and not a small one: the data
+is exactly conformally flat and time-symmetric, so `H` vanishes
+analytically, and what is being measured is a fourth-order stencil applied
+to `1/r` at `√3/2` of a cell from a singularity. This is not a stability
+claim — a single puncture on a torus is an infinite lattice of them, and
+stability to `t = 1000 M` is issue
+[#51](https://github.com/nosam1998/ParticleSim/issues/51) with a proper
+outer boundary.
+
+**The punctures are staggered half a cell off centre, and that is not
+cosmetic.** The grid runs from zero with `endpoint=False`, so the box centre
+is a sample whenever the shape is even — and that is where a single
+puncture goes. `ψ` was therefore infinite at one point, every constraint was
+`NaN` from the first evaluation, and the run above reported `NaN` for forty
+steps without raising anything. The nearest sample is now `√3/2` of a cell
+away, and a puncture that still lands on a sample is refused with a message
+naming the problem.
+
+### What the derivation costs
+
+| Quantity | Right-hand side | Constraints |
+|---|---|---|
+| Outputs | 24 | 4 |
+| Operations as written | 1 451 185 | 93 723 |
+| Operations after global CSE | 3 017 | 2 220 |
+| Reduction | **481×** | **42×** |
+| Temporaries | 538 | 328 |
+| Stencils emitted | 129 | 57 |
+| Grid fields read | 21 | 12 |
+| Derivation, cold | 208 s | 12 s |
+
+The derivation is minutes and the compile is microseconds, so
+`particlesim.symbolic.cache.source_cached` keeps the generated *source* and
+a second run pays a file read. The two kernels are separate on purpose: the
+constraints are built from an abstract ADM slice and fed the physical
+`γ_ij`, `K_ij` reconstructed from the BSSN state, so they measure the
+violation of the data the state stands for rather than of the variables
+being evolved, and the same kernel checks any ADM data.
+
+**The RK4 stages are not compiled, and that is deliberate.** Compiling the
+whole step means unrolling four copies of a kernel with several hundred
+temporaries and over a hundred stencils into one graph, and XLA's fusion
+pass does not finish on it — measured here, the first call had not returned
+after ten minutes, twice. Compiling the right-hand side alone takes seconds;
+what stays in Python is ninety-six array operations per step.
+
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |

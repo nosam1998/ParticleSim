@@ -287,12 +287,21 @@ def ccz4_rhs(
     # and Z4 puts back.
     #
     # Traced from the tensor above rather than called from
-    # ``hamiltonian_constraint``, which builds the Ricci tensor by the
-    # *other* route -- straight from the physical metric instead of through
-    # the conformal decomposition. That left the derivation carrying two
-    # structurally different trees for the same tensor, and cost 4 598 655
-    # raw operations against BSSN's 1 451 185, measured.
-    # :func:`constraint_identity` is the test that the two forms agree.
+    # ``hamiltonian_constraint``, which builds the Ricci tensor by the other
+    # route -- straight from the physical metric instead of through the
+    # conformal decomposition. One tree instead of two is the right shape
+    # and is what makes :func:`constraint_identity` a test of something,
+    # but it is **not** a saving, and it was tried as one:
+    #
+    #   route                          raw ops    after CSE   derivation
+    #   hamiltonian_constraint        4 598 655       7 572        637 s
+    #   traced from the shared tensor 4 821 063       7 145        665 s
+    #
+    # ``raw_operations`` counts ``sp.count_ops`` on the unexpanded tree, and
+    # tracing a tensor duplicates each component's subtree in that count no
+    # matter how many times the tensor was built; elimination removes the
+    # duplication either way. CCZ4 is three times BSSN's size because it is
+    # twenty-five equations with the Z terms, not because of this.
     constraint = _hamiltonian(variables, trace(inverse, ricci_tensor), density)
 
     # (1) d_t K. The BSSN form plus alpha H is the ADM form, which is what

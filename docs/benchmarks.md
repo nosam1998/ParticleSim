@@ -2631,6 +2631,69 @@ modified vacuum action. Warping, flux, moduli stabilisation and the tower's own
 Casimir energy would each break that, and the plugin's validity statement names
 them.
 
+## Conformal frames: the map, and the mistake a frame comparison cannot see
+
+Issue #74. A scalar-tensor theory can be written with the scalar multiplying the
+Ricci scalar (Jordan) or with a canonical Einstein-Hilbert term and the scalar
+moved into the matter sector (Einstein). The two describe the same physics,
+which is exactly what makes mixing them dangerous: nothing goes wrong loudly.
+
+### The transformation is checked, not asserted
+
+In `D` dimensions,
+
+    R̃ = Ω⁻²[ R − 2(D−1)□lnΩ − (D−1)(D−2)(∇lnΩ)² ]
+
+with `□` and `∇` in the *original* metric. Evaluated on a conformally flat
+four-metric and compared against `MetricGeometry` computing `R̃` directly from
+`g̃` — differentiating through Christoffels and Riemann — the difference is
+**exactly zero**. Two different calculations, and it pins the sign convention to
+this repository's rather than to a textbook's that might not match.
+
+A constant factor gives `R̃ = R/Ω²`, which is convention-free and readable by
+eye; the round trip `Ω` then `1/Ω` returns the metric exactly.
+
+The conformal factor is required to be **positive**, not merely non-zero: a
+negative `Ω²` would flip the signature rather than rescale it. A symbol sympy
+cannot decide is refused with that reason rather than assumed, because the
+resulting failure is a signature flip and not a wrong number.
+
+### What the map does to the action
+
+`Ṽ = V/F²` in four dimensions — the reason a Jordan-frame potential flat at
+large field becomes a plateau in the Einstein frame, which is most of why
+scalar-tensor inflation works.
+
+The canonical factor `(dφ̂/dφ)² = ω/F + (3/2)(F′/F)²` is checked against the
+Brans-Dicke closed form `(2ω+3)/(2φ²)`, and the **`+3` is the whole content of
+the check**: it comes from the conformal transformation, not from the
+Jordan-frame kinetic term. Two consequences are asserted directly —
+
+- At `ω = −3/2` the factor vanishes: the field is not canonical at all.
+- For `f(R)`, where `ω = 0`, the entire factor is the `(3/2)(F′/F)²` piece the
+  transformation itself contributes. That it is non-zero is *why* `f(R)` has a
+  propagating scalar despite an action with no `(∇φ)²`.
+
+### The error that a frame comparison misses
+
+`TheoryStack` already refused mismatched `frame` values, and that was the stated
+acceptance. It is not the interesting failure.
+
+A theory has **two** frames: the one its gravitational action is written in, and
+the one its matter couples minimally to. Matter minimally coupled in the Jordan
+frame is *not* minimally coupled in the Einstein frame — the conformal factor
+reappears as a direct scalar-matter coupling, which is what fifth-force
+experiments constrain. So a scalar-tensor theory after transformation has a
+canonical gravitational action in the Einstein frame and matter still coupled to
+the Jordan metric. That is the normal case, not a contrivance.
+
+An EM sector's constitutive relation is written against a particular metric.
+Compose one with such a gravity plugin and the relation is evaluated on the
+wrong metric — while **both plugins report `frame = "einstein"`**, both are
+individually valid, and nothing else would notice. `TheoryStack` now compares
+`matter_frame` as well, and a plugin that leaves it unset inherits its own
+frame, so every existing plugin means exactly what it already meant.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared

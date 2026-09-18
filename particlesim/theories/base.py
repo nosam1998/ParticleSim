@@ -49,9 +49,23 @@ class Theory:
     fields: list[FieldSpec] = []
     couplings: list[Coupling] = []
     frame: Frame = "einstein"
+    matter_frame: Frame | None = None
     formulation: Formulation = "standard"
     provenance: str = ""
     validity_statement: str = "unrestricted"
+
+    @property
+    def effective_matter_frame(self) -> Frame:
+        """The frame matter couples *minimally* to, defaulting to ``frame``.
+
+        The two differ for a scalar-tensor theory written in the Einstein
+        frame, where the gravitational action is canonical but matter still
+        couples to the Jordan metric -- the conformal factor reappears as a
+        direct scalar-matter coupling, which is what fifth-force experiments
+        constrain. Leaving it unset means "the same frame as the action",
+        which is the usual case and what every existing plugin means.
+        """
+        return self.matter_frame or self.frame
 
     def __init__(self, **coupling_values: float) -> None:
         defaults = {c.name: c.default for c in self.couplings}
@@ -129,6 +143,15 @@ class TheoryStack:
                 raise ValueError(
                     f"{name} plugin {part.id} is in the {part.frame} frame, "
                     f"gravity {self.gravity.id} is in the {self.gravity.frame} frame"
+                )
+            if part.effective_matter_frame != self.gravity.effective_matter_frame:
+                raise ValueError(
+                    f"{name} plugin {part.id} couples matter in the "
+                    f"{part.effective_matter_frame} frame, gravity {self.gravity.id} "
+                    f"couples it in the {self.gravity.effective_matter_frame} frame; "
+                    "a constitutive relation written against one metric cannot be "
+                    "evaluated on the other without the conformal factor, and both "
+                    "theories are individually valid, so nothing else would notice"
                 )
 
     def describe(self) -> dict[str, Any]:

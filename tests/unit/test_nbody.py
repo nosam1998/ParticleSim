@@ -335,38 +335,49 @@ def test_linear_growth_follows_the_scale_factor(cells):
 
 
 @pytest.mark.benchmark
-def test_the_caustic_is_late_and_that_is_the_case_for_a_short_range_force():
-    """A plain particle-mesh forms the pancake late, by a measured amount.
+def test_the_caustic_is_late_at_the_centre_and_a_false_one_forms_beside_it():
+    """The pancake forms late, and a naive search for it reports a pass.
 
-    Issue #78 asks for the caustic time within 2%. This is 13% at ``32^3``
-    and 34% at ``16^3`` -- roughly a factor 2.6 per doubling, so a mesh
-    alone would need something like ``256^3`` to get there. The reason is
-    not the ``sinc^4`` softening asserted above, which is 0.6% at ``32^3``
-    and which deconvolving the window does not remove: by the time the
-    pancake is thinner than a cell the mesh has no information left about
-    it. That is what the short-range half of TreePM supplies, and this test
-    exists to keep the number honest rather than to pass.
+    Issue #78 asks for the caustic time within 2%. The caustic is the
+    *first* shell crossing, which in the exact solution is at ``q = 0``, so
+    that is what is measured here. A plain mesh is 17.4% late at ``32^3``,
+    and still 7.7% late at ``128^3`` with the convergence order decaying
+    from 0.98 to 0.48 -- it is not on its way to 2%.
+
+    The second assertion is the interesting one. Taking the first crossing
+    *anywhere* -- the obvious implementation -- finds a different pair,
+    two cells off centre here and three at ``128^3``, that crosses sooner.
+    Cloud-in-cell moves force off the density peak and into its wings, so
+    the centre is under-pulled while its neighbours are over-pulled. At
+    ``128^3`` that spurious crossing lands at ``a = 1.996``, which reads as
+    a 0.2% pass and is nothing of the kind. This test pins the gap so the
+    detector cannot quietly be replaced by the one that "passes".
     """
     cells, mesh = 32, Mesh(size=1.0, cells=32)
     state = zeldovich_plane_wave(mesh, AMPLITUDE, scale=START)
     q = (np.arange(cells) + 0.5) / cells
-    history: list[tuple[float, float]] = []
+    history: list[tuple[float, float, float]] = []
 
     def sample(current: State) -> None:
         slabs = current.positions[0].reshape(cells, -1)
         offset = ((slabs - q[:, None] + 0.5) % 1.0 - 0.5).mean(axis=1)
-        history.append(
-            (current.scale, float((1.0 / cells + np.diff(offset, prepend=offset[-1])).min()))
-        )
+        gaps = 1.0 / cells + np.diff(offset, prepend=offset[-1])
+        history.append((current.scale, float(gaps[0]), float(gaps.min())))
 
     ParticleMesh(mesh).run(state, 2.4, 300, sample=sample)
     record = np.array(history)
 
-    crossed = np.argmax(record[:, 1] <= 0.0)
-    assert crossed > 0, "no shell crossing was reached"
-    (late, below), (early, above) = record[crossed], record[crossed - 1]
-    caustic = early + (late - early) * above / (above - below)
+    def crossing(column: int) -> float:
+        index = int(np.argmax(record[:, column] <= 0.0))
+        assert index > 0, "no shell crossing was reached"
+        before, after = record[index - 1], record[index]
+        fraction = before[column] / (before[column] - after[column])
+        return float(before[0] + (after[0] - before[0]) * fraction)
 
     exact = caustic_scale_factor(AMPLITUDE)
-    assert caustic > exact  # never early
-    assert caustic / exact - 1.0 == pytest.approx(0.133, abs=0.02)
+    centre = crossing(1)
+    anywhere = crossing(2)
+
+    assert centre / exact - 1.0 == pytest.approx(0.174, abs=0.02)
+    assert anywhere / exact - 1.0 == pytest.approx(0.133, abs=0.02)
+    assert anywhere < centre  # the false caustic always comes first

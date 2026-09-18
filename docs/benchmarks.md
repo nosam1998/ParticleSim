@@ -1888,6 +1888,181 @@ luck rather than design: anything that enables `jax_enable_x64` lazily can
 do either.
 
 
+## Particle-mesh gravity: an exact test, and what a mesh alone cannot do
+
+Issue #78, Level C3. The Zel'dovich pancake is the acceptance test, and it is
+worth being precise about why: it is not a solution that is accurate to some
+order, it is **exact** until shell crossing. That makes it one of the very few
+places where a gravity solver can be held to a closed form instead of to a
+converged reference.
+
+### Why the pancake is exact
+
+For a plane-parallel perturbation the displacement map `x = q + D(a) ψ(q)`
+solves the *nonlinear* system. Mass conservation gives `(1 + δ) dx = dq`, so
+
+    dφ/dx = ∫ δ dx = ∫ −D ψ′(q) dq = −D ψ(q)
+
+with no linearisation: the `1 + D ψ′` factors cancel between the density and
+the Jacobian. Substituting into the equation of motion leaves
+
+    D″ + (3/2a) D′ − (3/2a²) D = 0
+
+whose exponents are `+1` and `−3/2` — the Einstein-de Sitter growing and
+decaying modes. So `D = a` exactly, and the caustic, where `1 + D ψ′` first
+vanishes, forms at `a = −1/min(ψ′)`. For `ψ = −(A/k) sin(kq)` that is
+`a = 1/A`, with no tolerance attached.
+
+### The time variable, and why there is no friction term
+
+In comoving coordinates `x″ + (3/2a) x′ = −(3/2a²) ∇φ`. Written that way a
+leapfrog has to carry a velocity-dependent damping term, which is not
+separable and costs the scheme its symmetry. Substituting `p = a^{3/2} x′`
+removes it exactly:
+
+    dx/da = a^{−3/2} p,    dp/da = −(3/2) a^{−1/2} ∇φ
+
+which *is* separable, so kick-drift-kick applies unchanged. The substitution
+is the canonical momentum for this time variable; the damping was the
+Jacobian of the change of variables all along. Halving the step quarters the
+error, measured on the growth factor at three successive refinements.
+
+### What the mesh costs, to four digits
+
+Cloud-in-cell deposition applies `sinc²(kh/2)` to the density and the
+interpolation back applies it again, so a particle feels the true force times
+`sinc⁴(kh/2)`. Measured on the box's longest mode against the exact `DA/k`:
+
+| cells | measured error | `sinc⁴(kh/2) − 1` |
+|---|---|---|
+| 16 | −2.550e−02 | −2.541e−02 |
+| 32 | −6.413e−03 | −6.407e−03 |
+| 64 | −1.606e−03 | −1.605e−03 |
+| 128 | −4.034e−04 | −4.015e−04 |
+
+This has to be read off by **projecting** the force onto the mode. A maximum
+over particles will not do: a lattice of `cells` points never samples a sine's
+peak, which costs 8% at `cells = 8` and 0.5% at `cells = 32` — enough to hide
+the agreement above completely. Chasing that sampling artefact is what made an
+earlier version of this study report a non-monotonic error.
+
+The suppression is not cosmetic. A force weakened by `ε` moves the growing
+exponent to `1 − 3ε/5`, so over a run from `a = 0.1` to `a = 1` the growth
+falls short by `1 − 10^{−3ε/5}`: 0.0306 measured against 0.0345 predicted at
+`16³`, 0.0079 against 0.0088 at `32³`. The same 11% is missing at both
+resolutions, and it is the harmonics — by `a = 1` the pancake has `δ ∼ 1` and
+is no longer a single mode, and the mesh damps `2k` and `3k` harder than `k`.
+
+### Deconvolving the window makes it worse
+
+Dividing the potential by `sinc⁴` is standard practice and is deliberately not
+done here. It cancels the suppression on the fundamental by construction, but
+it amplifies the aliased power the same window was holding down. Measured
+against the exact Zel'dovich state on a `32³` mesh, maximum error over
+particles:
+
+| growth `D` | plain | deconvolved |
+|---|---|---|
+| 0.5 | 4.1% | 6.4% |
+| 1.0 | 2.9% | 4.2% |
+| 1.5 | 6.9% | 4.5% |
+| 1.9 | 28.6% | 23.0% |
+| 1.99 | 37.1% | 33.6% |
+
+It helps only where everything is already bad.
+
+### Where a mesh runs out: the caustic, and a false pass
+
+The caustic is the *first* shell crossing, which in the exact solution is at
+`q = 0`. Looking for it as the first crossing **anywhere** is the natural
+implementation and is a trap, because a mesh manufactures an earlier one
+somewhere else. Both, measured as the first crossing of two neighbouring
+Lagrangian slabs against `a = 1/A = 2`:
+
+| cells | at `q = 0` | error | first anywhere | error | where |
+|---|---|---|---|---|---|
+| 16 | 2.687637 | +34.4% | 2.687637 | +34.4% | `q = 0` |
+| 32 | 2.348872 | +17.4% | 2.265392 | +13.3% | 2 cells out |
+| 64 | 2.214884 | +10.7% | 2.081681 | +4.1% | 3 cells out |
+| 128 | 2.154361 | +7.7% | 1.996029 | **−0.2%** | 3 cells out |
+
+Read the right-hand column alone and a `128³` mesh clears the 2% acceptance
+with room to spare. It has not. It has found a different crossing that happens
+to be sweeping past `a = 2` at that resolution — note the error changing sign
+— while the caustic the acceptance is about is 7.7% late.
+
+The sign is the explanation. Pair `j` sits at `q = jh` and crosses, exactly, at
+`D = 1/(A cos(k j h))`. Against each pair's *own* exact time:
+
+| | `32³` | `64³` | `128³` |
+|---|---|---|---|
+| central pair | +17.4% | +10.7% | +7.7% |
+| pair 2–3 cells out | +4.6% | **−0.4%** | **−1.3%** |
+
+Cloud-in-cell moves force off the density peak and into its wings. The
+collapsing centre is under-pulled and its neighbours are over-pulled, and once
+those two errors straddle zero a spurious caustic forms beside the real one and
+gets there first.
+
+Nothing cheap fixes it:
+
+- **Not the time step.** At 64 cells, 300 and 1200 steps give 2.081681 and
+  2.081308, 0.02% apart. At 128 cells, 200 and 400 steps give 1.996029 and
+  1.995349.
+- **Not the slab lattice.** Its own discrete caustic sits at
+  `(1/A)(kh/2)/sin(kh/2)` — +0.64% at `16³`, +0.01% at `128³`.
+- **Not the `sinc⁴` softening**, 0.2% at 64 cells, which deconvolving does not
+  remove (see above).
+- **Not resolution.** The central error falls 34.4, 17.4, 10.7, 7.7 as the mesh
+  doubles — an effective order of 0.98, then 0.70, then 0.48. The rate is
+  decaying, not converging.
+
+Once the pancake is thinner than a cell the mesh has nothing left to represent
+it with, and that is true at every resolution: refining buys a later onset of
+the same failure, not its absence. **The 2% acceptance of issue #78 is not
+reachable with a mesh alone**, which is precisely what the short-range half of
+TreePM is for, and why the issue asks for both.
+
+### Two traps that pass every obvious check
+
+**The transverse lattice.** The pancake does not vary across the plane, so it
+is tempting to save particles there. It does not work, and it fails silently.
+A lattice whose spacing is an integer number of cells *greater than one* puts
+every particle on a cell corner, where cloud-in-cell gives one cell everything
+and its neighbour nothing: eight particles across a sixteen-cell mesh leave
+`δ = 3` on an **undisplaced** lattice — a grid of rods, not a plane wave. The
+transverse force still cancels to 3e−16 by the lattice's own symmetry, so
+nothing looks wrong. What it corrupts is the force along `x`, because the
+spurious modes carry `k_⊥ ≠ 0` and enter `a_x` weighted by `k_x²/k²`. With
+eight across sixteen the `x`-force came out *closer* to the continuum answer
+than the correct lattice gives — the aliases happen to cancel part of the
+mesh's own suppression — so the error is not even one-signed. Uniformity holds
+only when the transverse count is a multiple of `cells`, and that is now
+enforced rather than documented.
+
+**Half a cell.** Grid point `i` sits at `i·h`, not at the cell centre. Initial
+conditions built on a cell-centred lattice and read back through a node-centred
+interpolation differ by a phase `kh/2 = π/cells` — a 20% amplitude error at
+`cells = 16` on the box's longest mode. Placing the Lagrangian lattice on the
+grid itself removes the interpolation entirely, and the generic
+spectrum-to-displacement path then reproduces the analytic plane wave to
+3.3e−17 instead of 20%.
+
+### Initial conditions from a spectrum
+
+The Gaussian field is drawn as real-space white noise and coloured in Fourier
+space, not as independent complex amplitudes. An `rfftn` array is not a set of
+independent modes: the `k_z = 0` and `k_z = Nyquist` planes are self-conjugate
+and must be real. Filling them with complex numbers still yields a real field —
+`irfftn` keeps the Hermitian part — but discards half the variance on those
+planes, 6% of the modes at `32³`, silently. Transforming a real field forward
+cannot violate a symmetry it already has.
+
+The normalisation follows from one identity: real white noise of unit per-cell
+variance is a field of constant power `P = V/N³`, the cell volume. Colouring it
+means multiplying by `sqrt(P(k) N³/V)`. Recovered `P(k)` agrees with the target
+within the sample scatter `sqrt(2/m)` of each shell.
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |
@@ -2196,7 +2371,9 @@ the design document.
 - Compact U(1) plaquette expectation, to 1% (issue #63)
 
 ### Milestones 8 and 9
-- Zel'dovich pancake caustic time, to 2% (issue #78)
+- Zel'dovich pancake caustic time, to 2% (issue #78) — the mesh half is in,
+  and measured: 7.7% late at `128³` at the true caustic, converging at a
+  decaying order. Needs the short-range force, not more cells.
 - Matter power spectrum at low k, to 5% (issue #80)
 - BFSS energy versus temperature at one coupling (issue #85)
 - IKKT dimension-emergence observable (issue #86)

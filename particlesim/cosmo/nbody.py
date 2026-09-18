@@ -49,20 +49,42 @@ Einstein-de Sitter. So ``D = a`` exactly, and the caustic, where
 For ``psi = -(A/k) sin(kq)`` that is ``a = 1/A``, a closed form with no
 tolerance attached.
 
-**And a mesh alone forms it late.** Measured as the first crossing of two
-neighbouring Lagrangian slabs, against ``a = 1/A = 2``:
+**And a mesh alone forms it late -- later than the obvious measurement
+says.** The caustic is where the *first* shell crossing happens, which in
+the exact solution is at ``q = 0``. Looking for it as the first crossing
+*anywhere* is the natural thing to do and is a trap, because a mesh
+manufactures an earlier one somewhere else:
 
-    cells     a_caustic      error     ratio
-       16      2.687465     +34.4%
-       32      2.265100     +13.3%      2.59
-       64      2.081681      +4.1%      3.25
+    cells    at q = 0    error     first anywhere    error    where
+       16    2.687637   +34.4%        2.687637      +34.4%    q = 0
+       32    2.348872   +17.4%        2.265392      +13.3%    2 cells out
+       64    2.214884   +10.7%        2.081681       +4.1%    3 cells out
+      128    2.154361    +7.7%        1.996029       -0.2%    3 cells out
 
-Time-stepping is not the cause: at 64 cells, 300 steps and 1200 steps give
-2.081681 and 2.081308, a difference of 0.02%. Nor is it the ``sinc^4``
-softening below, which is 0.2% at 64 cells -- and which deconvolving the
-window does not remove. It is that once the pancake is thinner than a cell
-the mesh has no information about it left to use. That is what the
-short-range half of TreePM supplies, and it is why issue #78 asks for
+Read the right-hand column alone and a ``128^3`` mesh clears issue #78's 2%
+with room to spare. It has not. It has found a *different* crossing that
+happens to be sweeping past ``a = 2`` at that resolution, and the caustic
+the acceptance is about is 7.7% late.
+
+The sign says why. Pair ``j`` sits at ``q = j h`` and crosses, exactly, at
+``D = 1/(A cos(k j h))``. Measured against each pair's own exact time, the
+central pair is 17.4% late at ``32^3`` and 7.7% late at ``128^3``, while
+the pair three cells out goes from 4.6% late at ``32^3`` to 0.4% *early* at
+``64^3`` and 1.3% early at ``128^3``. Cloud-in-cell moves force off the
+peak and into its wings: the collapsing centre is under-pulled and its
+neighbours are over-pulled, and where those two errors cross, a spurious
+caustic forms first.
+
+Nothing cheap fixes it. Not the time step -- at 64 cells, 300 and 1200
+steps give 2.081681 and 2.081308. Not the slab lattice, whose own caustic
+sits at ``(1/A)(kh/2)/sin(kh/2)``, +0.01% at ``128^3``. Not the ``sinc^4``
+softening above, 0.2% at 64 cells, which deconvolving the window does not
+remove. And not resolution: the central error falls 34.4, 17.4, 10.7, 7.7
+as the mesh doubles, an effective order of 0.98, then 0.70, then 0.48 --
+decaying, not converging. Once the pancake is thinner than a cell the mesh
+has nothing left to represent it with, and that is true at every
+resolution. **Issue #78's 2% is not reachable this way**, which is exactly
+what the short-range half of TreePM is for, and why the issue asks for
 both.
 
 **What the mesh costs, to four digits.** Cloud-in-cell deposition applies

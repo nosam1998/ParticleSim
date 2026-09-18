@@ -1927,39 +1927,61 @@ is the canonical momentum for this time variable; the damping was the
 Jacobian of the change of variables all along. Halving the step quarters the
 error, measured on the growth factor at three successive refinements.
 
-### What the mesh costs, to four digits
+### What the mesh costs is exactly `sinc(kh)`
 
-Cloud-in-cell deposition applies `sinc²(kh/2)` to the density and the
-interpolation back applies it again, so a particle feels the true force times
-`sinc⁴(kh/2)`. Measured on the box's longest mode against the exact `DA/k`:
+Not to four digits — to **1.5e−13**, over every mode of the box at three
+resolutions. The textbook answer is `sinc⁴(kh/2)`, cloud-in-cell applying
+`sinc²(kh/2)` on the way in and again on the way out, and it is wrong here for
+a reason worth keeping.
 
-| cells | measured error | `sinc⁴(kh/2) − 1` |
-|---|---|---|
-| 16 | −2.550e−02 | −2.541e−02 |
-| 32 | −6.413e−03 | −6.407e−03 |
-| 64 | −1.606e−03 | −1.605e−03 |
-| 128 | −4.034e−04 | −4.015e−04 |
+That `sinc²` is the deposition window *averaged over sub-cell phase*, which is
+right for particles that sample the box fairly. A lattice does not: every
+particle sits at the same phase, so the static window is `|(1−f) + f e^{−ikh}|`,
+which is `cos(kh/2)` at the cell centres. But a displaced lattice also moves
+*within* its cells, and the cloud-in-cell weights respond to that motion, which
+contributes the derivative of the window with respect to phase. Adding the two,
 
-This has to be read off by **projecting** the force onto the mode. A maximum
-over particles will not do: a lattice of `cells` points never samples a sine's
-peak, which costs 8% at `cells = 8` and 0.5% at `cells = 32` — enough to hide
-the agreement above completely. Chasing that sampling artefact is what made an
-earlier version of this study report a non-monotonic error.
+    Ω(f) + i Ω′(f)/(kh)   has magnitude   sinc(kh/2)
+
+for **any** phase `f` — the phase dependence cancels exactly. The force carries
+that once for the deposit and `cos(kh/2)` once for reading the field back at
+the particle, and `sinc(kh/2)·cos(kh/2) = sin(kh)/(kh)`.
+
+| `kh` | measured | `sinc(kh)` | `sinc⁴(kh/2)` |
+|---|---|---|---|
+| 0.196 | 0.993587 | 0.993587 | 0.993593 |
+| 0.393 | 0.974495 | 0.974495 | 0.974593 |
+| 0.785 | 0.900316 | 0.900316 | 0.901818 |
+| 1.571 | 0.636620 | 0.636620 | 0.657023 |
+| 2.356 | 0.300105 | 0.300105 | 0.378213 |
+
+**An earlier version of this study reported `sinc⁴(kh/2)` "to four digits".**
+The measurements were right and the identification was wrong: the two laws
+agree to `O((kh)⁴)`, and the study tested exactly one mode per resolution — the
+box's longest — which is precisely where they cannot be told apart. Testing one
+point per curve cannot discriminate two models that osculate there. The test
+now sweeps `modes = 1, 2, 4, 8, 12` and asserts to `rel=1e-9`.
 
 The suppression is not cosmetic. A force weakened by `ε` moves the growing
-exponent to `1 − 3ε/5`, so over a run from `a = 0.1` to `a = 1` the growth
-falls short by `1 − 10^{−3ε/5}`: 0.0306 measured against 0.0345 predicted at
-`16³`, 0.0079 against 0.0088 at `32³`. The same 11% is missing at both
-resolutions, and it is the harmonics — by `a = 1` the pancake has `δ ∼ 1` and
-is no longer a single mode, and the mesh damps `2k` and `3k` harder than `k`.
+exponent to `1 − 3ε/5`, so over a run from `a = 0.1` to `a = 1` the growth falls
+short by `1 − 10^{−3ε/5}`: 0.0306 measured against 0.0345 predicted at `16³`,
+0.0079 against 0.0088 at `32³`. The same 11% is missing at both resolutions, and
+it is the harmonics — by `a = 1` the pancake has `δ ∼ 1` and is no longer a
+single mode, and the mesh damps `2k` and `3k` harder than `k`.
+
+Reading any of this off requires **projecting** the force onto the mode. A
+maximum over particles will not do: a lattice of `cells` points never samples a
+sine's peak, which costs 8% at `cells = 8` and 0.5% at `cells = 32` — enough to
+hide the agreement completely, and what made an earlier scan look
+non-monotonic.
 
 ### Deconvolving the window makes it worse
 
-Dividing the potential by `sinc⁴` is standard practice and is deliberately not
-done here. It cancels the suppression on the fundamental by construction, but
-it amplifies the aliased power the same window was holding down. Measured
-against the exact Zel'dovich state on a `32³` mesh, maximum error over
-particles:
+Dividing the potential by the textbook `sinc⁴` window — the usual choice, and
+the one a reader would reach for — is deliberately not done here. It cancels a
+suppression on the fundamental by construction, but it amplifies the aliased
+power the same window was holding down. Measured against the exact Zel'dovich
+state on a `32³` mesh, maximum error over particles:
 
 | growth `D` | plain | deconvolved |
 |---|---|---|
@@ -1969,7 +1991,8 @@ particles:
 | 1.9 | 28.6% | 23.0% |
 | 1.99 | 37.1% | 33.6% |
 
-It helps only where everything is already bad.
+It helps only where everything is already bad — and there the field is many
+modes at once, so no single window is the right one to divide by.
 
 ### Where a mesh runs out: the caustic, and a false pass
 
@@ -2011,7 +2034,7 @@ Nothing cheap fixes it:
   1.995349.
 - **Not the slab lattice.** Its own discrete caustic sits at
   `(1/A)(kh/2)/sin(kh/2)` — +0.64% at `16³`, +0.01% at `128³`.
-- **Not the `sinc⁴` softening**, 0.2% at 64 cells, which deconvolving does not
+- **Not the `sinc(kh)` softening**, 0.2% at 64 cells, which deconvolving does not
   remove (see above).
 - **Not resolution.** The central error falls 34.4, 17.4, 10.7, 7.7 as the mesh
   doubles — an effective order of 0.98, then 0.70, then 0.48. The rate is
@@ -2023,7 +2046,10 @@ the same failure, not its absence. **The 2% acceptance of issue #78 is not
 reachable with a mesh alone**, which is precisely what the short-range half of
 TreePM is for, and why the issue asks for both.
 
-### Two traps that pass every obvious check
+### Four things that pass every obvious check
+
+Every one of these produced plausible numbers, and three of them produced
+numbers that were *better*-looking than the truth.
 
 **The transverse lattice.** The pancake does not vary across the plane, so it
 is tempting to save particles there. It does not work, and it fails silently.
@@ -2040,13 +2066,38 @@ mesh's own suppression — so the error is not even one-signed. Uniformity holds
 only when the transverse count is a multiple of `cells`, and that is now
 enforced rather than documented.
 
-**Half a cell.** Grid point `i` sits at `i·h`, not at the cell centre. Initial
-conditions built on a cell-centred lattice and read back through a node-centred
-interpolation differ by a phase `kh/2 = π/cells` — a 20% amplitude error at
-`cells = 16` on the box's longest mode. Placing the Lagrangian lattice on the
-grid itself removes the interpolation entirely, and the generic
-spectrum-to-displacement path then reproduces the analytic plane wave to
-3.3e−17 instead of 20%.
+**Half a cell, and then the other half.** Grid point `i` sits at `i·h`, not at
+the cell centre. Initial conditions built on a cell-centred lattice and read
+back through a node-centred interpolation differ by a phase `kh/2 = π/cells` —
+a 20% amplitude error at `cells = 16` on the box's longest mode.
+
+The obvious repair is to put the Lagrangian lattice *on* the grid, which
+removes the interpolation entirely. That is worse, and silently so. A particle
+sitting exactly on a grid point gives it all of its mass, and a displacement `s`
+moves `|s|/h` to the neighbour *in the direction of travel* — the response
+depends on `|s|`, not `s`. Rectified like that, a lattice displaced by a single
+mode deposits spurious harmonics of it at **17%** of the fundamental for the
+box's longest mode and **71%** at four times that, while the fundamental itself
+falls below the window. At every other phase, cell centres included, the
+harmonics are *exactly* zero.
+
+So the lattice stays at the cell centres and the displacement is evaluated
+there by a phase factor `exp(i k h/2)` — in the Fourier space the Poisson solve
+already happened in, so it is exact rather than interpolated. The generic
+spectrum-to-displacement path reproduces the analytic plane wave to 5.6e−17,
+with harmonics at 1e−14.
+
+**One mode per curve.** The force study measured the box's longest mode at four
+resolutions and read off `sinc⁴(kh/2)` "to four digits". The measurements were
+right; the identification was wrong. Two models that osculate to fourth order
+cannot be told apart at the point where they osculate, and refining the mesh
+moves *along* that point rather than away from it — four resolutions of the
+same mode is one data point repeated, not four. Sweeping `modes` instead
+separates them by 26%.
+
+**The first crossing anywhere.** Detailed above: a detector that looks for the
+caustic wherever it happens finds a spurious one, and at `128³` reports a
+comfortable pass for the acceptance this code does not meet.
 
 ### Initial conditions from a spectrum
 

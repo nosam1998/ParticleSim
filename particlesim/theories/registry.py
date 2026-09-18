@@ -55,9 +55,9 @@ def list_theories() -> dict[str, type[Theory]]:
 
 
 def _builtin_em() -> dict[str, type[Theory]]:
-    from particlesim.theories.em import BornInfeld, EulerHeisenberg, Maxwell
+    from particlesim.theories.em import AxionPhoton, BornInfeld, EulerHeisenberg, Maxwell
 
-    return {cls.id: cls for cls in (Maxwell, BornInfeld, EulerHeisenberg)}
+    return {cls.id: cls for cls in (Maxwell, BornInfeld, EulerHeisenberg, AxionPhoton)}
 
 
 def list_em_sectors() -> dict[str, type[Theory]]:

@@ -61,6 +61,7 @@ gr = "particlesim.theories.gr:GeneralRelativity"
 "gr.maxwell" = "particlesim.theories.em:Maxwell"
 "string.eft4d.born_infeld" = "particlesim.theories.em:BornInfeld"
 "qed.euler_heisenberg" = "particlesim.theories.em:EulerHeisenberg"
+"string.eft4d.axion_photon" = "particlesim.theories.em:AxionPhoton"
 
 [tool.hatch.build.targets.wheel]
 packages = ["particlesim"]

@@ -550,3 +550,115 @@ def test_a_non_diagonal_background_forms_the_mixed_derivatives():
     """
     assert tf.Background.named("alcubierre").diagonal
     assert tf.uniform_background(1.0).diagonal
+
+
+# --- light rays, and the number both halves have to agree on -------------
+
+
+@pytest.mark.benchmark
+def test_a_light_ray_and_the_field_agree_on_the_speeds():
+    """Two independent routes to ``-beta^x +- alpha``, which had better match.
+
+    A radial null ray satisfies
+    ``(-alpha^2 + beta^2) dt^2 + 2 beta dt dx + dx^2 = 0``, so its coordinate
+    velocity is ``dx/dt = -beta +- alpha`` -- exactly
+    :func:`particlesim.solvers.warp.testfield.characteristic_speeds`. The two
+    are computed by entirely separate code: the ray integrates Christoffels
+    of the full four-metric through
+    :class:`particlesim.analysis.geodesics.GeodesicIntegrator`, while the
+    field's speeds come from the ADM decomposition in this module. Nothing is
+    shared but the metric.
+
+    Inside the default bubble both come out ``+3`` and ``+1``. A light ray
+    cannot go upstream there either, which is the statement that the scalar
+    field's trapping is a property of the spacetime and not of the scheme.
+    """
+    from particlesim.analysis.geodesics import GeodesicIntegrator
+    from particlesim.scenarios.warp.metrics import make_metric
+
+    parameters = {"v_s": 2.0, "R": 5.0, "sigma": 2.0}
+    metric = make_metric("alcubierre", parameters)
+    coordinates = list(sp.symbols("t x y z", real=True))
+    rays = GeodesicIntegrator(metric.metric(), coordinates, metric.params)
+
+    # Deep inside the bubble, off the singular centre, where f = 1.
+    start = np.array([0.0, 0.4, 0.3, 0.2])
+    measured = []
+    for direction in (+1.0, -1.0):
+        # Coordinate time is *spacelike* inside a superluminal bubble --
+        # ``g_tt = -alpha^2 + beta^2 = +3`` here -- so the tangent has to be
+        # built in the Eulerian frame, where a light ray still moves at one.
+        tangent = rays.from_eulerian_velocity(start, [direction, 0.0, 0.0], kind="null")
+        result = rays.integrate(start, tangent, affine_max=0.4, n_out=40)
+        assert result.success
+        assert np.abs(result.norm).max() < 1e-8, "the ray must stay null"
+        slope = np.polyfit(result.x[:, 0], result.x[:, 1], 1)[0]
+        measured.append(float(slope))
+
+    field, _ = tf.build("alcubierre", parameters, shape=(32,) * 3, extent=EXTENT)
+    plus, minus = tf.characteristic_speeds(field, direction=(1, 0, 0))
+    assert sorted(measured) == pytest.approx([1.0, 3.0], abs=2e-3), measured
+    assert float(plus.max()) == pytest.approx(max(measured), abs=2e-3)
+    assert float(minus.max()) == pytest.approx(min(measured), abs=2e-3)
+    # Both rays travel in +x: no light escapes upstream inside the bubble.
+    assert all(value > 0 for value in measured), measured
+
+
+# --- the acceptance: stable and convergent on Alcubierre -----------------
+
+
+@pytest.mark.slow
+@pytest.mark.benchmark
+def test_the_field_is_bounded_on_the_alcubierre_background():
+    """Issue #54's "stable": no growth, over a crossing time and more.
+
+    The measurement worth making is not that a norm stays small -- a pulse
+    leaving the domain does that -- but that it never *rises*. The peak over
+    the whole run is the initial value, and after that the field only falls.
+    Measured at ``n = 40`` out to three crossing times:
+
+        t/L          0.5       1.0       1.5       2.0       2.5
+        max|phi|   2.8e-02   6.9e-03   1.7e-03   6.9e-04   2.4e-04
+        E          6.3e-02   2.4e-03   2.8e-04   3.3e-05   6.1e-06
+
+    The decay rate is also resolution-independent, which is what says it is
+    the wave leaving rather than the scheme dissipating: -0.218, -0.296 and
+    -0.225 per unit time at ``h = 1.0, 0.714, 0.5``. A numerical instability
+    from the principal part would go as ``1/h`` and the rate would track it.
+
+    That the *growth* is what matters here is not pedantry. The bubble wall
+    carries a genuine source term ``Pi (1/sqrt(g)) d_i (sqrt(g) beta^i)``,
+    reaching ``+-0.78`` for these parameters, so amplification was a live
+    possibility rather than a hypothetical -- and it was masked for a while
+    by that term being silently zero.
+    """
+    field, coords = tf.build(
+        "alcubierre",
+        {"v_s": 2.0, "R": 5.0, "sigma": 2.0},
+        shape=(28,) * 3,
+        extent=EXTENT,
+        dissipation=0.1,
+        zone=6,
+    )
+    # The source term is real, so this test has something to catch.
+    divergence = field.coefficients(0.0)["shift_divergence"]
+    assert float(np.max(np.abs(divergence))) > 0.1
+
+    state = tf.spherical_pulse(coords, centre=(-7.0, 0.0, 0.0), width=1.2)
+    start = float(np.max(np.abs(state["phi"])))
+    span = 24.0
+    steps = int(np.ceil(span / field.time_step))
+    step = span / steps
+
+    peak, samples = start, []
+    for index in range(1, steps + 1):
+        state = field.step(state, (index - 1) * step, step)
+        if index % max(1, steps // 6) == 0:
+            amplitude = float(np.max(np.abs(tf.interior(state["phi"], 6))))
+            assert np.all(np.isfinite(state["phi"]))
+            peak = max(peak, amplitude)
+            samples.append(amplitude)
+
+    assert peak == pytest.approx(start, rel=1e-9), (peak, start)
+    assert samples == sorted(samples, reverse=True), samples
+    assert samples[-1] < start / 20.0, (samples[-1], start)

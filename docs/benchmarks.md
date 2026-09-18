@@ -2114,6 +2114,122 @@ variance is a field of constant power `P = V/N³`, the cell volume. Colouring it
 means multiplying by `sqrt(P(k) N³/V)`. Recovered `P(k)` agrees with the target
 within the sample scatter `sqrt(2/m)` of each shell.
 
+## Structure observables: an estimator held to an identity
+
+Issue #80, Level C3. A matter power spectrum estimator and a friends-of-friends
+halo finder, run on the output of the particle-mesh solver above.
+
+### Parseval, not a round trip
+
+The estimator's normalisation is checked against an exact identity rather than
+against a random field:
+
+    <δ²> = (1/V) Σ_k w_k P(k)
+
+which holds to **1.1e−16**. It is a stronger test than it looks, because it
+only comes out right if the *mode weights* are right too. A real field's
+transform is stored on a half-grid where the `k_z = 0` and `k_z = Nyquist`
+planes are self-conjugate and every other entry stands for a conjugate pair.
+Counting the array's entries equally over-weights those two planes — 6% of the
+modes at `32³` — and breaks the identity. The weights sum to `cells³`, the
+number of real degrees of freedom, which is the same statement.
+
+This is the second time the half-grid's self-conjugate planes have mattered
+here: filling them with complex amplitudes is what made `gaussian_field` lose
+half their variance (see above).
+
+### Shot noise is not white
+
+`N` particles in a volume `V` carry `V/N` from their own discreteness, but only
+as `k → 0`. Depositing them aliases that term too, and for cloud-in-cell the
+alias sum closes:
+
+    P_shot(k) = (V/N) Π_i (1 − ⅔ sin²(k_i h/2))
+
+falling to `V/N / 3` at the Nyquist plane and `V/N / 27` at the grid's corner.
+Checked against 12 Poisson realisations it holds to about 1%, which is the
+sampling error of the check:
+
+| `k` | measured / `(V/N)` | model | ratio |
+|---|---|---|---|
+| 0.80 | 1.027 | 0.989 | 1.038 |
+| 2.55 | 0.906 | 0.899 | 1.008 |
+| 6.34 | 0.529 | 0.526 | 1.007 |
+| 10.05 | 0.239 | 0.239 | 1.001 |
+
+Subtracting a flat `V/N` instead over-subtracts fourfold at the high-`k` end
+and drives the estimate negative — a failure with a sign, which is how it was
+caught.
+
+### The correction that is right in one regime and catastrophic in the other
+
+Both corrections have a domain, and outside it they do not degrade gently.
+
+The shot-noise term assumes a Poisson sample. Zel'dovich initial conditions are
+a *displaced lattice*, which is sub-Poisson: at low `k` its discreteness power
+is nothing like `V/N`. In the test configuration the signal at the lowest bin is
+`0.66` against `V/N = 30.5`, so subtracting the Poisson value removes noise that
+was never there and the answer comes back at **−30**, fifty times the signal and
+the wrong sign. With the subtraction off, the same data is right to 1%.
+
+The deconvolution has the mirror-image caveat. `W = Π sinc²(k_i h/2)` is the
+window *averaged over sub-cell phase*, which is what a fair sample gives; a
+near-lattice distribution sits at one phase and is windowed less, so dividing by
+`W²` overshoots. Against the field the particles were made from:
+
+| | lowest bin | `kh = 1.8` | near Nyquist |
+|---|---|---|---|
+| no deconvolution | −0.97% | −25% | −45% |
+| deconvolved | **+0.07%** | +3.9% | +15% |
+
+So the acceptance — `P(k)` at low `k` within 5% of reference — is met with room
+to spare, inside 5% out to `kh = 1.8`, which is 56% of the way to Nyquist. The
+overshoot past that is the same fair-sample-versus-lattice distinction that
+makes the force window `sinc(kh)` rather than the textbook value.
+
+The reference is this realisation's **own** input spectrum, not the ensemble
+`P(k)`. That is not a convenience: the box's lowest bin holds 18 modes, whose
+sample scatter is `sqrt(2/18)` = 33%, so no 5% statement about an ensemble
+survives a single realisation. Compared mode by mode against the field the
+particles were made from, sample variance cancels and what is left is the
+estimator. The same trick, as a regression coefficient
+`Re⟨δ_a δ_b*⟩ / ⟨|δ_b|²⟩`, is what `transfer_ratio` returns.
+
+### What the mesh does to growth, seen from the spectrum
+
+Evolving those initial conditions and reading the growth off mode by mode ties
+this back to the solver. The force carries `sinc(kh)`, which moves the growing
+exponent, so the recovered growth falls short by more and more as `kh` rises:
+
+| `k` | `kh` | growth recovered |
+|---|---|---|
+| 0.080 | 0.25 | −1.4% |
+| 0.140 | 0.44 | −4.1% |
+| 0.197 | 0.62 | −7.8% |
+| 0.255 | 0.80 | −13.0% |
+
+Predicted from the window alone — `(a_f/a_i)^{−3ε/5}` with `ε = 1 − sinc(kh)`,
+times the deposit window — the first two are −1.26% and −3.8% against −1.41%
+and −4.10% measured. "Low `k`" in the acceptance is not decoration.
+
+### Friends-of-friends, where the threshold is an integer
+
+Linking is transitive, so percolation on a regular lattice is a step rather
+than a gradient: at `b = 0.99h` the finder returns 512 groups and at `b = 1.01h`
+it returns 1. Ten particles in a line at spacing `0.04` with `b = 0.05` are one
+group spanning `0.36`, seven linking lengths end to end — a finder that only
+linked pairs directly would return ten.
+
+Centres are circular means, `atan2` of the mean of `exp(2πix/L)`, not arithmetic
+ones. A group straddling the boundary has particles at both ends of the box and
+its arithmetic mean is the middle — the one place the halo certainly is not. A
+blob at the origin is recovered at `0.9991`, i.e. `0` to within `0.001`.
+
+The pair graph comes from a periodic k-d tree and the grouping from
+`connected_components`, because that is what friends-of-friends *is*. The
+traditional chaining mesh with a hand-rolled union-find adds code to get wrong
+for no gain at these sizes.
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |
@@ -2425,6 +2541,5 @@ the design document.
 - Zel'dovich pancake caustic time, to 2% (issue #78) — the mesh half is in,
   and measured: 7.7% late at `128³` at the true caustic, converging at a
   decaying order. Needs the short-range force, not more cells.
-- Matter power spectrum at low k, to 5% (issue #80)
 - BFSS energy versus temperature at one coupling (issue #85)
 - IKKT dimension-emergence observable (issue #86)

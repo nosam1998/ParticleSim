@@ -2972,6 +2972,107 @@ taken as the model's input rather than derived from the shell junction
 conditions — what is checked is its two limits, the weak-field addition above
 and the divergence as `f_A → 0`.
 
+## What strings already say: a reference that can refuse a hypothesis
+
+Issue #75. Some singular geometries have an exact conformal field theory
+description, so the answer to "what happens there" is already in and does not
+need a simulation. The acceptance is that the harness score a hypothesis
+against that record *before* any run — which is only worth having if the
+record can say no.
+
+### The organising fact is the orbifold group, and it is arithmetic
+
+All three orbifold entries identify flat space by a group, and a string
+amplitude on the quotient is a sum over that group's images. That single
+observation separates the harmless case from the fatal ones:
+
+| background | group | images | `s` of the `n`-th image | verdict |
+|---|---|---|---|---|
+| `C/Z_N` | finite, `Z_N` | `N` | bounded | **resolved** |
+| null orbifold | infinite, parabolic | ∞ | `4 + n²β²` | **unstable** |
+| Milne | infinite, hyperbolic | ∞ | `2 + 2 cosh(nβ)` | **unstable** |
+
+A graviton exchange grows as `s²`, so the image sum terminates in the first
+row and diverges in the other two — polynomially for the null orbifold,
+geometrically for Milne. At `β = 0.4` the Milne invariant is already a
+thousand times the null one by the thirtieth image, and the ratio keeps
+running: a hyperbolic element and a parabolic one are different conjugacy
+classes, not different constants.
+
+Both closed forms are *predictions here*, not definitions. The module builds
+the group element as a matrix and the suite checks it is a Lorentz
+transformation — `ΛᵀηΛ = η` to `1e−13` — and that it composes additively,
+at a power the closed form was not written at. Only then are the invariants
+compared with `4 + n²β²` and `2 + 2cosh(nβ)`.
+
+### The conical singularity is the entry that does the most work
+
+`C/Z_N` has unbounded curvature at the origin and a perfectly finite
+conformal field theory. A hypothesis treating "curvature diverges" as
+synonymous with "the theory breaks down" is already wrong about a case string
+theory understands completely.
+
+Three computed facts back it:
+
+- **The twisted ground state is lifted**, to `−1/12 + v(1−v)/2`. Both ends
+  pin the normalisation: `v = 0` gives `−1/12 = 2 × (−1/24)`, two periodic
+  bosons, and `v = 1/2` gives `1/24 = 2 × 1/48`, two antiperiodic ones. The
+  singularity carries states rather than a divergence.
+- **The `N²` sectors close under the modular group**, `S: (g,h) → (h,−g)` and
+  `T: (g,h) → (g, g+h)`, for every `N` from 2 to 8. The negative control is
+  the point: keep only the untwisted `g = 0` sectors and `S` escapes the set
+  immediately. The twisted sectors are a consistency requirement, not an
+  addition.
+- **The fixed-point count is `|det(1 − θ)|` per plane**, computed from the
+  rotation matrix: 4, 3, 2, 1 on `T²` for `Z₂`, `Z₃`, `Z₄`, `Z₆`; 27 on
+  `T⁶/Z₃` and 64 on `T⁶/Z₂`.
+
+That 27 is the same number as the twisted sectors of `T⁶/Z₃` — and exactly
+what `string.compactify`'s untwisted-only moduli counts leave out. The two
+modules now say the same thing from opposite directions.
+
+### The two-dimensional black hole, exactly
+
+`SL(2,R)_k/U(1)` has `c = 3k/(k−2) − 1 = 2(k+1)/(k−2)`, a rational function
+of the level, so everything about it is exact rather than numerical:
+
+- `c = 26` at **`k = 9/4`**, solved symbolically and confirmed in rationals
+- `c → 2` as `k → ∞` — two bosons, the metric and the dilaton
+- `c = 2 + 6/k + 12/k² + 24/k³ + 48/k⁴`, each coefficient twice the last
+
+Everything after the leading `2` is an α′ correction, so a background that
+claimed to be exact while stopping at the metric would be missing the `6/k`.
+
+### The screening step, and how "before any run" is made checkable
+
+`prescreen(theory)` reads `observable_predictions()` and nothing else. The
+suite establishes that by screening a plugin whose `reduced_equations` raises
+outright: it still comes back with a verdict, so no dynamics were touched.
+Ordering a call earlier in `evaluate` would have been a claim about source
+lines; this is a test.
+
+What it buys: a hypothesis declaring `all_singularities_resolved` is
+contradicted by the null orbifold — string theory does not resolve that
+singularity, the background is unstable instead — at the cost of one
+dictionary lookup rather than a run. The report card carries the refutation,
+`passed` is False, and `render()` prints **REFUTED BY EXACT RESULTS, before
+any run**. The battery still runs, with a warning saying its outcome cannot
+rescue a claim that was refuted before it started.
+
+The scorer is deliberately able to agree, to disagree in either direction —
+claiming strings break down on `C/Z_N` is caught too — and to say nothing.
+Only the four keys in `CLAIM_KEYS` are scored; everything else is recorded as
+unaddressed rather than guessed at. Loop quantum cosmology says nothing about
+any background in the catalogue, so its verdict is untouched — the step adds a
+field to the report card and changes no other one.
+
+### What this is not
+
+Not a `Theory`. It has no couplings, no general-relativistic limit and no
+registry entry — it is a record of results obtained elsewhere, with the
+arithmetic redone so that a wrong entry is a failing test rather than a
+plausible sentence.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared

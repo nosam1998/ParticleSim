@@ -2363,6 +2363,94 @@ work on the field, and the invariant moves by 1.1e−2 — eleven orders from th
 radiation case. Without that test, a background that silently did nothing would
 pass everything else here.
 
+## Parametric resonance: bands that are an eigenvalue problem, not a plot
+
+Issue #66, Level C4. An inflaton oscillating in its potential drives a coupled
+field through a time-dependent mass, and modes in certain bands of `k` grow
+exponentially.
+
+### Why this acceptance can be sharp
+
+"Resonance bands match Floquet analysis" is unusually testable, because Floquet
+is not a fit to a growth curve. The monodromy matrix is the mode equation's
+solution operator over one period of the background; its eigenvalues are the
+Floquet multipliers and `μ = ln|λ|/T` is exact — no window to choose, no
+transient to wait out, and **identically zero** outside a band rather than
+small. That last point is what makes a band edge a fact rather than a
+threshold.
+
+For a coupling `g²φ²χ²/2` and a quadratic inflaton the mode equation is
+Mathieu's, with
+
+    A_k = (k² + m_χ²)/m² + 2q,    q = g²Φ²/(4m²)
+
+and `q` is the whole story: `q ≪ 1` is narrow resonance with a closed form,
+`q ≫ 1` is broad resonance with none.
+
+### Narrow resonance against the closed form
+
+`μ = (m/2)√(q² − (A−1)²)` is leading order in `q`, so the right check is not a
+fixed tolerance but that the ratio approaches one as its own expansion
+parameter shrinks:
+
+| `q` | measured / closed form |
+|---|---|
+| 0.09 | 0.9991 |
+| 0.04 | 0.9998 |
+| 0.01 | **1.0000** |
+
+Asserting each to 1e−3 would pass a formula wrong by a constant; asserting the
+trend would not. Outside the band the exponent comes back at **1e−12** — the
+multipliers sit on the unit circle — so `resonance_bands` can use a 1e−8
+threshold without tuning. The monodromy's determinant is 1 to 1e−8, which is
+Liouville's theorem and the check that the exponents are physics rather than
+integration error.
+
+### The background is integrated, not assumed
+
+`φ(t) = Φcos(mt)` holds only for a quadratic potential, so the period is found
+from the motion itself by detecting the turning point. For the quadratic case
+that recovers `2π/m` to **3.4e−15**, independent of amplitude. For a quartic
+inflaton it gives `T·A = 3.708149` at every amplitude — the exact `T ∝ 1/A`
+scaling, which a quadratic-only implementation would get wrong and which is why
+any potential from `cosmo.potentials` can drive the resonance here.
+
+### The acceptance
+
+A `χ` field on a lattice, driven by the inflaton with no back-reaction — the
+regime Floquet describes and therefore the only one where the two are
+comparable at all. Growth rates read between two **late, integer-period**
+samples: late because the initial noise contains the decaying Floquet mode as
+well as the growing one, integer-period because the growing solution is an
+exponential times a periodic function, so a ratio at matching phase is the
+exponential alone with no fitting window to choose.
+
+At `q = 4`, bands in `ω²` of (1.3, 2.6) and (8.5, 8.6):
+
+| mode | lattice `ω²` | Floquet `μ` | lattice `μ` | ratio |
+|---|---|---|---|---|
+| 6 | 1.3482 | +0.067201 | +0.067273 | **1.0011** |
+| 8 | 2.3431 | +0.111614 | +0.111595 | **0.9998** |
+| 2, 12, 20 | — | 0 (to 1e−9) | \|μ\| < 0.02 | — |
+
+A tenth of a percent, against a reference computed from an entirely separate
+integration of a different equation.
+
+### The lattice's dispersion, not the continuum's
+
+The Floquet reference is fed the lattice's `ω² = (4/h²)Σsin²(k_ih/2) + m_χ²`,
+not `k²`. Feeding it the continuum value instead moves the exponent by **19%
+and 17%** at the two growing modes — two orders above the agreement above, and
+in the direction of looking like a physics disagreement rather than the
+bookkeeping error it is. A mode on a lattice does not have the continuum
+frequency, and a resonance condition is a statement about frequency.
+
+### Not done
+
+Defect diagnostics. They need a symmetry-breaking potential and winding-number
+machinery, neither of which the resonance measurement above exercises, so the
+task is left open rather than given a token implementation.
+
 ## Electromagnetic sector
 
 | Benchmark | Reference | Tolerance | Measured | Test |

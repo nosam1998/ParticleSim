@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 
 from particlesim.solvers.lattice.euclidean import (
+    ERGODICITY_FLOOR,
     Chain,
     CompactU1,
     HybridMonteCarlo,
@@ -216,6 +217,51 @@ def test_the_propagator_is_refused_once_the_field_interacts():
     """There is no closed form to compare against, so none is offered."""
     with pytest.raises(ValueError, match="no exact expression"):
         Phi4(coupling=1.0).propagator()
+
+
+# --- the failure that reports a tighter error bar -------------------------
+
+
+def test_a_chain_that_cannot_tunnel_says_so_and_looks_more_confident():
+    """Below the transition the order parameter never changes sign.
+
+    Local hybrid Monte Carlo cannot cross the barrier between the two wells,
+    so the chain samples one of them, every jackknife block agrees about it,
+    and the run reports a confident number for a distribution it never saw.
+    The error bar on the stuck run is roughly *nine times smaller* than on
+    the ergodic one, which is why a run has to be asked this question rather
+    than trusted: the usual signals all point the wrong way.
+    """
+    stuck_model = Phi4(shape=(8, 8), mass_squared=-4.4, coupling=24.0)
+    stuck = HybridMonteCarlo(stuck_model, step=0.05, steps=15, rng=np.random.default_rng(21)).run(
+        sweeps=3000, thermalise=600, observable=stuck_model.magnetisation
+    )
+
+    free_model = Phi4(shape=(8, 8), mass_squared=-3.0, coupling=24.0)
+    free = HybridMonteCarlo(free_model, step=0.05, steps=15, rng=np.random.default_rng(21)).run(
+        sweeps=3000, thermalise=600, observable=free_model.magnetisation
+    )
+
+    assert stuck.sign_changes == 0
+    assert not stuck.ergodic
+    assert free.sign_changes > 100
+    assert free.ergodic
+    assert stuck.error < free.error / 5.0
+    assert abs(stuck.mean) > 0.5
+    assert abs(free.mean) < 0.1
+
+
+def test_the_sign_change_count_is_what_it_says():
+    """Counted on the measured series, with the degenerate cases pinned."""
+    alternating = Chain(
+        values=np.array([1.0, -1.0, 1.0, -1.0]), energy_changes=np.zeros(4), acceptance=1.0
+    )
+    assert alternating.sign_changes == 3
+    assert not alternating.ergodic
+    assert Chain(values=np.ones(50), energy_changes=np.zeros(50), acceptance=1.0).sign_changes == 0
+    assert Chain(values=np.array([]), energy_changes=np.zeros(0), acceptance=1.0).sign_changes == 0
+    flipping = np.where(np.arange(2 * ERGODICITY_FLOOR + 2) % 2 == 0, 1.0, -1.0)
+    assert Chain(values=flipping, energy_changes=np.zeros(flipping.size), acceptance=1.0).ergodic
 
 
 # --- the estimators -------------------------------------------------------

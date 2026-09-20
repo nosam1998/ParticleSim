@@ -6,7 +6,8 @@ characteristic speeds; ``reconstruct`` the face interpolations;
 measured against; ``evolve`` the conservative update that puts them
 together. ``srmhd`` adds the electromagnetic stress and ``transport``
 carries the divergence constraint, which has content only in more than one
-dimension.
+dimension. ``spherical`` puts the fluid on a curved spherically symmetric
+background whose metric is constrained rather than evolved.
 """
 
 from particlesim.solvers.hydro.evolve import (
@@ -24,6 +25,7 @@ from particlesim.solvers.hydro.riemann import (
     exact_riemann,
     riemann_flux,
 )
+from particlesim.solvers.hydro.spherical import SphericalHydro, from_star
 from particlesim.solvers.hydro.srhd import (
     GammaLaw,
     characteristic_speeds,
@@ -50,6 +52,7 @@ __all__ = [
     "MagnetisedTube",
     "RelativisticHydro",
     "RiemannFan",
+    "SphericalHydro",
     "StaggeredField",
     "advect",
     "advected_pulse",
@@ -60,6 +63,7 @@ __all__ = [
     "exact_profile",
     "exact_riemann",
     "flux",
+    "from_star",
     "from_vector_potential",
     "grid_for",
     "primitive_to_conserved",

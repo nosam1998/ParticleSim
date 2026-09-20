@@ -39,25 +39,21 @@ import numpy as np
 
 from particlesim.core.grid import kreiss_oliger
 from particlesim.core.spherical import SphericalGrid
+from particlesim.solvers.nr.polar import (
+    PolarSlicingBreakdown,
+    mass_aspect,
+    midpoints,
+    solve_polar_metric,
+)
 
-
-class PolarSlicingBreakdown(RuntimeError):
-    """Raised when a trapped region forms, which polar-areal slicing cannot cover."""
-
-
-def _midpoints(f: np.ndarray) -> np.ndarray:
-    """Fourth-order interpolation of ``f`` to cell midpoints.
-
-    Returns ``len(f) - 1`` values. A second-order average here would cap the
-    whole metric solve at second order regardless of the Runge-Kutta stage
-    count, which is the usual way an ostensibly fourth-order code turns out
-    to be second order.
-    """
-    out = np.empty(len(f) - 1)
-    out[1:-1] = (-f[:-3] + 9 * f[1:-2] + 9 * f[2:-1] - f[3:]) / 16.0
-    out[0] = (3 * f[0] + 6 * f[1] - f[2]) / 8.0
-    out[-1] = (3 * f[-1] + 6 * f[-2] - f[-3]) / 8.0
-    return out
+# Re-exported: the exception was defined here before the metric solve moved
+# to :mod:`particlesim.solvers.nr.polar`, and callers catch it by this name.
+__all__ = [
+    "PolarSlicingBreakdown",
+    "ScalarCollapse",
+    "SphericalState",
+    "gaussian_pulse",
+]
 
 
 @dataclass(frozen=True)
@@ -168,94 +164,36 @@ class ScalarCollapse:
     # --- constraints ----------------------------------------------------
 
     def solve_metric(self, Phi: np.ndarray, Pi: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Recover ``a`` and ``alpha`` by integrating outward from the origin.
+        """Recover ``a`` and ``alpha`` from the scalar field's stress-energy.
 
-        Integrating the Misner-Sharp mass rather than ``a`` directly is what
-        makes the origin unproblematic. The Hamiltonian constraint written
-        for ``a`` carries a ``(1 - a^2) / 2r`` term that is zero over zero at
-        ``r = 0``; the equivalent equation for the mass,
-
-            dm/dr = 2 pi r^2 (Pi^2 + Phi^2) (1 - 2m / r)
-
-        has a source vanishing as ``r^2`` and the boundary condition
-        ``m(0) = 0``, both manifestly regular. ``a`` then follows
-        algebraically. Fourth-order Runge-Kutta in radius keeps the metric
-        solve from capping the evolution's spatial order.
+        The integration itself lives in
+        :mod:`particlesim.solvers.nr.polar`, which is shared with the
+        fluid; what belongs here is the *source*. A massless scalar's
+        Eulerian energy density and radial stress are both
+        ``(Pi^2 + Phi^2)/(2 a^2)``, so its mass equation carries a factor
+        ``1 - 2m/r`` -- the source depends on the mass being integrated
+        for -- while its lapse equation does not. That asymmetry is why the
+        shared solver takes callables rather than arrays.
         """
-        r, dr = self.r, self.dr
         density = Pi**2 + Phi**2
-        # Source of the mass equation, S(r) = 2 pi r^2 (Pi^2 + Phi^2).
-        S = 2.0 * np.pi * r**2 * density
-        S_mid = _midpoints(S)
-        r_mid = r + 0.5 * dr
-        dens_mid = _midpoints(density)
+        source = 2.0 * np.pi * self.r**2 * density
+        source_mid = midpoints(source)
+        density_mid = midpoints(density)
 
-        m = np.empty_like(r)
-        # First half cell: the source behaves as r^2 near the origin, for
-        # which the integral from 0 to r0 is exactly S(r0) r0 / 3.
-        m[0] = S[0] * r[0] / 3.0
+        def mass_slope(index, mid, radius, mass):
+            value = source_mid[index] if mid else source[index]
+            return value * (1.0 - 2.0 * mass / radius)
 
-        def dm(rr: float, mm: float, ss: float) -> float:
-            """Right-hand side, valid only while ``2m/r < 1``.
+        def lapse_slope(index, mid, radius, mass):
+            value = density_mid[index] if mid else density[index]
+            return mass / (radius**2 * (1.0 - 2.0 * mass / radius)) + 2.0 * np.pi * radius * value
 
-            The bound is enforced on every stage argument, not only on the
-            accepted value, because the failure mode is subtler than an
-            overshoot that stays overshot. A single stage can step past
-            ``2m/r = 1``, where the ``(1 - 2m/r)`` factor changes sign and
-            the slope becomes large and negative, and the Runge-Kutta
-            combination then lands on a *negative* mass. That result has
-            ``2m/r < 0``, comfortably below one, so a check on the accepted
-            value alone passes it through and the caller receives a metric
-            with ``a < 1`` and negative mass: unphysical, finite, and
-            plottable.
-            """
-            if 2.0 * mm >= rr:
-                raise PolarSlicingBreakdown(
-                    f"the constraint integration stepped to 2m/r >= 1 at r = {rr:.4f}. "
-                    "Polar-areal coordinates do not cover a trapped region, so either "
-                    "the data is forming a horizon, or the radial grid is too coarse "
-                    "to resolve the approach to one. Refine the grid to tell the two "
-                    "apart"
-                )
-            return ss * (1.0 - 2.0 * mm / rr)
-
-        for i in range(len(r) - 1):
-            k1 = dm(r[i], m[i], S[i])
-            k2 = dm(r_mid[i], m[i] + 0.5 * dr * k1, S_mid[i])
-            k3 = dm(r_mid[i], m[i] + 0.5 * dr * k2, S_mid[i])
-            k4 = dm(r[i + 1], m[i] + dr * k3, S[i + 1])
-            m[i + 1] = m[i] + dr / 6.0 * (k1 + 2 * k2 + 2 * k3 + k4)
-            if 2.0 * m[i + 1] >= r[i + 1]:
-                raise PolarSlicingBreakdown(
-                    f"2m/r reached one at r = {float(r[i + 1]):.4f}: a trapped "
-                    "region has formed and polar-areal coordinates do not cover it. "
-                    "This is the physical end of the run, not a solver failure"
-                )
-
-        two_m_over_r = 2.0 * m / r
-        a = 1.0 / np.sqrt(1.0 - two_m_over_r)
-
-        # d(ln alpha)/dr = m / (r^2 (1 - 2m/r)) + 2 pi r (Pi^2 + Phi^2).
-        def dlog_alpha(rr, mm, dd):
-            return mm / (rr**2 * (1.0 - 2.0 * mm / rr)) + 2.0 * np.pi * rr * dd
-
-        log_alpha = np.empty_like(r)
-        # Near the origin the integrand is linear in r, so the first half
-        # cell integrates to integrand(r0) * r0 / 2.
-        log_alpha[0] = 0.5 * r[0] * dlog_alpha(r[0], m[0], density[0])
-        m_mid = 0.5 * (m[:-1] + m[1:])
-        for i in range(len(r) - 1):
-            k1 = dlog_alpha(r[i], m[i], density[i])
-            k2 = dlog_alpha(r_mid[i], m_mid[i], dens_mid[i])
-            k4 = dlog_alpha(r[i + 1], m[i + 1], density[i + 1])
-            log_alpha[i + 1] = log_alpha[i] + dr / 6.0 * (k1 + 4 * k2 + k4)
-
-        alpha = np.exp(log_alpha - log_alpha[-1]) / a[-1]
+        a, alpha, _ = solve_polar_metric(self.r, self.dr, mass_slope, lapse_slope)
         return a, alpha
 
     def mass_aspect(self, a: np.ndarray) -> np.ndarray:
         """Misner-Sharp mass ``m(r) = (r / 2) (1 - 1 / a^2)``."""
-        return 0.5 * self.r * (1.0 - 1.0 / a**2)
+        return mass_aspect(self.r, a)
 
     def adm_mass(self, a: np.ndarray) -> float:
         return float(self.mass_aspect(a)[-1])

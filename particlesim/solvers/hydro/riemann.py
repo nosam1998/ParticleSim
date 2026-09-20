@@ -28,15 +28,16 @@ HLLE's 3.79 does not move at all across the same three runs. One number
 belongs to the arithmetic and the other to the scheme, and the way to tell
 which is which is to change the arithmetic and see what follows.
 
-**The root of that quadratic is taken in the stable form, and that was
-measured rather than assumed.** ``(-b - sqrt(b^2 - 4ac))/(2a)`` is the
-classic place a root is lost to cancellation, so :func:`contact_speed` takes
-``c/q`` instead and ``stable=False`` evaluates the textbook form for
-comparison. Across 40,000 random contacts the two never disagree, because
-``4ac/b^2`` is of order one for this particular quadratic rather than
-small -- so the exactness above comes from ``c`` vanishing and from nothing
-else. The alternative is kept anyway, since a claim that two forms agree is
-worth a test rather than a sentence.
+**The root of that quadratic is taken in the stable form, and the gain from
+doing so was measured rather than assumed.** ``(-b - sqrt(b^2 - 4ac))/(2a)``
+is the classic place a root is lost to cancellation, so
+:func:`contact_speed` takes ``c/q`` instead and ``stable=False`` evaluates
+the textbook form for comparison. The honest result is that it barely
+matters: across two thousand random contacts the two forms stay within
+``4e-14`` of each other and of the contact's own velocity, because
+``4ac/b^2`` is of order one for this particular quadratic rather than small.
+So the exactness above comes from ``c`` vanishing and from nothing else,
+and the stable form is kept as the right habit rather than as a repair.
 
 **The exact solver's shock branch is checked against the jump conditions it
 was derived from.** Its closed form comes from the Taub adiabat, which is
@@ -93,9 +94,9 @@ def contact_speed(state_hll, flux_hll, stable=True):
     ``stable`` selects which algebraically identical form of the root to
     evaluate -- ``c/q``, or the textbook ``(-b - sqrt(b^2 - 4ac))/(2a)``.
     Both return exactly zero when the momentum does, which is what keeps a
-    stationary contact stationary, and across 40,000 random contacts they
-    were never found to differ at all. The parameter exists so that the
-    agreement is a test rather than a claim.
+    stationary contact stationary, and elsewhere they agree to ``4e-14``.
+    The parameter exists so that the agreement is a test rather than a
+    claim.
     """
     quadratic = flux_hll[2]
     linear = -(state_hll[2] + flux_hll[1])

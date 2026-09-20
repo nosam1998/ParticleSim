@@ -26,20 +26,25 @@ shrink faster than the cell -- ``dt ~ dx^(5/3)`` -- and the suite does
 exactly that, and also records the capped value so the trap is visible
 rather than avoided.
 
-**PPM interpolates its faces to fourth order and converges at second.** Not
-a bug and not a bound: the Colella-Woodward limiter cannot tell a smooth
-extremum from an overshoot, so where the profile turns over it cuts the
-parabola back and the reconstruction is locally first order. Measured on a
-sine, the limiter fires in exactly **four cells at every resolution** -- the
-two extrema and one neighbour each -- so its contribution to the ``L1``
-error is ``(4/N) O(dx)``, which is second order, and the same
-reconstruction with the limiting removed measures 3.99, 4.00, 4.00.
-Colella and Sekora's extremum branch is what fixes it, and
-``"ppm-extremum"`` carries it: on this profile it reproduces the unlimited
-error to every digit, meaning it correctly does nothing, and at a
-discontinuity it still limits. Both are kept, because the gap between them
-is the point -- a scheme advertised at high order can be delivering second,
-and only a measurement says which.
+**PPM interpolates its faces to fourth order and converges at barely more
+than second.** Not a bug and not a bound: the Colella-Woodward limiter
+cannot tell a smooth extremum from an overshoot, so where the profile turns
+over it cuts the parabola back and the reconstruction is locally first
+order. On a sine the limiter touches exactly **six faces at every
+resolution** -- 32 points or 512, always the two extrema and one neighbour
+each -- and since that count does not grow with the grid, their share of the
+error falls slowly: the advected pulse measures 1.95, 2.20, 2.30 over
+successive doublings, short of three and nowhere near the four the faces
+are interpolated to. The same reconstruction with the limiting removed
+measures 3.99, 4.00, 4.00.
+
+Colella and Sekora's extremum branch is what repairs it, and
+``"ppm-extremum"`` carries it. The way that shows up is worth stating: on a
+smooth profile it reproduces the *unlimited* faces to every digit, meaning
+it correctly does nothing at all, while at a jump from 1 to 3 it still
+reconstructs inside ``[1, 3]``. Both are kept, because the distance between
+them is the point -- a scheme named for its high order can be delivering
+second, and only a measurement says which one you have.
 """
 
 from __future__ import annotations

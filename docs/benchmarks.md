@@ -3248,6 +3248,117 @@ tunnelling, several lattice couplings for the continuum extrapolation, and
 several sizes at each. That is a study, not a test, so #63 keeps the φ⁴ task
 open on this measured basis rather than on a tolerance that was missed.
 
+## SU(2) on the lattice: the checks that cannot pass by accident
+
+Issue #64. The links are group elements, so the molecular dynamics runs on
+the group: momenta in the Lie algebra, the update `U → exp(iεp·T)U`, and a
+force that is a derivative along an algebra direction rather than a partial
+derivative of a coordinate. Almost everything that can go wrong does so
+silently — a staple with one factor daggered the wrong way still gives a real
+action, a healthy acceptance rate and a wrong answer.
+
+### Structure first
+
+| check | residual |
+|---|---|
+| gauge invariance of the action | `7.1e−15` |
+| every plaquette trace invariant site by site | `<1e−12` |
+| staples account for exactly two plaquettes each | exact |
+| force against a finite difference **along the group** | `4.2e−9` |
+| reversibility | `1.3e−15` |
+| unitarity after a trajectory, no reprojection | `1.1e−15` |
+
+Gauge invariance comes first because it is a statement about the *indices*: a
+wrong staple fails it outright, where a plaquette comparison might not. The
+force is differentiated along `U → exp(iωT_a)U` rather than along a
+coordinate, which tests the staple assembly and the generator convention
+together — a wrong factor of a half in `T_a = σ_a/2` passes every unitarity
+check and fails this one.
+
+The `SU(2)` exponential is closed form,
+`exp(iεp·σ/2) = cos(m/2) + i sin(m/2) p·σ/|p|`, so links stay in the group to
+round-off and a trajectory never needs reprojecting. That is not tidiness: a
+reprojection inside the leapfrog would break reversibility, and the Metropolis
+test would then sample the wrong distribution while still looking healthy.
+
+### The bug was in the reference formula, and one line would have caught it
+
+Two-dimensional gauge theory factorises for any group, so the plaquette has an
+exact finite-volume value from the character expansion. The first version of
+that formula here was wrong twice over:
+
+- `a_R = c_R/d_R²` instead of `c_R/d_R`. The coefficient
+  `c_n = 2n·I_n(β)/β` already carries the dimension `d_n = n`, so dividing by
+  it again is wrong — and **invisible at `n = 1`**, which means a large
+  lattice never notices.
+- The sum has to run over all `n = 2j+1 = 1, 2, 3, …`. Half-integer spin is a
+  representation of `SU(2)`; keeping only odd `n` is the representation
+  content of `SO(3)`, and gives a series that is not the Boltzmann factor at
+  all.
+
+What exposed it was a single configuration: `L = 2, β = 2` at **+7.8σ**, while
+`L = 4` sat at about one standard error. Close enough to a fluctuation to wave
+through, far enough to check.
+
+The check that should have come first costs one line. The coefficients have to
+reproduce the Boltzmann factor pointwise,
+`Σ_n c_n χ_n(θ) = exp(β cos θ)`, and both errors fail it at *every* angle —
+the second by roughly a factor of two, not by a tail. `character_expansion`
+now does exactly that, and the suite asserts it at three couplings and four
+angles.
+
+### Two samplers beat one sampler and a formula
+
+The diagnosis was settled by a second algorithm sharing no sampling code with
+the first — no momenta, no leapfrog, no force, only the action and the
+staples. Both samplers agreed with each other while disagreeing with the
+formula, which is what told me the formula had moved:
+
+| case | hybrid Monte Carlo | Metropolis | exact |
+|---|---|---|---|
+| `L=2, β=1` | 0.244450 ± 0.003111 | 0.240803 ± 0.003924 | 0.243261 |
+| `L=2, β=2` | 0.444003 ± 0.001295 | 0.441437 ± 0.003484 | 0.446145 |
+| `L=4, β=2` | 0.432513 ± 0.000640 | 0.434127 ± 0.001583 | 0.433128 |
+| `L=4, β=4` | 0.658905 ± 0.000590 | — | 0.658185 |
+
+Every pull inside 1.7σ, and `⟨e^{−ΔH}⟩` within `6e−5` of one on all four runs.
+`MetropolisGauge` is kept in the module for that reason rather than for
+coverage: a reference formula and one sampler agreeing is a weaker statement
+than two samplers agreeing.
+
+### The finite-volume correction is the plaquette to the volume
+
+The subleading amplitude ratio is `a₂/a₁ = I₂(β)/I₁(β)` — which is *exactly
+the infinite-volume plaquette itself*. The same identity holds for compact
+`U(1)` with `I₁/I₀`. So a two-dimensional gauge theory's finite-volume
+correction is governed by its own plaquette raised to the `V`-th power, and
+the suite asserts that as a **rate**: `deviation / p^V` is constant in `V` to
+four digits, where a monotone-decrease assertion would pass for any decaying
+sequence.
+
+| `V` | `SU(2)`, `β=1` | ratio to `p^V` |
+|---|---|---|
+| 9 | `1.02e−5` | 3.8432 |
+| 16 | `4.72e−10` | 3.8432 |
+
+That identity is what separates the two theories. At `β = 1` the plaquettes
+are `0.240` and `0.446`, a factor of twelve once taken to the fourth, so on a
+`2×2` lattice the correction is **1.3%** for `SU(2)` and **13%** for `U(1)`.
+The textbook infinite-volume number is a usable target here and is not there —
+which is why the `U(1)` module has to insist on the finite-volume form.
+
+The sizes in that table stop where they do because the deviation runs into
+round-off: at `β = 1` and `L = 5` it is `1.6e−15` relative to one, so the
+ratio there measures the last few bits rather than the expansion.
+
+### What is not here
+
+The GPU half of the issue's second task. The gauge force is written against
+NumPy and the machine this ran on has no GPU, so the JAX path the rest of the
+repository uses for that purpose is not exercised and is not claimed. The
+physics tasks — `SU(2)` links, the plaquette action, and HMC with a gauge
+force — are complete.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared
@@ -3538,6 +3649,9 @@ the design document.
 - Compact U(1) plaquette expectation (issue #63) — **done**, and against the
   exact finite-volume character sum rather than `I₁/I₀`, which a correct run
   misses by 13% on a small lattice.
+- SU(2) plaquette (issue #64) — **done**, against the exact finite-volume
+  character sum and cross-checked by a second sampler. The GPU force path is
+  not exercised: no GPU on the machine this ran on.
 
 ### Milestones 8 and 9
 - Zel'dovich pancake caustic time, to 2% (issue #78) — the mesh half is in,

@@ -4,7 +4,9 @@
 characteristic speeds; ``reconstruct`` the face interpolations;
 ``riemann`` the approximate solvers and the exact solution they are
 measured against; ``evolve`` the conservative update that puts them
-together.
+together. ``srmhd`` adds the electromagnetic stress and ``transport``
+carries the divergence constraint, which has content only in more than one
+dimension.
 """
 
 from particlesim.solvers.hydro.evolve import (
@@ -31,21 +33,34 @@ from particlesim.solvers.hydro.srhd import (
     primitive_to_conserved,
     recovery_precision,
 )
+from particlesim.solvers.hydro.srmhd import MagnetisedTube
+from particlesim.solvers.hydro.transport import (
+    StaggeredField,
+    advect,
+    apply_emf,
+    from_vector_potential,
+    transport_stage,
+)
 
 __all__ = [
     "NOMINAL_ORDER",
     "SCHEMES",
     "SOLVERS",
     "GammaLaw",
+    "MagnetisedTube",
     "RelativisticHydro",
     "RiemannFan",
+    "StaggeredField",
+    "advect",
     "advected_pulse",
+    "apply_emf",
     "characteristic_speeds",
     "cold_flow_fraction",
     "conserved_to_primitive",
     "exact_profile",
     "exact_riemann",
     "flux",
+    "from_vector_potential",
     "grid_for",
     "primitive_to_conserved",
     "reconstruct",
@@ -53,4 +68,5 @@ __all__ = [
     "riemann_flux",
     "riemann_initial_data",
     "smooth_pulse",
+    "transport_stage",
 ]

@@ -4255,6 +4255,88 @@ collapsing star asymptotes to `2m/r = 1` with the lapse collapsing rather
 than forming a trapped surface, and the constraint integration raises
 `PolarSlicingBreakdown` rather than continuing past it.
 
+## Two fates from one star, and a theorem about the outside
+
+Issue #60. A star past the maximum-mass point of its own sequence is
+unstable, so a small push decides its fate. The same star, the same
+magnitude of kick, opposite sign:
+
+| | inward kick | outward kick |
+|---|---|---|
+| outcome | **collapsed** | **dispersed** |
+| peak `2m/r` | 0.988 | 0.527 (its initial value) |
+| minimum lapse | `5.2e-5` | 0.354 |
+| horizon radius | 4.14 | none |
+| central density | x2.58 | x0.128 |
+| ended | `PolarSlicingBreakdown` at 5.11 dynamical times | ran to 6 |
+
+Nothing else about the two runs differs, so the ending is decided by the
+perturbation and not by the scheme. The same inward kick applied to a star
+on the *stable* branch leaves it bounded — peak `2m/r` of 0.289, lapse 0.70,
+central density within 11% — which is the third leg of the same statement.
+
+Whether a given star can collapse at all is settled by `solve_tov` without
+evolving anything, and `is_unstable` asks it. That is worth doing first: a
+star on the stable branch will not collapse however hard it is pushed, and
+an hour was spent in this repository looking for a bug in exactly that
+situation.
+
+### "Forms a horizon" has to be read in the slicing
+
+Polar-areal coordinates are horizon-avoiding: a trapped surface never forms
+in finite coordinate time. What happens instead is that `2m/r` asymptotes to
+one from below while the lapse collapses, and the constraint integration
+eventually refuses to continue because the coordinates do not cover what is
+beyond. So `CollapseOutcome` reports an *approach* — the largest `2m/r`, the
+smallest lapse, and whether the run ended in `PolarSlicingBreakdown` —
+rather than claiming a crossing it cannot see, and `formed_horizon` requires
+**both** signals, because either alone is also what a grid too coarse to
+resolve the approach produces.
+
+### The exterior is the sharp half, and it is Birkhoff's theorem
+
+A spherically symmetric vacuum is Schwarzschild, *statically*, however
+violently the interior behaves. So the metric outside the star should not
+move at all while the star falls in — a theorem to verify rather than a
+tolerance to meet:
+
+| dynamical times | 0 | 1 | 2 | 3 |
+|---|---|---|---|---|
+| `abs(a/a_Schwarzschild − 1)` outside | `8.1e−10` | `2.9e−7` | `1.1e−6` | `4.6e−6` |
+| `2m/r` inside | 0.527 | 0.542 | 0.579 | 0.698 |
+
+and `α·a = 1` outside holds to `1e−9` throughout. The residual grows only as
+the lapse collapses and the grid stops resolving the approach.
+
+**The word doing the work is *vacuum*.** A dispersing star expands past the
+sampling radius and the region stops being one, at which point the number is
+a Schwarzschild metric compared against a region full of matter — it reads
+0.1 and looks like a failed theorem instead of a misapplied one. The
+comparison stops when the exterior stops being vacuum and says so in the
+run's notes, which takes the dispersing case from `1.1e−1` to `8.6e−7`.
+
+### A floor that fired, and did nothing
+
+Found deep in a collapse, at a Lorentz factor of nine, after the run had
+already survived five dynamical times. The recovery has a root only if the
+energy can pay for the momentum, `τ = √(D² + S²) − D` exactly for a cold
+flow, and the floor that enforces it was already in place.
+
+Its margin was an absolute `1e−23`. The cancellation in `√(D² + S²) − D` at
+those magnitudes is `5e−19`, four orders of magnitude larger — so the floor
+fired, set `τ` to the cold limit plus a number smaller than its own
+round-off, and left the state exactly where the internal energy is zero and
+the recovery has no root. **A floor that is present, fires, and does nothing
+is worse than none**, because it is the first thing ruled out. The margin is
+now relative to the limit it enforces.
+
+### What is not here
+
+The Oppenheimer-Snyder closed form, which belongs to issue #23: it is
+pressureless and uniform, so it needs initial data this scenario does not
+build from a stellar model. And collapse *through* a horizon, which is a
+statement about coordinates that polar-areal slicing cannot make.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared
@@ -4549,6 +4631,12 @@ the design document.
   curvature source terms held to a star that is an exact solution of them.
   What remains of #57 is `nr.bssn`, which is three-dimensional and a
   different problem.
+- Collapse forms a horizon and matches the Schwarzschild exterior (issue #60)
+  — **done**, with the horizon read as the approach polar-areal slicing
+  actually produces and the exterior held to Birkhoff's theorem rather than
+  to a tolerance. The Oppenheimer-Snyder closed form is not here; it is
+  issue #23's, and needs pressureless uniform initial data this scenario
+  does not build.
 - TOV star stable for 10 dynamical times, L2 density error below 1e-3 (issue
   #58) — **done**, at `8.8e-5` on a 160-cell grid, and the history comes
   back down rather than only growing. The sharper statement is the one the

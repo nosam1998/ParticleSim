@@ -3073,6 +3073,181 @@ registry entry — it is a record of results obtained elsewhere, with the
 arithmetic redone so that a wrong entry is a failing test rather than a
 plausible sentence.
 
+## Euclidean hybrid Monte Carlo: an acceptance a correct run fails
+
+Issue #63 asks for the two-dimensional φ⁴ critical coupling and the compact
+`U(1)` plaquette, each within 1%. The second of those names a target that a
+correct simulation misses by 13×, and finding out why is most of the value.
+
+### Three checks that hold before any physics does
+
+Hybrid Monte Carlo is exact at any step size *provided* the proposal is
+reversible and volume preserving. That gives checks independent of what is
+being simulated:
+
+| check | φ⁴ | compact `U(1)` |
+|---|---|---|
+| force against a central difference of the action | `3.7e−9` | `1.7e−9` |
+| reversibility: forward, flip momenta, back | `7.2e−16` | `1.8e−15` |
+| leapfrog Jacobian determinant − 1 | `6.3e−11` | — |
+
+The first is the one that earns its place. A wrong sign or a shifted index
+in the force still integrates, still accepts at a healthy rate, and samples a
+different theory — nothing downstream notices. The other two are what make
+the Metropolis step exact, and a plausible-looking integrator can fail either
+silently.
+
+Then one that is exact and statistical: **`⟨e^{−ΔH}⟩ = 1`**, a consequence of
+detailed balance that holds at *any* step size rather than in the small-step
+limit. Checked at step 0.1 and 0.3, whose acceptance rates differ
+substantially, to 2%. And the leapfrog's second order shows up in
+`rms(ΔH) ∝ dt²`: halving the step gives ratios 4.07 and 4.18. (The *mean*
+`ΔH` scales as `dt⁴`, but at 200 trajectories its statistical error is the
+size of the signal — the root-mean-square is the resolved quantity.)
+
+### The plaquette: the exact answer is not the textbook one
+
+Two-dimensional compact `U(1)` factorises. The character expansion gives, for
+`V` plaquettes,
+
+    Z = Σ_n I_n(β)^V,   ⟨cos θ_p⟩ = Σ_n I′_n I_n^{V−1} / Σ_n I_n^V
+
+which tends to `I₁(β)/I₀(β)` as the volume grows — but *how* fast is the
+whole question:
+
+| `L` | `V` | deviation from `I₁/I₀` at `β = 2` |
+|---|---|---|
+| 2 | 4 | `1.17e−1` |
+| 3 | 9 | `2.46e−2` |
+| 4 | 16 | `2.12e−3` |
+| 6 | 36 | `1.60e−6` |
+| 8 | 64 | `6.71e−11` |
+
+So on a `2×2` lattice at `β = 1` the exact plaquette is **0.5052** against an
+infinite-volume **0.4464**: a correct simulation sits 13% from the textbook
+number. "Within 1% of `I₁/I₀`" is unreachable there, and reaching for it
+would mean either a wrong verdict or a run too large to be a test. The exact
+finite-volume value is both sharper and affordable, and that is what the
+suite compares against:
+
+| `L` | measured | exact at that `V` | pull |
+|---|---|---|---|
+| 2 | 0.505136 ± 0.001056 | 0.505197 | **−0.06** |
+| 3 | 0.447811 ± 0.000585 | 0.447506 | +0.52 |
+| 4 | 0.446589 ± 0.000426 | 0.446394 | +0.46 |
+
+The `L = 2` row is the informative one. It agrees with the finite-volume
+answer to a sixteenth of an error bar and disagrees with `I₁/I₀` by **56
+standard errors** — so a sampler quietly tuned against the textbook number
+would be caught rather than congratulated.
+
+### Autocorrelation is the difference between agreeing and disagreeing
+
+Successive trajectories are correlated, so the naive error on a mean is too
+small by `√(2τ_int)`. On these runs `τ_int ≈ 1.6–2.0`, a factor of about two
+in the error — which is the difference between a two-sigma discrepancy and a
+half-sigma one. The first `L = 2` run in this work looked 2.2σ off; it was
+not, and the naive error was why it appeared to be.
+
+The estimator uses the self-consistent window of Madras and Sokal, and is
+tested against arithmetic rather than against another estimator. An
+order-one autoregressive process has `τ_int = (1+ρ)/(2(1−ρ))` exactly:
+
+| `ρ` | 0 | 0.5 | 0.8 | 0.9 |
+|---|---|---|---|---|
+| exact | 0.5 | 1.5 | 4.5 | 9.5 |
+| measured | 0.5000 | 1.5015 | 4.4748 | 9.3580 |
+
+The small shortfall at large `ρ` is the window cutting the tail, which is the
+intended trade: summing to the end of the series adds noise without signal
+and *underestimates* the error, which is the failure that makes a correct
+simulation look wrong.
+
+### The free field, against the lattice propagator
+
+At zero coupling the theory is Gaussian and `⟨|φ̃(k)|²⟩ = 1/(k̂² + m²)` with
+`k̂² = Σ_μ 4sin²(k_μ/2)` — the **lattice** dispersion. A correct code compared
+against the continuum `1/(k²+m²)` would fail at large momentum, and the
+failure would be indistinguishable from a bug.
+
+On an `8×8` lattice at `m² = 0.5` the measured spectrum matches every mode
+within 2.2%, and per-mode pulls are inside 1.1σ. One detail worth recording:
+the Nyquist corner mode has `τ_int = 4.2` against ≈0.5 for every other mode,
+so it is precisely where the naive error is most wrong — a shorter run of
+this same check looked 9% off at that mode and nowhere else.
+
+### φ⁴: the critical coupling is not delivered, and three measurements say why
+
+The other half of the acceptance asks for the two-dimensional φ⁴ critical
+coupling within 1% of the literature. It is not met. The machinery is here
+and tested, the transition is located, and the obstacles are measured rather
+than asserted — but a number is not quoted, because the run that would
+produce one cannot be trusted at this scale.
+
+**The transition is bracketed.** With the φ⁴ coefficient at 1, the Binder
+cumulant crosses between `m² = −3.6` and `−3.8`, from runs that tunnel freely
+on both sides:
+
+| `m²` | `L = 8` | `L = 16` | ordering |
+|---|---|---|---|
+| −3.6 | 0.509 | 0.438 | `L=8 > L=16` — symmetric side |
+| −3.8 | 0.582 | 0.584 | crossing, to 0.003 |
+| −4.0 | 0.626 | 0.645 | `L=16 > L=8` — broken side |
+
+The crossing value ≈0.58 sits below the ≈0.61 expected for the
+two-dimensional Ising class, which is what finite-size corrections at `L = 8`
+to `16` would do; it is consistent with the right universality class rather
+than a test of it.
+
+**Obstacle one: critical slowing down.** `τ_int` climbs from 15 to 123 across
+`m² ∈ [−2.8, −3.6]` at `L = 8`, and grows with lattice size at fixed mass —
+123, 147, 236 for `L` = 8, 12, 16 at `m² = −3.6`. Against `τ ≈ 2` in the
+off-critical `U(1)` runs that is a factor of a hundred, and it lands exactly
+where the measurement is needed. At `L = 16` with 40 000 sweeps it leaves
+about 85 effective samples.
+
+**Obstacle two: the chain stops tunnelling, and gets *more* confident as it
+does.** Below the transition the barrier between the two wells exceeds what a
+local hybrid Monte Carlo can cross. Counting sign changes of the
+magnetisation over 36 000 measurements:
+
+| `m²` | −3.6 | −3.8 | −4.0 | −4.4 |
+|---|---|---|---|---|
+| flips at `L = 8` | 808 | 278 | 67 | **0** |
+| flips at `L = 16` | 789 | 184 | **20** | **0** |
+| jackknife error, `L = 8` | — | ±0.0023 | ±0.0016 | **±0.0003** |
+
+At `m² = −4.4` the chain never changes sign: it samples one well, every
+jackknife block agrees about it, and the reported error is **eight times
+tighter** than at the honest point. This is the worst failure mode in the
+module, because every usual signal points the wrong way — acceptance rate
+healthy, error bar shrinking, cumulant sitting at the 2/3 it should reach.
+It is why `Chain.sign_changes` exists and why the suite asserts the contrast
+directly: a stuck run and an ergodic one from the same code, with the stuck
+one's error nine times smaller.
+
+It also invalidated one of this work's own scans. A second window over
+`[−4.4, −3.8]` appeared to show a clean broken-phase ordering; part of that
+ordering was the more-stuck chain reading closer to 2/3. Only the points with
+hundreds of flips survive into the table above.
+
+**Obstacle three: the published number is a different quantity.** What a
+lattice measures is the *bare* critical mass. `[λ/μ²]_c` is renormalized,
+continuum and infinite-volume, and getting from one to the other needs the
+mass counterterm `12g⟨φ²⟩`, a `λ_lat → 0` extrapolation and an `L → ∞`
+extrapolation. The counterterm is comparable in size to `|m₀²_c|` itself, so
+`μ²_c` is a difference of two similar numbers and inherits a badly amplified
+relative error: 1% on the published ratio demands far better than 1% on the
+bare mass — precisely what obstacles one and two deny. An attempt here to
+shortcut the conversion with a Hartree gap equation ran away to `μ² → 0`,
+because the zero mode makes `⟨φ²⟩` diverge as `μ² → 0` and the iteration is
+unstable in that direction.
+
+**What would deliver it.** A cluster algorithm or parallel tempering for the
+tunnelling, several lattice couplings for the continuum extrapolation, and
+several sizes at each. That is a study, not a test, so #63 keeps the φ⁴ task
+open on this measured basis rather than on a tolerance that was missed.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared
@@ -3354,8 +3529,15 @@ the design document.
 - TOV star stable for 10 dynamical times, L2 density error below 1e-3 (issue #58)
 
 ### Milestone 6, lattice
-- Two-dimensional φ⁴ critical coupling, to 1% (issue #63)
-- Compact U(1) plaquette expectation, to 1% (issue #63)
+- Two-dimensional φ⁴ critical coupling, to 1% (issue #63) — the hybrid Monte
+  Carlo half is in, and the transition is bracketed at `m² ≈ −3.8`. The
+  number is not quoted: local updates stop tunnelling below the transition
+  and the error bar *shrinks* as they do, and the published ratio is a
+  renormalized continuum quantity needing a counterterm plus two
+  extrapolations. Needs a cluster algorithm, not more sweeps.
+- Compact U(1) plaquette expectation (issue #63) — **done**, and against the
+  exact finite-volume character sum rather than `I₁/I₀`, which a correct run
+  misses by 13% on a small lattice.
 
 ### Milestones 8 and 9
 - Zel'dovich pancake caustic time, to 2% (issue #78) — the mesh half is in,

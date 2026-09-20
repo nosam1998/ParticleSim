@@ -3359,6 +3359,108 @@ repository uses for that purpose is not exercised and is not claimed. The
 physics tasks — `SU(2)` links, the plaquette action, and HMC with a gauge
 force — are complete.
 
+## Preheating on a lattice: a spectrum with a floor under it
+
+Issue #66. The Floquet machinery and the lattice it drives were already in
+place; what this adds is the two things the tasks name — a plugin-supplied
+inflaton potential, and a spectrum that says which of its modes are still
+worth reading.
+
+### Floquet is potential-agnostic; the Mathieu closed form is not
+
+Driving the same lattice with a **Starobinsky** inflaton taken from the
+registry, the measured growth in all six resonance bands agrees with
+`floquet_exponent` to about one part in `1e4`:
+
+| mode | 0 | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|---|
+| `ω²` | 0.0000 | 0.0385 | 0.1537 | 0.3445 | 0.6090 | 0.9446 |
+| Floquet | 0.20201 | 0.20527 | 0.21154 | 0.21202 | 0.19430 | 0.13345 |
+| measured | 0.20191 | 0.20518 | 0.21146 | 0.21194 | 0.19414 | 0.13268 |
+
+Meanwhile `mathieu_parameters` **raises** for that potential, because `A` and
+`q` are defined through an inflaton mass a Starobinsky potential does not
+have. That is the right behaviour and is asserted rather than assumed. So the
+acceptance — "resonance bands match Floquet analysis" — holds for a potential
+Mathieu's equation says nothing about, and the oscillation is anharmonic: the
+period comes from the trajectory, not from a mass.
+
+The band edge is sharp, which is what makes the claim testable. Mode 5 sits at
+`0.1335` and mode 6 at `−2.5e−12` — zero to round-off, not to a tolerance.
+
+### Below the floor, a quiet mode reports the loud one
+
+This is the part worth the module. A resonant band grows by many orders of
+magnitude. Once the loudest mode is about `1/ε` times a quiet one, double
+precision round-off *in the field* exceeds the quiet mode's true amplitude,
+and from then on every silent mode tracks the loudest at a fixed ratio near
+`1e−15`. Mode 6 of a 64-point Starobinsky run:
+
+| window | dynamic range | measured | Floquet | relative amplitude |
+|---|---|---|---|---|
+| `2T → 8T` | `8.4e5` | +0.0122 | 0 | `1.5e−6` |
+| `4T → 12T` | `8.0e8` | −0.0415 | 0 | `1.2e−9` |
+| `8T → 32T` | **`2.1e16`** | **+0.0741** | 0 | **`5.6e−16`** |
+
+The apparent rate is neither zero nor the dominant `0.20`, but a steady
+fraction of it — because what is being measured is round-off in the field
+rather than the mode. And the in-band modes agree with Floquet to `1e−4` in
+*every one* of those windows, which is what makes the failure dangerous: the
+part being quoted is still right, and only the part read as "no resonance
+here" has quietly become noise.
+
+It does not converge away. At `dt` = 0.005, 0.0025, 0.00125 mode 6 reads
+0.0741, 0.0704, 0.0734 — flat, while the quadratic case converges to its
+Floquet value (0.06727 → 0.06721 → 0.06720 against 0.06720).
+
+### The discriminator is sign, not magnitude
+
+A stable mode's amplitude oscillates, and the two samples sit at an arbitrary
+relative phase of that oscillation. So a single ratio is a poor estimator of
+"no growth", and one unlucky mode near a node reads as large as **0.13** while
+being perfectly bounded. A threshold on the magnitude would either reject that
+mode or admit the floored ones.
+
+What a bounded mode cannot do is pick a side:
+
+| window | silent modes | positive | median `\|rate\|` | mean |
+|---|---|---|---|---|
+| `2T → 8T` | 27 | **11 (41%)** | 0.0091 | +0.0033 |
+| `8T → 32T` | 27 | **27 (100%)** | 0.0637 | +0.0621 |
+
+Once round-off takes over, all 27 are positive with a median seven times
+larger, because they are tracking the same growing mode. `GrowthReport`
+therefore carries `resolvable` alongside the rates, and the suite asserts the
+sign statistics rather than a tolerance.
+
+### Defects are counted by an identity
+
+The winding of a phase field around a plaquette is an integer, and summed over
+a periodic lattice it is **exactly zero** — each link enters two plaquettes
+with opposite sign, so the sum cancels term by term whatever the field. The
+suite asserts equality with `0`, not closeness to it:
+
+| configuration | total winding | defects |
+|---|---|---|
+| vortex–antivortex pair | **0** | charges exactly `{−1, +1}` at the two cores |
+| random phases | **0** | 352 plaquettes, all `\|w\| = 1` |
+| smooth field | **0** | none |
+| single planted vortex | **0** | 4 spurious, on the seam |
+
+That last row is the identity making itself felt. A phase winding once around
+a single point is not periodic, so a torus cannot carry the net charge; the
+lattice reports the discontinuity instead.
+
+### One correction to existing code
+
+`Oscillation.period` doubles the time to the first turning point, and its
+docstring claimed this is "exact for a symmetric potential". It is exact for
+*any* potential with two turning points: the trajectory is time-reversal
+symmetric about each, so the return leg takes as long as the outward one.
+Starobinsky's turning points at `+0.500` and `−0.353` are not a reflection of
+each other and the doubled half-period still matches the true one to `1e−13`.
+The code was right and undersold; the docstring now says why.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared

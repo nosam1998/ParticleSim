@@ -83,8 +83,14 @@ class Oscillation:
         """Time to return to rest at ``+amplitude``, by turning-point detection.
 
         Released from rest, the field reaches the opposite turning point in
-        half a period; doubling that is exact for a symmetric potential and
-        is what is checked against ``2 pi / m`` for the quadratic case.
+        half a period, and doubling that is exact for *any* potential with
+        two turning points -- the trajectory is time-reversal symmetric
+        about each of them, so the return leg takes as long as the outward
+        one. The potential itself need not be symmetric: Starobinsky's
+        turning points at ``+0.500`` and ``-0.353`` are not a reflection of
+        each other, and the doubled half-period still matches the true one
+        to ``1e-13``. What is checked against ``2 pi / m`` is the quadratic
+        case, where the answer is also known in closed form.
 
         Cached, because scanning a band calls this once per wavenumber and
         the answer does not depend on the wavenumber. Without the cache a

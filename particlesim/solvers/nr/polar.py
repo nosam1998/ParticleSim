@@ -44,8 +44,29 @@ class PolarSlicingBreakdown(RuntimeError):
 Source = Callable[[int, bool, float, float], float]
 
 
-def solve_mass(radii: np.ndarray, spacing: float, slope: Source) -> np.ndarray:
+def solve_mass(
+    radii: np.ndarray,
+    spacing: float,
+    slope: Source,
+    first_value: float | None = None,
+) -> np.ndarray:
     """Fourth-order Runge-Kutta for the Misner-Sharp mass, outward from the origin.
+
+    ``first_value`` is the mass already accumulated at ``radii[0]``, which
+    is what lets a refinement hierarchy be integrated one level at a time.
+    The mass at a radius depends only on the matter inside it, all of which
+    lives on that level or a finer one, so a level's solve needs nothing
+    from its parent beyond where the integration had reached. That locality
+    is the whole reason the constraint survives refinement without a
+    composite grid: nothing is interpolated across a level boundary, so
+    nothing can be lost there.
+
+    The stretch between one level's last point and the next one's first
+    belongs to neither and is not this function's to cross. Whoever owns
+    the gap crosses it and hands the result in here -- see
+    :func:`particlesim.solvers.nr.hierarchy._cross_gap`, which has to do it
+    for the mass and the lapse together because the lapse's slope depends
+    on the mass.
 
     The bound ``2m/r < 1`` is enforced on every *stage argument*, not only
     on the accepted value, because the failure mode is subtler than an
@@ -58,9 +79,14 @@ def solve_mass(radii: np.ndarray, spacing: float, slope: Source) -> np.ndarray:
     """
     middle = radii[:-1] + 0.5 * spacing
     mass = np.empty_like(radii)
-    # The source behaves as r^2 near the origin, whose integral from zero to
-    # the first point is exactly that source times the radius over three.
-    mass[0] = slope(0, False, radii[0], 0.0) * radii[0] / 3.0
+    if first_value is None:
+        # The source behaves as r^2 near the origin, whose integral from zero
+        # to the first point is exactly that source times the radius over
+        # three. Only the innermost level of a hierarchy gets this treatment;
+        # every other one is handed where the level below it finished.
+        mass[0] = slope(0, False, radii[0], 0.0) * radii[0] / 3.0
+    else:
+        mass[0] = first_value
 
     def guarded(index: int, mid: bool, radius: float, value: float) -> float:
         if 2.0 * value >= radius:
@@ -136,6 +162,57 @@ def midpoint_mass(
     return 0.5 * (mass[:-1] + mass[1:]) + spacing / 8.0 * (derivative[:-1] - derivative[1:])
 
 
+def accumulate_lapse(
+    radii: np.ndarray,
+    spacing: float,
+    mass: np.ndarray,
+    slope: Source,
+    mass_slope: Source | None = None,
+    first_value: float | None = None,
+) -> np.ndarray:
+    """``ln alpha`` up to an additive constant, by Simpson's rule outward.
+
+    Left unnormalised on purpose. The slicing condition fixes ``d(ln
+    alpha)/dr`` locally and the boundary condition fixes one constant for
+    the whole slice, so a refinement hierarchy can integrate level by level
+    and normalise once at the end -- which is why a fine level's lapse needs
+    nothing from its parent except the value where the integration reached
+    it.
+
+    ``mass_slope`` matters here for the same reason it does in
+    :func:`solve_lapse`, and more: every level of a hierarchy but the
+    outermost has matter at small radius relative to its own extent, which
+    is precisely where interpolating the midpoint mass from values alone
+    goes second order. See :func:`midpoint_mass`.
+    """
+    middle = radii[:-1] + 0.5 * spacing
+    mass_middle = midpoint_mass(radii, spacing, mass, mass_slope)
+    logarithm = np.empty_like(radii)
+    if first_value is None:
+        # Near the origin the integrand is linear in r, so the first interval
+        # integrates to the integrand at the first point times half its radius.
+        logarithm[0] = 0.5 * radii[0] * slope(0, False, radii[0], mass[0])
+    else:
+        logarithm[0] = first_value
+    for index in range(len(radii) - 1):
+        first = slope(index, False, radii[index], mass[index])
+        second = slope(index, True, middle[index], mass_middle[index])
+        fourth = slope(index + 1, False, radii[index + 1], mass[index + 1])
+        logarithm[index + 1] = logarithm[index] + spacing / 6.0 * (first + 4.0 * second + fourth)
+    return logarithm
+
+
+def normalise_lapse(logarithm: np.ndarray, outer_mass: float, outer_radius: float) -> np.ndarray:
+    """Fix the one constant: ``alpha a -> 1`` at the outermost point.
+
+    The lapse is a gauge choice with a physical asymptote, and this is where
+    the asymptote enters. One constant for the whole slice, however many
+    levels it took to build.
+    """
+    outer = 1.0 / np.sqrt(1.0 - 2.0 * outer_mass / outer_radius)
+    return np.exp(logarithm - logarithm[-1]) / outer
+
+
 def solve_lapse(
     radii: np.ndarray,
     spacing: float,
@@ -143,7 +220,7 @@ def solve_lapse(
     slope: Source,
     mass_slope: Source | None = None,
 ) -> np.ndarray:
-    """Simpson's rule for ``ln alpha``, normalised so ``alpha a -> 1`` at the edge.
+    """A single uniform grid: :func:`accumulate_lapse` then :func:`normalise_lapse`.
 
     The boundary condition is that the outermost point matches Schwarzschild,
     which is what makes the lapse a gauge choice with a physical asymptote
@@ -165,19 +242,8 @@ def solve_lapse(
     the mass solve already had right, and the lapse was never measured on its
     own.
     """
-    middle = radii[:-1] + 0.5 * spacing
-    mass_middle = midpoint_mass(radii, spacing, mass, mass_slope)
-    logarithm = np.empty_like(radii)
-    # Near the origin the integrand is linear in r, so the first interval
-    # integrates to the integrand at the first point times half its radius.
-    logarithm[0] = 0.5 * radii[0] * slope(0, False, radii[0], mass[0])
-    for index in range(len(radii) - 1):
-        first = slope(index, False, radii[index], mass[index])
-        second = slope(index, True, middle[index], mass_middle[index])
-        fourth = slope(index + 1, False, radii[index + 1], mass[index + 1])
-        logarithm[index + 1] = logarithm[index] + spacing / 6.0 * (first + 4.0 * second + fourth)
-    outer = 1.0 / np.sqrt(1.0 - 2.0 * mass[-1] / radii[-1])
-    return np.exp(logarithm - logarithm[-1]) / outer
+    logarithm = accumulate_lapse(radii, spacing, mass, slope, mass_slope)
+    return normalise_lapse(logarithm, float(mass[-1]), float(radii[-1]))
 
 
 def solve_polar_metric(radii: np.ndarray, spacing: float, mass_slope: Source, lapse_slope: Source):
@@ -195,8 +261,10 @@ def mass_aspect(radii: np.ndarray, a: np.ndarray) -> np.ndarray:
 __all__ = [
     "PolarSlicingBreakdown",
     "Source",
+    "accumulate_lapse",
     "mass_aspect",
     "midpoint_mass",
+    "normalise_lapse",
     "solve_lapse",
     "solve_mass",
     "solve_polar_metric",

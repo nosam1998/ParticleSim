@@ -4749,6 +4749,72 @@ The interpolation now lives in `particlesim/core/interpolate.py` rather than
 beside either caller, because two independent subsystems got the same thing
 wrong in the same way and a third would have too.
 
+## A refinement boundary is where a scheme stops being fourth order
+
+The spherical solver now carries nested refinement levels (issue #111). The
+Misner-Sharp mass integrates outward, so `m(r)` depends only on the matter
+inside `r` — all of which lives on that level or a finer one. A level's mass
+solve therefore needs nothing from its parent except where the integration
+had reached, and the lapse is the same up to one global constant fixed at
+the outer boundary. Nothing is interpolated across a level boundary, so
+nothing can be lost there.
+
+Except in the gap. Between the outermost point of one level and the
+innermost point of the next lies a stretch about three quarters of a coarse
+cell wide that belongs to neither, and it went wrong twice.
+
+**First, the obvious way.** Crossing it with a single Euler step is one
+local `O(dr^2)` error at one point, and that alone takes the whole metric
+from fourth order to second.
+
+**Then the instructive way.** Replace the Euler step with a proper
+Runge-Kutta one and the mass converges at fourth order. Do the same for the
+lapse, separately, and it does too — because the lapse's slope is
+`(m + 4 pi r^3 S)/(r(r - 2m))`, and crossing it needs to know how `m` varies
+along the way. Holding `m` at its end value while the lapse crosses is wrong
+by `O(dm/dr * gap^2)`: second order, and exactly zero wherever `dm/dr` has
+fallen to nothing.
+
+Which is where it had been measured. With the level boundary at `r = 5` in a
+shell centred on `r = 3`, past the matter, the split version converges at a
+clean 4.00 and looks finished:
+
+| boundary | Euler gap | split crossing | coupled crossing |
+|---|---|---|---|
+| `r = 5` (past the shell) | 3.77 → 2.64 | **4.00** | 4.00 |
+| `r = 3` (shell peak) | 2.00 | ~2 | 3.6 – 3.8 |
+| `r = 2` (inside the shell) | 1.97 | — | 4.00 |
+
+The first column is the same story again: even the plain Euler gap reads
+3.77 at `r = 5` and only reaches 2.64 by 800 cells, which is not obviously
+broken at any resolution anyone would run.
+
+Refinement follows the solution, so the boundary will sit where the matter
+is, and that is the column that decides. Crossing the gap once for the pair
+`(m, ln alpha)` with a coupled fourth-order step holds fourth order at every
+placement. The `r = 3` column settles near 3.6 rather than 4 and stays
+there rather than drifting, because that is where the crossing has to
+reconstruct the field from the coarse level over the widest gap.
+
+**What it buys.** A two-level hierarchy with `n` coarse cells matches a
+uniform grid of `2n` — at `n = 100` the hierarchy's ADM mass error is
+2.45e-6 against the uniform-200 error of 2.46e-6. Each level buys exactly
+one uniform doubling, at a cost that is linear in depth rather than
+exponential: a level resolving a scale costs `2^k` more per coarse step and
+lives `2^-k` as long.
+
+**One thing deliberately left second order.** `restrict` averages two child
+values onto the parent cell they cover. That is exactly the parent cell
+average if the stored numbers are read as cell averages, and this solver
+reads them as point values at cell centres — its derivatives, its parity
+reflection and its midpoint interpolation all do. Against a point value the
+average is off by `dr^2 f'' / 32`: exact for a field linear in `r`,
+second order otherwise. Nothing in the metric solve restricts, so nothing is
+capped by it today. The evolution will, and a second-order restriction
+inside a fourth-order evolution caps the evolution the same way a
+second-order midpoint capped the lapse. It is recorded rather than left to
+be rediscovered.
+
 ## Not implemented yet
 
 Grouped by the milestone that will add them. Each is named in Section 10 of

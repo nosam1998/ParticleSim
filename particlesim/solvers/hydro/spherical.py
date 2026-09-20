@@ -216,8 +216,16 @@ class SphericalHydro:
         at_floor = density <= self.density_floor
         density = np.where(at_floor, self.density_floor, density)
         momentum = np.where(at_floor, 0.0, momentum)
+        # The margin above the cold limit has to exceed the round-off in the
+        # limit itself, which is the mistake the first version made: an
+        # absolute floor of 1e-23 sat far below the 5e-19 of cancellation in
+        # ``sqrt(D^2 + S^2) - D``, so the floor fired and left the state
+        # exactly at the limit, where the internal energy is zero and the
+        # recovery has no root. Deep in a collapse, at a Lorentz factor of
+        # nine, that is where the run stopped -- with a floor already in
+        # place and doing nothing.
         cold = np.sqrt(density**2 + momentum**2) - density
-        minimum = cold + self.pressure_floor() / (self.eos.gamma - 1.0)
+        minimum = cold * (1.0 + 1e-12) + self.pressure_floor() / (self.eos.gamma - 1.0)
         return (
             density,
             momentum,

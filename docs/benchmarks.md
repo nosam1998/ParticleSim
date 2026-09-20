@@ -3524,6 +3524,121 @@ invalidates.
 judgement, and a reader cannot audit it from the number alone. A curve still
 well above zero at the cut is a run that was too short.
 
+## Equations of state, and stellar structure against what is exact
+
+Issue #58. The acceptance as written — "TOV star stable for 10 dynamical
+times with L2 density error below 1e-3" — needs a hydrodynamic *evolution*,
+which is #57's and #59's work rather than this issue's. None of #58's own
+tasks (ideal gas, polytrope, piecewise polytrope, tabulated reader, EOS in
+`TheoryStack`) produces a time integration. So what is delivered here is the
+equation-of-state layer and the star it builds, held to four things that are
+exactly true — which is sharper than the tolerance, and is what an evolution
+will need to start from.
+
+### Two properties an equation of state is not free to choose
+
+**The first law.** Along a cold branch `dh = dp/ρ` exactly, with
+`h = 1 + ε + p/ρ`. That relates three of the quantities a plugin returns, so
+a `specific_energy` that does not match its own `pressure` fails it — and
+nothing else would notice, because each function on its own looks perfectly
+reasonable. Checked by central difference on the polytrope, the ideal gas,
+the piecewise polytrope and a table.
+
+**Causality is not automatic.** For `p = Kρ^Γ` the sound speed rises to
+`Γ − 1`, so anything stiffer than `Γ = 2` goes superluminal above
+
+    ρ_max = [ (Γ−1) / (Γ K (Γ−2)) ]^{1/(Γ−1)}
+
+| `Γ` | `ρ_max` at `K = 100` | `c_s²` there |
+|---|---|---|
+| 1.5 | ∞ | → 1 from below |
+| 2.0 | ∞ | → 1 from below |
+| 2.5 | `5.241483e−2` | **1.00000000** |
+| 3.0 | `8.164966e−2` | **1.00000000** |
+
+An exact density, not a bound to be careful about. `check_causal` refuses
+past it and the plugin's `validity_statement` says where it stops.
+
+### The tabulated reader builds its own energy
+
+Given `(ρ, p)` it does not also read `ε`: it integrates `dε = (p/ρ²)dρ`,
+which is the first law again. So a table is thermodynamically consistent
+with its pressure by construction rather than by trust, and one sampled from
+a polytrope recovers `p/((Γ−1)ρ)` to 2e−3 with 400 points.
+
+Interpolation is log-log, and for a power law that is **exact**: the pressure
+round-trips to `1e−12` with only 16 tabulated points, where a linear
+interpolant between points a decade apart would be wrong by tens of percent
+in the middle. A table whose pressure is not monotonic is refused rather than
+interpolated through — a falling pressure has a negative sound speed and is
+not matter.
+
+The piecewise polytrope likewise *derives* its segment constants:
+`K_{i+1} = K_i ρ_i^{Γ_i − Γ_{i+1}}` from pressure continuity, plus an
+additive constant per segment from energy continuity. A set of independently
+chosen constants is a discontinuous equation of state that still evaluates,
+which is the failure worth designing out.
+
+### The incompressible star is solvable, so the integrator is checkable
+
+For constant energy density the TOV equations integrate to
+
+    p(r) = ρ₀ [√(1 − 2Mr²/R³) − √(1 − 2M/R)] / [3√(1 − 2M/R) − √(1 − 2Mr²/R³)]
+
+so the integrator is compared with arithmetic rather than with another
+integrator:
+
+| `2M/R` | radius | mass | pressure profile |
+|---|---|---|---|
+| 0.2 | `2.4e−12` | `1.2e−11` | `1.3e−10` |
+| 0.5 | `7.1e−12` | `2.1e−11` | `2.1e−10` |
+| 0.8 | `6.5e−12` | `2.1e−11` | `3.0e−10` |
+
+The last row is far beyond any real star, and well inside where a small error
+in the equations would show.
+
+**And that solution carries its own limit.** The central pressure diverges
+when `3√(1−2M/R) = 1`, which is `2M/R = 8/9` — the Buchdahl bound. It is a
+property of the *solution*, not of the matter: no static star of any equation
+of state is more compact. A request for one is refused rather than integrated
+into a singularity.
+
+### The Newtonian limit is a rate, not a tolerance
+
+A `Γ = 2` polytrope is the `n = 1` Lane-Emden case, whose radius is
+`R = √(πK/2)` **independent of the central density**. The relativistic answer
+approaches it as the star is made lighter, and the departure is first order in
+the compactness:
+
+| `ρ_c` | `R` | relative error | `2M/R` | ratio |
+|---|---|---|---|---|
+| 1e−3 | 10.047 | 1.98e−1 | 0.253 | 0.78 |
+| 1e−4 | 12.198 | 2.67e−2 | 0.0379 | 0.71 |
+| 1e−5 | 12.498 | 2.78e−3 | 0.00398 | 0.70 |
+| 1e−6 | 12.530 | 2.87e−4 | 0.00040 | 0.72 |
+
+against `√(πK/2) = 12.533141`. A tolerance would pass for any integrator
+landing nearby; the ratio holding at 0.7 across three decades says the
+correction is the one general relativity predicts. That the Newtonian radius
+does not move with central density is itself the check — an integrator with
+the equations slightly wrong would not reproduce a constant.
+
+### In the stack
+
+An equation of state enters `TheoryStack` as a Tier C plugin: no action, no
+general-relativistic limit, because a constitutive relation is not a theory
+of gravity. What the stack checks is the frame, and that is the thing an
+equation of state can get wrong invisibly — a relation written against the
+Jordan metric and evaluated on the Einstein one is wrong by the conformal
+factor, and both halves look fine on their own.
+
+### What is not here
+
+The evolution. Ten dynamical times of a TOV star is a statement about a
+hydrodynamics solver, and `Star.dynamical_time` exists so that #57 and #59
+can make it. What this gives them is initial data known to be right to one
+part in `1e9` rather than plausible.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared
@@ -3803,6 +3918,10 @@ the design document.
 ### Milestone 5, hydrodynamics
 - Relativistic shock tubes against Martí and Müller profiles (issue #57)
 - TOV star stable for 10 dynamical times, L2 density error below 1e-3 (issue #58)
+  — the equation-of-state layer and the star are in, checked against the
+  Schwarzschild interior solution to 1e-9 and the Lane-Emden radius at first
+  order in the compactness. The *stability* half needs the evolution from
+  #57 and #59; `Star.dynamical_time` is there for it.
 
 ### Milestone 6, lattice
 - Two-dimensional φ⁴ critical coupling, to 1% (issue #63) — the hybrid Monte

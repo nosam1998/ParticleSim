@@ -4803,17 +4803,43 @@ one uniform doubling, at a cost that is linear in depth rather than
 exponential: a level resolving a scale costs `2^k` more per coarse step and
 lives `2^-k` as long.
 
-**One thing deliberately left second order.** `restrict` averages two child
-values onto the parent cell they cover. That is exactly the parent cell
-average if the stored numbers are read as cell averages, and this solver
-reads them as point values at cell centres — its derivatives, its parity
-reflection and its midpoint interpolation all do. Against a point value the
-average is off by `dr^2 f'' / 32`: exact for a field linear in `r`,
-second order otherwise. Nothing in the metric solve restricts, so nothing is
-capped by it today. The evolution will, and a second-order restriction
-inside a fourth-order evolution caps the evolution the same way a
-second-order midpoint capped the lapse. It is recorded rather than left to
-be rediscovered.
+**Restriction is the midpoint stencil again.** `restrict` first averaged the
+two child values onto the parent cell they cover, which is exactly the
+parent *cell average* — and this solver stores point values at cell centres,
+so against those the average is off by `dr^2 f'' / 32`. Second order, inside
+a fourth-order scheme, about to be used every subcycle by the evolution.
+
+The fix needed no new machinery. Because the grids are cell-centred and nest
+two to one, a coarse cell centre is exactly the midpoint between the two
+fine centres inside it, so restriction *is* interpolation to cell midpoints
+and takes the same fourth-order stencil: coarse cell `i` is `midpoints`
+evaluated at index `2i`. Both ends of that stencil need somewhere to reach —
+across the origin at the inner end, with the sign the field's rank demands,
+and into the parent at the outer end, which has data there. Measured on
+fields with a definite parity, `5.4e-5 → 3.6e-6 → 2.3e-7 → 1.4e-8`: orders
+3.92, 3.98, 3.99, and exact on a cubic.
+
+The inner end is the one that matters beyond an order. With the reflection,
+restricting an odd cubic is exact at the innermost cell; with the one-sided
+stencil it is off by `4.7e-5` — at the one place the `2 f Phi / r` term of
+the evolution amplifies error as `1/r`.
+
+**And the measurement lied first, in the way this document keeps
+recording.** The convergence test was written with `Phi = r exp(-r)`, which
+is not an odd function of `r`. Imposing odd parity on it puts a fixed error
+at the innermost cell that does not converge, and the whole measurement
+reads a clean second order — 1.97, 1.99, 2.00 — from a fourth-order stencil.
+A bad input, not a bad stencil, and indistinguishable from the defect it was
+written to detect — the fixed innermost-cell error simply sits there while
+everything around it converges, which is what second order looks like.
+
+The same mistake had already been made once while testing the prolong-then-
+restrict round trip, with `2 + 3r`, which is neither odd nor even: there the
+error was a flat `0.359` at every resolution, obvious enough to catch. The
+version that cost time was the one that converged, at a plausible rate, to
+the wrong conclusion. Anything that reaches across the origin has to be fed
+a field that genuinely has the parity it is told to assume, and a
+convergence test is not a check on that.
 
 ## Not implemented yet
 

@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from particlesim.core.interpolate import midpoints
 from particlesim.core.spherical import SphericalGrid
 from particlesim.solvers.nr.hierarchy import (
     RATIO,
@@ -69,24 +70,32 @@ def test_a_child_must_be_a_strict_sub_interval():
             refine(parent, extent)
 
 
-def test_restriction_is_exact_on_a_linear_field_and_second_order_otherwise():
-    """Averaging two children is exactly the parent *cell average*, and this
-    solver stores point values at cell centres -- its derivatives, its parity
-    reflection and its midpoint interpolation all read them that way. Against
-    a point value the average is off by ``dr^2 f'' / 32``, so it is exact
-    where ``f'' = 0`` and second order elsewhere.
+def test_restriction_is_fourth_order_and_exact_on_a_cubic():
+    """A coarse cell centre is exactly the midpoint between the two fine
+    centres inside it, so restriction is the midpoint interpolation and gets
+    the fourth-order stencil. Averaging the two children instead is the
+    parent *cell average*, which is second order against the point values
+    this solver actually stores.
 
-    Pinned rather than wished away, because the evolution will restrict and a
-    second-order restriction inside a fourth-order evolution caps the
-    evolution. The metric solve does not restrict at all, so nothing is
-    capped by it today.
+    The fields must have a definite parity across the origin for this to
+    mean anything -- ``Phi`` odd, ``Pi`` even -- because the inner end of the
+    stencil reaches across it. Feeding it something that is neither, such as
+    ``r exp(-r)``, puts a fixed error at the innermost cell and the whole
+    measurement reads second order. That is a bad input, not a bad stencil,
+    and it is easy to write by accident.
     """
 
-    def round_trip(n, phi_of, pi_of):
-        grid = SphericalGrid(r_max=R_MAX, n=n)
-        parent = Level(grid, phi_of(grid.radii()), pi_of(grid.radii()))
-        child_grid = refine(parent, extent=R_MAX / 2).grid
-        child = Level(child_grid, prolong(parent, child_grid), prolong(parent, child_grid, "Pi"))
+    def phi_of(r):
+        return r * np.exp(-(r**2))  # odd
+
+    def pi_of(r):
+        return np.cos(r) * np.exp(-(r**2))  # even
+
+    def round_trip(n, phi, pi):
+        grid = SphericalGrid(r_max=4.0, n=n)
+        parent = Level(grid, phi(grid.radii()), pi(grid.radii()))
+        child_grid = refine(parent, extent=2.0).grid
+        child = Level(child_grid, phi(child_grid.radii()), pi(child_grid.radii()))
         back_phi, back_pi = restrict(child, parent)
         covered = parent.radii < child.outer
         # Outside the child nothing may be touched at all.
@@ -96,13 +105,35 @@ def test_restriction_is_exact_on_a_linear_field_and_second_order_otherwise():
             float(np.max(np.abs(back_pi[covered] - parent.Pi[covered]))),
         )
 
-    # Phi is odd across the origin and Pi is even; a field without a definite
-    # parity is not valid input and would show a fixed error at the centre.
-    assert round_trip(40, lambda r: 3.0 * r, lambda r: np.ones_like(r)) == 0.0
+    # Exact for a cubic, both parities, at every cell including the innermost.
+    assert round_trip(40, lambda r: r**3, lambda r: r**2) < 1e-13
 
-    errors = [round_trip(n, lambda r: r**3, lambda r: r**2) for n in (40, 80, 160)]
+    errors = [round_trip(n, phi_of, pi_of) for n in (20, 40, 80, 160)]
     orders = [np.log2(errors[i] / errors[i + 1]) for i in range(len(errors) - 1)]
-    assert all(1.8 < o < 2.2 for o in orders), f"orders were {orders}, errors {errors}"
+    assert all(3.7 < o < 4.3 for o in orders), f"orders were {orders}, errors {errors}"
+
+
+def test_restriction_reaches_across_the_origin_rather_than_one_sided():
+    """The inner end of the stencil has no neighbours on the grid, and the
+    origin is the centre of a sphere rather than a boundary, so they come
+    from the field's own values with the sign its rank demands. Without that
+    the innermost coarse cell falls back to a one-sided stencil, which is
+    where the ``2 f Phi / r`` term of the evolution is least forgiving.
+    """
+    grid = SphericalGrid(r_max=4.0, n=40)
+    cubic = grid.radii() ** 3
+    parent = Level(grid, cubic, grid.radii() ** 2)
+    child_grid = refine(parent, extent=2.0).grid
+    child = Level(child_grid, child_grid.radii() ** 3, child_grid.radii() ** 2)
+    back_phi, _ = restrict(child, parent)
+
+    innermost = abs(float(back_phi[0]) - float(parent.Phi[0]))
+    one_sided = abs(float(midpoints(child.Phi)[0]) - float(parent.Phi[0]))
+    assert innermost < 1e-15, f"the reflection should be exact on a cubic, got {innermost:.2e}"
+    # 4.7e-5 here, against a reflection that is exact: ten orders apart.
+    assert one_sided > 1e-5, (
+        f"the one-sided stencil should be visibly worse here, got {one_sided:.2e}"
+    )
 
 
 def test_prolongation_carries_the_parity_of_the_field_it_moves():

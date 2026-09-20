@@ -364,11 +364,78 @@ class GaugeHybridMonteCarlo:
         return float(worst)
 
 
+@dataclass
+class MetropolisGauge:
+    """A local Metropolis sampler, kept as an independent second opinion.
+
+    It shares no sampling code with :class:`GaugeHybridMonteCarlo`: no
+    momenta, no leapfrog, no force -- only the action and the staples. That
+    is the point. A reference formula and one sampler agreeing is weaker than
+    two samplers agreeing, and when the two disagreed here it was the formula
+    that was wrong. The suite runs them against each other for that reason
+    rather than for coverage.
+
+    It is slower per sweep than the leapfrog and is not meant to replace it.
+    """
+
+    model: SU2Gauge
+    width: float = 0.5
+    rng: np.random.Generator = field(default_factory=np.random.default_rng)
+
+    def __post_init__(self) -> None:
+        if self.width <= 0.0:
+            raise ValueError(
+                f"the proposal width must be positive, got {self.width}; at zero every "
+                "proposal is the identity and the chain never moves"
+            )
+
+    def sweep(self, links):
+        """One pass over every link, accepting each change on its own."""
+        links = np.array(links, copy=True)
+        accepted = 0
+        size = self.model.size
+        for direction in range(2):
+            staples = self.model.staples(links)[direction]
+            for first in range(size):
+                for second in range(size):
+                    current = links[direction, first, second]
+                    staple = staples[first, second]
+                    proposal = su2_exponential(self.rng.normal(size=3) * self.width) @ current
+                    change = -(self.model.beta / 2.0) * (
+                        np.trace(proposal @ staple).real - np.trace(current @ staple).real
+                    )
+                    if self.rng.random() < np.exp(-change):
+                        links[direction, first, second] = proposal
+                        accepted += 1
+                    staples = self.model.staples(links)[direction]
+        return links, accepted / (2 * size * size)
+
+    def run(self, sweeps: int, thermalise: int = 0, links=None) -> GaugeTrajectory:
+        if thermalise >= sweeps:
+            raise ValueError(
+                f"thermalising for {thermalise} of {sweeps} sweeps leaves nothing to measure"
+            )
+        links = self.model.cold_start() if links is None else np.array(links, copy=True)
+        values: list[float] = []
+        rates: list[float] = []
+        for sweep in range(sweeps):
+            links, rate = self.sweep(links)
+            rates.append(rate)
+            if sweep >= thermalise:
+                values.append(self.model.mean_plaquette(links))
+        return GaugeTrajectory(
+            values=np.array(values),
+            energy_changes=np.zeros(len(rates)),
+            acceptance=float(np.mean(rates)),
+        )
+
+
 __all__ = [
     "PAULI",
     "REPRESENTATIONS",
     "GaugeHybridMonteCarlo",
     "GaugeTrajectory",
+    "MetropolisGauge",
     "SU2Gauge",
     "character_expansion",
     "dagger",

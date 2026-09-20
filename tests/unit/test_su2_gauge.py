@@ -18,6 +18,7 @@ from scipy.special import iv
 from particlesim.solvers.lattice.euclidean import CompactU1, integrated_autocorrelation
 from particlesim.solvers.lattice.gauge import (
     GaugeHybridMonteCarlo,
+    MetropolisGauge,
     SU2Gauge,
     character_expansion,
     dagger,
@@ -265,6 +266,50 @@ def test_the_finite_volume_correction_is_the_plaquette_to_the_volume():
     assert non_abelian_shift == pytest.approx(1.28e-2, rel=0.05)
     assert abelian_shift == pytest.approx(1.32e-1, rel=0.05)
     assert abelian_shift / non_abelian_shift == pytest.approx(10.3, rel=0.1)
+
+
+# --- two samplers, one answer ----------------------------------------------
+
+
+def test_two_independent_samplers_agree_with_each_other():
+    """Metropolis and hybrid Monte Carlo, sharing only the action and staples.
+
+    This is the check that found the character-amplitude bug. A reference
+    formula and one sampler agreeing is weaker than two samplers agreeing:
+    when the formula was wrong, both samplers still agreed with each other
+    and it was the formula that moved. Nothing of the leapfrog -- momenta,
+    force, exponential map -- is exercised by the Metropolis path.
+    """
+    model = SU2Gauge(size=2, beta=2.0)
+
+    leapfrog = GaugeHybridMonteCarlo(model, step=0.15, steps=8, rng=np.random.default_rng(61))
+    local = MetropolisGauge(model, rng=np.random.default_rng(62))
+
+    results = []
+    for chain in (
+        leapfrog.run(sweeps=3000, thermalise=300),
+        local.run(sweeps=3000, thermalise=300),
+    ):
+        tau = integrated_autocorrelation(chain.values)
+        error = float(np.std(chain.values) / np.sqrt(chain.values.size) * np.sqrt(2.0 * tau))
+        results.append((chain.mean, error))
+
+    combined = np.sqrt(results[0][1] ** 2 + results[1][1] ** 2)
+    assert abs(results[0][0] - results[1][0]) < 3.0 * combined
+    for mean, error in results:
+        assert abs(mean - model.exact_plaquette()) < 3.0 * error
+
+
+def test_the_metropolis_sampler_stays_in_the_group_and_refuses_a_zero_width():
+    model = SU2Gauge(size=2, beta=1.0)
+    local = MetropolisGauge(model, rng=np.random.default_rng(63))
+    links, rate = local.sweep(model.cold_start())
+    assert unitarity_residual(links) < 1e-13
+    assert 0.0 < rate <= 1.0
+    with pytest.raises(ValueError, match="width must be positive"):
+        MetropolisGauge(model, width=0.0)
+    with pytest.raises(ValueError, match="leaves nothing to measure"):
+        MetropolisGauge(model).run(sweeps=10, thermalise=10)
 
 
 # --- what the model refuses ------------------------------------------------

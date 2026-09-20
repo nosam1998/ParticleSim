@@ -64,6 +64,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from particlesim.core.interpolate import midpoints
 from particlesim.core.spherical import SphericalGrid
 from particlesim.solvers.hydro.reconstruct import GHOSTS, SCHEMES, reconstruct
 from particlesim.solvers.hydro.riemann import SOLVERS, riemann_flux
@@ -73,7 +74,7 @@ from particlesim.solvers.hydro.srhd import (
     conserved_to_primitive,
     primitive_to_conserved,
 )
-from particlesim.solvers.nr.polar import Source, midpoints, solve_lapse, solve_mass
+from particlesim.solvers.nr.polar import Source, solve_lapse, solve_mass
 
 #: Rest-mass density of the atmosphere, as a fraction of the central density.
 ATMOSPHERE = 1e-10

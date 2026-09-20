@@ -206,3 +206,33 @@ def test_the_wakefield_benchmark_measures_the_nonlinear_response():
     assert linear / theory > 1.10
     assert measured == pytest.approx(theory, rel=0.05)
     assert not measured == pytest.approx(linear, rel=0.05)
+
+
+def test_the_wake_integration_is_fourth_order_as_its_runge_kutta_claims():
+    """The wake is a fourth-order Runge-Kutta over a sampled drive envelope,
+    and its half steps need that envelope halfway between the points it has.
+    Averaging the two neighbours for it is second-order accurate, and no
+    number of Runge-Kutta stages repairs an integrand that is already wrong:
+    the error enters each step with an ``O(ds)`` weight and there are ``1/ds``
+    steps, so the whole solve came out second order. It measured 2.00 at
+    every rung of the ladder below.
+
+    The probe is the potential at the last grid point rather than its peak.
+    ``linspace(0, L, 2500 k + 1)`` grids share their endpoints as they are
+    refined, so that point is the same place on every grid. The peak is not:
+    near a smooth maximum the discrete one is low by ``O(ds^2)`` from
+    sampling alone, which is its own second-order error and would have
+    reported the fixed solve as second order too.
+    """
+    reference = gaussian_wake(a0=0.6, sigma=1.0, plasma_wavenumber=1.0, points=640001)
+    target = float(reference.potential[-1])
+
+    errors = []
+    for points in (2501, 5001, 10001, 20001):
+        wake = gaussian_wake(a0=0.6, sigma=1.0, plasma_wavenumber=1.0, points=points)
+        errors.append(abs(float(wake.potential[-1]) - target))
+
+    orders = [np.log2(errors[i] / errors[i + 1]) for i in range(len(errors) - 1)]
+    assert all(3.7 < o < 4.3 for o in orders), f"orders were {orders}, errors {errors}"
+    # Second order reaches 1.3e-8 at the default resolution; fourth reaches 7.1e-13.
+    assert errors[-1] < 1e-11, f"error at the default resolution was {errors[-1]:.3e}"

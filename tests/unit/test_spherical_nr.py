@@ -4,10 +4,10 @@ import numpy as np
 import pytest
 from scipy.integrate import quad
 
+from particlesim.core.interpolate import midpoints
 from particlesim.core.spherical import SphericalGrid
 from particlesim.solvers.nr.polar import (
     midpoint_mass,
-    midpoints,
     solve_lapse,
     solve_polar_metric,
 )

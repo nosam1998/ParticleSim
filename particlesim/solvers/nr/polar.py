@@ -34,27 +34,11 @@ from collections.abc import Callable
 
 import numpy as np
 
+from particlesim.core.interpolate import midpoints
+
 
 class PolarSlicingBreakdown(RuntimeError):
     """Raised when a trapped region forms, which polar-areal slicing cannot cover."""
-
-
-def midpoints(values: np.ndarray) -> np.ndarray:
-    """Fourth-order interpolation to cell midpoints, ``len(values) - 1`` of them.
-
-    A second-order average here would cap the whole metric solve at second
-    order regardless of the Runge-Kutta stage count, which is the usual way
-    an ostensibly fourth-order code turns out to be second order.
-    """
-    if len(values) < 3:
-        # Two points carry no third derivative to cancel, so the average is
-        # the best available and the caller is below the stencil's width.
-        return 0.5 * (values[:-1] + values[1:])
-    out = np.empty(len(values) - 1)
-    out[1:-1] = (-values[:-3] + 9 * values[1:-2] + 9 * values[2:-1] - values[3:]) / 16.0
-    out[0] = (3 * values[0] + 6 * values[1] - values[2]) / 8.0
-    out[-1] = (3 * values[-1] + 6 * values[-2] - values[-3]) / 8.0
-    return out
 
 
 Source = Callable[[int, bool, float, float], float]
@@ -213,7 +197,6 @@ __all__ = [
     "Source",
     "mass_aspect",
     "midpoint_mass",
-    "midpoints",
     "solve_lapse",
     "solve_mass",
     "solve_polar_metric",

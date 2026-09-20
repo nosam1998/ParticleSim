@@ -4710,6 +4710,45 @@ collapses when the grid is refined, which is the property that distinguishes
 a transient from an instability — and which no threshold at a single
 resolution can express.
 
+## The same second-order midpoint, in a solver with nothing to do with gravity
+
+The polar-areal lapse solve was second order because its Simpson rule
+averaged the mass to cell midpoints. Grepping for that shape found it once
+more, in the laser wakefield solver, written independently and years apart:
+
+```python
+midpoint = 0.5 * (a_squared[:-1] + a_squared[1:])
+```
+
+Same defect, same consequence. `nonlinear_wake` integrates the cold
+one-dimensional wake equation by fourth-order Runge-Kutta, and its half
+steps need the drive envelope halfway between the points it was sampled at.
+Four stages do not repair an integrand that is already second order: the
+error enters each step with an `O(ds)` weight and there are `1/ds` steps.
+
+| points | two-point average | order | `midpoints` | order |
+|---|---|---|---|---|
+| 2501 | 8.08e-7 | | 2.89e-9 | |
+| 5001 | 2.03e-7 | 2.00 | 1.81e-10 | 4.00 |
+| 10001 | 5.07e-8 | 2.00 | 1.13e-11 | 4.00 |
+| 20001 | 1.27e-8 | 2.00 | 7.07e-13 | 4.00 |
+| 40001 | 3.15e-9 | 2.00 | 4.38e-14 | 4.01 |
+
+At the default resolution the fix is eighteen thousand times more accurate.
+
+**The probe had to be chosen with the same care as before.** The obvious
+diagnostic is the peak of the wake potential, and it is wrong: near a smooth
+maximum the discrete peak is low by `O(ds^2)` from sampling alone, whatever
+the integrator did. Measuring it reports order 2.00 for the fixed solve as
+well, which looks like a failed fix rather than a bad probe. The potential
+at the last grid point has no such error — `linspace(0, L, 2500 k + 1)`
+grids share their endpoints under refinement, so it is the same place on
+every grid.
+
+The interpolation now lives in `particlesim/core/interpolate.py` rather than
+beside either caller, because two independent subsystems got the same thing
+wrong in the same way and a third would have too.
+
 ## Not implemented yet
 
 Grouped by the milestone that will add them. Each is named in Section 10 of

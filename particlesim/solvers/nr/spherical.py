@@ -38,11 +38,11 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from particlesim.core.grid import kreiss_oliger
+from particlesim.core.interpolate import midpoints
 from particlesim.core.spherical import SphericalGrid
 from particlesim.solvers.nr.polar import (
     PolarSlicingBreakdown,
     mass_aspect,
-    midpoints,
     solve_polar_metric,
 )
 

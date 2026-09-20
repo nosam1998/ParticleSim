@@ -4589,6 +4589,127 @@ Choptuik used adaptive mesh refinement for exactly this reason. Until the
 solver has it, `fit_scaling` detects the plateau and returns no exponent
 rather than a number fitted through it. Issue #22 stays open on that basis.
 
+## Half of a fourth-order metric solve was second order
+
+The polar-areal solve is two integrations, not one. The Misner-Sharp mass
+goes out by fourth-order Runge-Kutta; the lapse follows by Simpson's rule on
+the slicing condition. They were measured together, through the ADM mass
+drift, and reported fourth order. The ADM mass is a diagnostic of the mass
+solve alone. The lapse had never been measured on its own, and it was second
+order.
+
+The slicing condition's slope depends on the mass, so Simpson's midpoint
+sample needs `m` at the cell midpoint, and the solve built it by averaging
+the two neighbouring nodes. That average is second-order accurate, and
+Simpson's rule does not repair it: the `O(dr^2)` error enters every interval
+with weight `4 dr / 6`, and `1/dr` of them sum to `O(dr^2)`. The module
+already contained a fourth-order interpolation, `midpoints`, written for
+exactly this and warning in its own docstring that a second-order average
+"would cap the whole metric solve at second order regardless of the
+Runge-Kutta stage count, which is the usual way an ostensibly fourth-order
+code turns out to be second order". It sat two functions above the line that
+did it.
+
+### The obvious fix is also second order, where it matters most
+
+Substituting `midpoints` restores fourth order for a shell of matter away
+from the centre. It does not restore it for matter at the centre, which is
+the case collapse is about. Near the origin the Misner-Sharp mass goes as
+`m = C r^3` and the lapse slope carries `m / r^2`, so a *relative* error in
+the midpoint mass at the innermost cell is divided by `h^2` and survives in
+the integral as `O(h^2)`. With cell centres at `(i + 1/2) h` the first
+midpoint sits at `r = h`, and against the true `C h^3` the two rules that use
+values alone are not close:
+
+| rule at the first midpoint | value | error |
+|---|---|---|
+| two-point average | `1.750 C h^3` | `+75%` |
+| one-sided quadratic stencil | `0.625 C h^3` | `-37.5%` |
+| cubic Hermite | `1.000 C h^3` | exact |
+
+They are wrong in opposite directions, which is worse than being wrong. The
+fix is Hermite: fit the cubic through `m` and `dm/dr` at the two bracketing
+nodes. It is exact for a cubic and therefore exact where the mass is one, it
+is fourth order everywhere else, and it uses no one-sided stencil at either
+end. The derivative costs nothing — the mass source is already a callable
+and is what the mass solve integrated. It only had to be handed to the lapse
+solve as well.
+
+Measured against an integral evaluated independently by quadrature, with the
+mass handed in exactly so only the lapse quadrature is under test:
+
+| cells | shell at `r = 2` | | | matter at the centre | | |
+|---|---|---|---|---|---|---|
+| | average | stencil | Hermite | average | stencil | Hermite |
+| 50 | 6.65e-4 | 6.45e-5 | 7.57e-6 | 1.53e-4 | 2.92e-5 | 1.81e-7 |
+| 100 | 1.73e-4 | 4.25e-6 | 4.78e-7 | 4.94e-5 | 7.80e-6 | 1.46e-8 |
+| 200 | 4.37e-5 | 2.69e-7 | 3.00e-8 | 1.51e-5 | 1.99e-6 | 1.12e-9 |
+| 400 | 1.10e-5 | 1.68e-8 | 1.87e-9 | 4.47e-6 | 4.99e-7 | 8.27e-11 |
+| 800 | 2.74e-6 | 1.05e-9 | 1.17e-10 | 1.29e-6 | 1.25e-7 | 5.97e-12 |
+| order | 2.00 | 4.00 | 4.00 | 1.79 | 2.00 | 3.79 |
+
+At 800 cells with matter at the centre, Hermite is twenty thousand times more
+accurate than the stencil that looks like the natural fix.
+
+The Hermite column approaches fourth order from below rather than sitting on
+it — 3.76, 3.79, 3.82, 3.83 as the ladder is extended to 3200 cells, where
+the error is 3.0e-14 and the comparison is running into the tolerance of the
+quadrature it is measured against. The leading term is `O(dr^4)`: Hermite is
+exact on `C r^3`, so the first midpoint's residual comes from the `r^5` part
+of the mass, which the `m / r^2` in the slope leaves as `O(dr^3)` at one
+point and `O(dr^4)` in the sum.
+
+### Three ways the measurement lied first
+
+**The probe location decides the answer.** The midpoint error is proportional
+to the mass's curvature, so a probe placed where the matter is not sees a
+nearly straight `m(r)`. Probing the lapse at mid-radius in a scalar-collapse
+run gives 4.00 from the broken code and 4.00 from the fixed one. Probing at
+the innermost cell does show it — but that probe sits at `r = dr/2`, a radius
+that moves with the grid, which is its own second-order contamination,
+harmless only because the density near the origin happened to be negligible
+for the data tried. Two plausible end-to-end probes: one blind, one
+accidentally right.
+
+**Integrating the truth to the wrong place reads as first order.** The grid's
+last point is `r_max - dr/2`, not `r_max`. Comparing against `∫₀^r_max` leaves
+out a half cell, an `O(dr)` error that swamps everything under test and
+reports order 1.0 for a scheme that is fourth order. It stayed hidden in the
+first profile tried only because the integrand vanished out there.
+
+**The defect is invisible where one would look for it.** On coarse grids the
+fourth-order term still dominates and the broken rule is *more* accurate than
+the fixed one in one configuration tested at 100 cells. The second-order term
+only takes over under refinement — the worst direction for a defect to hide
+in, in a solver whose purpose is to refine toward a critical solution.
+
+What settles it is not a better probe but a different instrument: hand the
+quadrature an exact mass and an exact derivative, and compare against an
+integral computed independently, to the same endpoint the grid reaches.
+
+### A regression test that was measuring the seed, not the stability
+
+Correcting the lapse broke `test_the_origin_stays_quiet_long_after_the_pulse
+_has_left`, which runs a weak pulse through the origin at 200 cells and
+requires the late Ricci scalar there to stay below a hundredth of the peak.
+It had been passing by a factor of 4.5.
+
+Nothing was wrong. A residue of the pulse grows at the origin at that
+resolution under every one of the three rules — `1.3e-5 → 1.1e-2` over the
+late window for the average, `1.2e-4 → 7.8e-2` for Hermite. Same mode, same
+growth rate, seeded about ten times larger. The threshold was measuring how
+large the transient happened to be seeded, not whether anything was unstable,
+and the old rule's larger error happened to seed it smaller.
+
+Refinement separates the two. At 400 cells the late activity decays to
+`1.6e-9`, eight orders below the peak, and the two metric solves agree to
+three figures. An instability does not do that; the original one this test
+was written for grew without bound and ended with three times the initial ADM
+mass. So the test now runs at both resolutions and asserts that the activity
+collapses when the grid is refined, which is the property that distinguishes
+a transient from an instability — and which no threshold at a single
+resolution can express.
+
 ## Not implemented yet
 
 Grouped by the milestone that will add them. Each is named in Section 10 of

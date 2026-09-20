@@ -161,32 +161,57 @@ def test_the_origin_stays_quiet_long_after_the_pulse_has_left():
     ends heavier than it started has manufactured mass out of grid noise.
     At the old default coefficient of 0.02 it ended with three times the
     mass it began with.
+
+    **The criterion is convergence, not a threshold at one resolution, and
+    that distinction was bought the hard way.** An earlier version of this
+    test ran only at 200 cells and required the late origin activity to sit
+    below a hundredth of the peak. It did, by a factor of four and a half --
+    but a residue of the pulse grows there at that resolution whatever the
+    metric solve does, so the margin was measuring how large the transient
+    happened to be seeded, not whether anything was unstable. Correcting an
+    unrelated second-order error in the lapse's midpoint mass moved the seed
+    by a factor of ten and the test failed, with nothing wrong.
+
+    What separates a transient from an instability is refinement. At 400
+    cells the late activity is eight orders below the peak and still falling,
+    and the two metric solves agree to three figures. An instability does not
+    do that: the original one grew without bound and refining did not touch
+    it. So the run is done twice and the assertion is that the activity
+    collapses when the grid is refined.
     """
     from particlesim.analysis.spherical_diagnostics import ricci_scalar
 
-    sim = ScalarCollapse(SphericalGrid(r_max=12.0, n=200), courant=0.25)
-    st = gaussian_pulse(sim.grid, amplitude=6e-4, r0=5.0, width=1.0, ingoing=True)
-    inner = sim.r < 1.0
+    def run(n: int):
+        sim = ScalarCollapse(SphericalGrid(r_max=12.0, n=n), courant=0.25)
+        st = gaussian_pulse(sim.grid, amplitude=6e-4, r0=5.0, width=1.0, ingoing=True)
+        inner = sim.r < 1.0
+        a0, _ = sim.solve_metric(st.Phi, st.Pi)
+        m0 = sim.adm_mass(a0)
 
-    a0, _ = sim.solve_metric(st.Phi, st.Pi)
-    m0 = sim.adm_mass(a0)
+        central, peak = [], 0.0
+        for k in range(int(22.0 / sim.dt)):
+            st = sim.step(st, sim.dt)
+            a, _ = sim.solve_metric(st.Phi, st.Pi)
+            value = float(np.abs(ricci_scalar(a, st.Phi, st.Pi))[inner].max())
+            peak = max(peak, value)
+            if k % 100 == 0:
+                central.append((st.t, value))
 
-    central, peak = [], 0.0
-    for k in range(int(22.0 / sim.dt)):
-        st = sim.step(st, sim.dt)
+        assert np.isfinite(st.Phi).all() and np.isfinite(st.Pi).all()
+        late = [v for t, v in central if t > 12.0]
+        assert late, f"no late samples at n = {n}"
         a, _ = sim.solve_metric(st.Phi, st.Pi)
-        value = float(np.abs(ricci_scalar(a, st.Phi, st.Pi))[inner].max())
-        peak = max(peak, value)
-        if k % 100 == 0:
-            central.append((st.t, value))
+        return max(late) / peak, m0, sim.adm_mass(a)
 
-    assert np.isfinite(st.Phi).all() and np.isfinite(st.Pi).all()
-    # After the pulse has passed through and left, nothing may grow back.
-    late = [v for t, v in central if t > 12.0]
-    assert late, "no late samples"
-    assert max(late) < peak / 100.0, (
-        f"origin reawakened: late max {max(late):.3e} vs peak {peak:.3e}"
+    coarse, m0, final = run(200)
+    assert final < 0.05 * m0, f"mass was manufactured: {m0:.4f} -> {final:.4f}"
+    # Bounded at the coarse resolution: the instability this guards against
+    # reached three times the initial mass, not a few percent of the peak.
+    assert coarse < 0.1, f"origin reawakened at 200 cells: {coarse:.3e} of peak"
+
+    fine, m0, final = run(400)
+    assert final < 0.05 * m0, f"mass was manufactured: {m0:.4f} -> {final:.4f}"
+    assert fine < coarse / 20.0, (
+        f"the late origin activity did not converge away: {coarse:.3e} of peak at 200 "
+        f"cells, {fine:.3e} at 400. A transient falls steeply here; an instability does not"
     )
-
-    a, _ = sim.solve_metric(st.Phi, st.Pi)
-    assert sim.adm_mass(a) < 0.05 * m0, f"mass was manufactured: {m0:.4f} -> {sim.adm_mass(a):.4f}"

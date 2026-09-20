@@ -32,14 +32,23 @@ so the character expansion gives the plaquette at finite volume:
     Z = sum_R a_R^V,  a_R = c_R/d_R,   <(1/2) Tr U_p> = sum_R a_R' a_R^(V-1) / sum_R a_R^V
 
 with ``a_j = 2 I_(2j+1)(beta) / (beta (2j+1))`` for ``SU(2)``, tending to
-``I_2(beta)/I_1(beta)``. But *how fast* differs enormously between the two
-theories. At ``beta = 1`` the ratio of the first subleading term to the
-leading one is ``0.12`` for ``SU(2)`` against ``0.45`` for compact ``U(1)``,
-so on a ``2 x 2`` lattice the finite-volume correction is **0.08%** here and
-**13%** there. The infinite-volume number is an adequate target for
-``SU(2)`` on a tiny lattice and is not for ``U(1)`` -- which is why
-:mod:`particlesim.solvers.lattice.euclidean` insists on the finite-volume
-form and this module reports both.
+``I_2(beta)/I_1(beta)``. and the ratio of the first subleading amplitude to the leading one is
+``a_2/a_1 = I_2(beta)/I_1(beta)`` -- *exactly the infinite-volume plaquette
+itself*. The same identity holds for compact ``U(1)`` with ``I_1/I_0``, so a
+two-dimensional gauge theory's finite-volume correction is governed by its
+own plaquette raised to the ``V``-th power. At ``beta = 1`` that is ``0.240``
+here against ``0.446`` there, a factor of twelve once taken to the fourth:
+the correction on a ``2 x 2`` lattice is **1.3%** for ``SU(2)`` and **13%**
+for ``U(1)``.
+
+**The coefficients are guarded, because getting them wrong looks like
+statistics.** An early version of this module divided by the dimension twice
+and agreed with every measurement except on a ``2 x 2`` lattice, where it sat
+eight standard errors out -- close enough to a fluctuation to be waved
+through. :func:`character_expansion` is the check that catches it in one
+line instead: the coefficients have to reproduce ``exp(beta cos theta)``
+pointwise, and a wrong dimension factor or a sum restricted to odd ``n``
+(which is ``SO(3)``, not ``SU(2)``) fails it at every angle.
 """
 
 from __future__ import annotations
@@ -91,6 +100,20 @@ def unitarity_residual(links) -> float:
     identity = np.broadcast_to(np.eye(2, dtype=complex), product.shape)
     determinant = links[..., 0, 0] * links[..., 1, 1] - links[..., 0, 1] * links[..., 1, 0]
     return float(max(np.max(np.abs(product - identity)), np.max(np.abs(determinant - 1.0))))
+
+
+def character_expansion(beta: float, angle, terms: int = REPRESENTATIONS) -> float:
+    """``sum_n c_n chi_n(theta)``, which must equal ``exp(beta cos theta)``.
+
+    The guard on the coefficients, and the check that should have been run
+    first: it fails pointwise for a wrong dimension factor and for a wrong
+    range of ``n``, where a plaquette comparison only fails on a small lattice
+    and can be mistaken for statistics.
+    """
+    orders = np.arange(1, terms + 1)
+    coefficients = 2.0 * orders * iv(orders, beta) / beta
+    characters = np.sin(orders * angle) / np.sin(angle)
+    return float(np.sum(coefficients * characters))
 
 
 @dataclass(frozen=True)
@@ -199,12 +222,24 @@ class SU2Gauge:
         return float(np.sum(derivative / scale * ratio ** (volume - 1)) / np.sum(ratio**volume))
 
     def _amplitude(self, orders):
-        return 2.0 * iv(orders + 1, self.beta) / (self.beta * (orders + 1))
+        """``a_n = c_n/d_n = 2 I_n(beta)/beta`` for ``n = 2j+1 = 1, 2, 3, ...``.
+
+        Two things here are easy to get wrong and were. The coefficient
+        ``c_n = 2 n I_n(beta)/beta`` already carries the dimension ``d_n = n``,
+        so dividing by it a second time is wrong -- and invisible at ``n = 1``,
+        which means a large lattice never notices. And ``n`` runs over *all*
+        positive integers: half-integer spin is a representation of ``SU(2)``,
+        and keeping only odd ``n`` is the content of ``SO(3)``. The guard
+        against both is :func:`character_expansion`, which has to reproduce
+        the Boltzmann factor pointwise.
+        """
+        return 2.0 * iv(orders + 1, self.beta) / self.beta
 
     def _amplitude_derivative(self, orders):
-        return 2.0 * ivp(orders + 1, self.beta, 1) / (self.beta * (orders + 1)) - 2.0 * iv(
-            orders + 1, self.beta
-        ) / (self.beta**2 * (orders + 1))
+        return (
+            2.0 * ivp(orders + 1, self.beta, 1) / self.beta
+            - 2.0 * iv(orders + 1, self.beta) / self.beta**2
+        )
 
     @staticmethod
     def infinite_volume_plaquette(beta: float) -> float:
@@ -212,11 +247,14 @@ class SU2Gauge:
         return float(iv(2, beta) / iv(1, beta))
 
     def subleading_suppression(self) -> float:
-        """``a_(1/2)/a_0``: how fast the finite-volume correction dies.
+        """``a_2/a_1 = I_2(beta)/I_1(beta)``: how fast the finite-volume correction dies.
 
-        The number that separates this theory from compact ``U(1)``. It is
-        ``0.12`` here at ``beta = 1`` against ``0.45`` there, and it enters
-        the correction as its ``V``-th power.
+        Which is *exactly the infinite-volume plaquette itself*, and the same
+        identity holds for compact ``U(1)`` with ``I_1/I_0``. So the
+        finite-volume correction of a two-dimensional gauge theory is governed
+        by its own plaquette raised to the ``V``-th power, and the two
+        theories differ because ``0.240`` and ``0.446`` at ``beta = 1`` are
+        a factor of twelve apart once taken to the fourth.
         """
         amplitude = self._amplitude(np.arange(2))
         return float(amplitude[1] / amplitude[0])
@@ -332,6 +370,7 @@ __all__ = [
     "GaugeHybridMonteCarlo",
     "GaugeTrajectory",
     "SU2Gauge",
+    "character_expansion",
     "dagger",
     "su2_exponential",
     "unitarity_residual",

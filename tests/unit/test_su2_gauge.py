@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from scipy.special import iv
 
 from particlesim.solvers.lattice.euclidean import CompactU1, integrated_autocorrelation
 from particlesim.solvers.lattice.gauge import (
     GaugeHybridMonteCarlo,
     SU2Gauge,
+    character_expansion,
     dagger,
     su2_exponential,
     unitarity_residual,
@@ -164,14 +166,34 @@ def test_a_run_reproduces_the_exact_plaquette():
         assert abs(chain.mean - model.exact_plaquette()) < 3.0 * error
 
 
-def test_the_character_sum_converges_to_the_bessel_ratio():
-    infinite = SU2Gauge.infinite_volume_plaquette(2.0)
-    deviations = [
-        abs(SU2Gauge(size=size, beta=2.0).exact_plaquette() / infinite - 1.0) for size in (2, 3, 4)
+def test_the_finite_volume_deviation_falls_as_the_plaquette_to_the_volume():
+    """``deviation / p^V`` is constant in ``V``, where ``p`` is the plaquette itself.
+
+    A monotone-decrease assertion would pass for any decaying sequence. This
+    pins the *rate*: the subleading amplitude is suppressed by ``a_2/a_1``,
+    that ratio is ``I_2/I_1 = p``, and it enters the correction as its
+    ``V``-th power. Across ``V`` = 9 and 16 the ratio holds to four digits,
+    and the same construction applies to compact ``U(1)`` with ``I_1/I_0``.
+
+    The sizes stop where they do because the deviation runs into round-off:
+    at ``beta = 1`` and ``L = 5`` it is ``1.6e-15`` relative to one, so the
+    ratio there is measuring the last few bits rather than the expansion.
+    """
+    for beta, sizes in ((1.0, (3, 4)), (2.0, (3, 4, 5))):
+        plaquette = SU2Gauge.infinite_volume_plaquette(beta)
+        ratios = []
+        for size in sizes:
+            deviation = abs(SU2Gauge(size=size, beta=beta).exact_plaquette() / plaquette - 1.0)
+            ratios.append(deviation / plaquette ** (size**2))
+        for coarse, fine in zip(ratios, ratios[1:], strict=False):
+            assert fine == pytest.approx(coarse, rel=0.01)
+
+    abelian = CompactU1.infinite_volume_plaquette(1.0)
+    abelian_ratios = [
+        abs(CompactU1(size=size, beta=1.0).exact_plaquette() / abelian - 1.0) / abelian ** (size**2)
+        for size in (3, 4)
     ]
-    for coarse, fine in zip(deviations, deviations[1:], strict=False):
-        assert fine < coarse
-    assert deviations[-1] < 1e-8
+    assert abelian_ratios[1] == pytest.approx(abelian_ratios[0], rel=0.01)
 
 
 def test_strong_and_weak_coupling_limits_are_the_expected_ones():
@@ -187,28 +209,62 @@ def test_strong_and_weak_coupling_limits_are_the_expected_ones():
         assert high > low
 
 
-def test_the_non_abelian_finite_volume_correction_is_far_smaller():
-    """``SU(2)`` at ``V = 4`` is 0.08% from its limit where ``U(1)`` is 13%.
+def test_the_character_coefficients_reproduce_the_boltzmann_factor():
+    """``sum_n c_n chi_n(theta) = exp(beta cos theta)``, pointwise.
 
-    Same character expansion, same factorisation, and a correction differing
-    by more than two orders of magnitude -- because the first subleading
-    representation is suppressed by 0.12 here against 0.45 there, and that
-    ratio enters as its ``V``-th power. It is why
-    :mod:`particlesim.solvers.lattice.euclidean` has to insist on the
-    finite-volume form and this module does not.
+    The check that should be run before any plaquette comparison. An earlier
+    version of this module divided by the representation's dimension twice,
+    which is invisible at ``n = 1`` and so agreed with every measurement
+    except on a ``2 x 2`` lattice -- where it sat eight standard errors out,
+    close enough to a fluctuation to be waved through. This fails at every
+    angle instead, in one line.
+    """
+    for beta in (0.5, 2.0, 5.0):
+        for angle in (0.3, 1.0, 2.5, 3.0):
+            assert character_expansion(beta, angle) == pytest.approx(
+                np.exp(beta * np.cos(angle)), rel=1e-9
+            )
+
+
+def test_restricting_the_sum_to_odd_representations_is_a_different_group():
+    """Half-integer spin is a representation of ``SU(2)``; dropping it gives ``SO(3)``.
+
+    The companion to the check above, and the second way the coefficients
+    went wrong here. Keeping only odd ``n`` leaves a series that is not the
+    Boltzmann factor at all -- it is off by roughly a factor of two, not by a
+    tail.
+    """
+    orders = np.arange(1, 81, 2)
+    coefficients = 2.0 * orders * iv(orders, 2.0) / 2.0
+    angle = 1.0
+    odd_only = float(np.sum(coefficients * np.sin(orders * angle) / np.sin(angle)))
+    assert abs(odd_only / np.exp(2.0 * np.cos(angle)) - 1.0) > 0.3
+
+
+def test_the_finite_volume_correction_is_the_plaquette_to_the_volume():
+    """``a_2/a_1 = I_2/I_1`` is *exactly* the infinite-volume plaquette.
+
+    The same identity holds for compact ``U(1)`` with ``I_1/I_0``, so a
+    two-dimensional gauge theory's finite-volume correction is governed by
+    its own plaquette raised to the ``V``-th power. That is why the two
+    theories differ: at ``beta = 1`` the plaquettes are 0.240 and 0.446, and
+    the corrections on a ``2 x 2`` lattice are 1.3% and 13%.
     """
     beta = 1.0
     non_abelian = SU2Gauge(size=2, beta=beta)
     abelian = CompactU1(size=2, beta=beta)
-    assert non_abelian.subleading_suppression() == pytest.approx(0.1201, abs=1e-3)
+
+    assert non_abelian.subleading_suppression() == pytest.approx(
+        SU2Gauge.infinite_volume_plaquette(beta), rel=1e-12
+    )
 
     non_abelian_shift = abs(
         non_abelian.exact_plaquette() / SU2Gauge.infinite_volume_plaquette(beta) - 1.0
     )
     abelian_shift = abs(abelian.exact_plaquette() / CompactU1.infinite_volume_plaquette(beta) - 1.0)
-    assert non_abelian_shift == pytest.approx(8.0e-4, rel=0.05)
+    assert non_abelian_shift == pytest.approx(1.28e-2, rel=0.05)
     assert abelian_shift == pytest.approx(1.32e-1, rel=0.05)
-    assert abelian_shift / non_abelian_shift > 100.0
+    assert abelian_shift / non_abelian_shift == pytest.approx(10.3, rel=0.1)
 
 
 # --- what the model refuses ------------------------------------------------

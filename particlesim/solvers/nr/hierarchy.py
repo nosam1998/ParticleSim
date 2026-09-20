@@ -170,27 +170,33 @@ def prolong(parent: Level, grid: SphericalGrid, field: str = "Phi") -> np.ndarra
 
 
 def restrict(child: Level, parent: Level) -> tuple[np.ndarray, np.ndarray]:
-    """Child values averaged back onto the parent cells they cover.
+    """Child values carried back onto the parent cells they cover.
 
-    Two child cells make one parent cell exactly, so this is an average and
-    not an interpolation.
+    **A coarse cell centre is exactly the midpoint between the two fine cell
+    centres inside it**, because the grids are cell-centred and nest two to
+    one. Restriction is therefore the same operation as interpolating a
+    field to cell midpoints, and gets the same fourth-order stencil: with
+    fine centres at ``(i + 1/2) h``, coarse cell ``i`` sits at ``(2i + 1) h``,
+    which is :func:`midpoints` evaluated at index ``2i``.
 
-    **It is second-order accurate, and that is a statement about what the
-    stored numbers mean.** Averaging the two children is exactly the parent
-    cell average if the values are read as cell averages, and this solver
-    reads them as point values at cell centres -- the radial derivatives,
-    the parity reflection and the midpoint interpolation all do. Against a
-    point value the average is off by ``dr^2 f'' / 32``: exact for a field
-    linear in ``r``, and falling by four per refinement for anything else,
-    measured at 5.7e-2, 1.4e-2, 3.6e-3 on ``r^3``.
+    Averaging the two children instead is second-order accurate. That is
+    exactly the parent *cell average*, and this solver stores point values at
+    cell centres -- its derivatives, its parity reflection and its midpoint
+    interpolation all read them that way -- so against a point value the
+    average is off by ``dr^2 f'' / 32``. The evolution restricts every
+    subcycle, and a second-order restriction inside a fourth-order evolution
+    caps the evolution, the same way a second-order midpoint capped the
+    lapse.
 
-    Nothing in the metric solve restricts, so nothing here is capped by it
-    today: each level integrates its own matter and the levels are chained
-    by value, never by interpolation. It is the evolution that will restrict,
-    and a second-order restriction inside a fourth-order evolution caps the
-    evolution -- the same way a second-order midpoint capped the lapse. The
-    fix when that lands is to restrict with the fourth-order rule rather
-    than to reinterpret the values.
+    **Both ends of the stencil need somewhere to reach.** At the origin the
+    reach is across it: the origin is the centre of a sphere rather than a
+    boundary, so the missing neighbours are the field's own values with the
+    sign its rank demands. Getting that wrong is not a lost order but a
+    wrong answer at the one place the ``2 f Phi / r`` term amplifies -- with
+    the reflection, restricting an odd cubic is exact at the innermost cell
+    (5e-18 against 3e-3 for the one-sided stencil the plain call would use).
+    At the outer end the reach is into the parent, which has data there and
+    can be interpolated to the two fine positions just beyond the child.
     """
     covered = parent.radii < child.outer
     count = int(np.count_nonzero(covered))
@@ -199,10 +205,18 @@ def restrict(child: Level, parent: Level) -> tuple[np.ndarray, np.ndarray]:
             f"the child covers {child.grid.n} cells but the parent expects {RATIO * count}; "
             "the two grids are not nested"
         )
+    beyond = child.radii[-1] + child.spacing * np.arange(1, 3)
     updated = []
-    for values, whole in ((child.Phi, parent.Phi), (child.Pi, parent.Pi)):
+    for values, whole, odd in (
+        (child.Phi, parent.Phi, True),
+        (child.Pi, parent.Pi, False),
+    ):
+        sign = -1.0 if odd else 1.0
+        extended = np.concatenate(
+            [sign * values[:2][::-1], values, _interpolate(parent, beyond, whole, odd=odd)]
+        )
         merged = np.array(whole, dtype=float)
-        merged[covered] = values[: RATIO * count].reshape(count, RATIO).mean(axis=1)
+        merged[covered] = midpoints(extended)[2::2][:count]
         updated.append(merged)
     return updated[0], updated[1]
 

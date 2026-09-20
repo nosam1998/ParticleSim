@@ -3940,6 +3940,175 @@ fitting one order through all the points. On the blast wave those are 0.89,
 1.14 and 0.76 over successive doublings — a rate that is not settling, which
 a single fitted 0.93 reports as a rate.
 
+## Magnetised relativistic fluids: an identity, and which one it is
+
+Issue #59. The acceptance is that the divergence of `B` is preserved to
+round-off, and it is — but that sentence is incomplete until it says *which*
+divergence, because two reasonable stencils applied to the same field at the
+same instant give `1e-16` and `6.5e-4`.
+
+### The constraint is structural, not numerical
+
+On a staggered grid `B^x` lives on the x-faces, `B^y` on the y-faces, and
+the electromotive force on the corners between them. Each corner holds one
+number, and it enters the update of the two `B^x` faces above and below it
+and the two `B^y` faces left and right of it with opposite signs. Form the
+staggered divergence of the update and the four corner values cancel in
+pairs, before any physics is consulted.
+
+So the preservation has nothing to do with the electromotive force being
+right, and `apply_emf` takes one as an argument precisely so that can be
+demonstrated rather than argued. Fifty steps of **uniform random numbers**
+on the corners — no velocity, no fluxes, no equation of state — grow the
+field by a factor of thirteen and leave the divergence at `9.6e-16`. A
+conservation law that depended on the scheme being good would not be a
+conservation law.
+
+| | staggered `∇·B`, relative to `|B|/dx` |
+|---|---|
+| seeded from a vector potential | `1.7e−16` |
+| after 1 step | `3.1e−16` |
+| after 100 | `1.7e−15` |
+| after 2000 | `2.3e−14` |
+
+In exact arithmetic the cancellation is exact; in floating point the two
+differences group the same four values differently, so it drifts at
+round-off and accumulates with the step count.
+
+### The other stencil is not zero, and never was
+
+Average the faces to cell centres and take a centred difference of the same
+field, and the answer is `6.5e-4`. That is not a violation — it is the
+truncation error of a different operator, and it converges:
+
+| cells | staggered `∇·B` | centred `∇·B` |
+|---|---|---|
+| 32 | `8.0e−16` | `1.22e−2` |
+| 64 | `1.2e−15` | `2.11e−3` |
+| 128 | `2.3e−15` | `5.05e−4` |
+| 256 | `3.3e−15` | `1.50e−4` |
+
+At a fixed final time. One is flat at machine epsilon because it is an
+identity; the other falls with the grid because it is an approximation, and
+the staggered column rises only with the number of steps taken. Reporting
+the second as "the divergence error" makes a correct scheme look broken, and
+reporting the first without saying which stencil it is makes any scheme look
+correct.
+
+**And the staggering earns its keep.** The same fluxes differenced at cell
+centres with no corner in between — an ordinary conservative update of an
+ordinary variable — gives `1.8e−2` after one step and settles near `0.2`, a
+fifth of `|B|/dx` and thirteen orders of magnitude above the staggered
+scheme on the same data. It has no reason to keep a constraint nothing put
+into its stencil.
+
+### The fluid part, held to the tensor it comes from
+
+`T^{μν} = (ρh + b²)u^μu^ν + (p + b²/2)η^{μν} − b^μb^ν` is one line, and the
+conserved variables and fluxes are particular components of it. The suite
+forms the tensor from that definition and compares:
+
+| what | residual |
+|---|---|
+| `S^j` against `T^{0j}` | `4.6e−16` |
+| `F^x(S^j)` against `T^{xj}` | `3.2e−16` |
+| `F^x(B^x)` | exactly `0` |
+
+The last is why `B^x` is a constant of a one-dimensional sweep and why the
+divergence constraint has no content there. A transcribed flux formula
+cannot pass this by luck.
+
+**And the whole system reduces to the unmagnetised one exactly.** At `B = 0`
+the conserved variables and fluxes are *bitwise* those of
+`particlesim.solvers.hydro.srhd`, and the correction scales as `B²`:
+`2.04e−7` at `|B| = 1e−3` and `2.04e−13` at `1e−6`, a factor of a million
+for a factor of a thousand. The wave speeds agree to `1e−16` and the
+recovery to `1e−13`. So the magnetic terms are confirmed against a module
+tested separately, in a limit where the answer is already known — and the
+`B²` scaling is what makes the bitwise agreement a check on the magnetic
+terms rather than on their absence.
+
+### The recovery, and two ways it would have lied
+
+The unknown is no longer the pressure. With a field the velocity does not
+follow from the pressure in one step, because `S^i` mixes `v^i` with `B^i`;
+the unknown is `Z = ρhW²`, from which `v²` is closed form. Both failures
+below were found by checking the *solver*, not the answer.
+
+**The bracket.** At `B = 0`, `|S| = Zv` and so is below `Z` always. With a
+field `S^i = (Z + B²)v^i − (v·B)B^i`, and it sits **above** the true inertia
+in 28% of random states — 851 of 3000. Bracketing the root with `|S|` would
+put the root outside the bracket, and bisection does not fail when that
+happens; it converges to the bracket end. `|S| − B²` is a genuine lower
+bound and is what is used.
+
+**The answer.** Bisection always returns something. For conserved variables
+no fluid produces, the unguarded recovery came back at `τ = −0.5` with
+`ρ = 1` and `p = −0.333` — finite, plausible-looking, and not a state of any
+equation of state. The guard is the residual evaluated at the answer, which
+is below `4.4e−16` of the energy scale at a genuine root over 20,000 states
+and nowhere near it otherwise, leaving eight orders of headroom.
+
+### The signal speeds are an upper bound, measured as one
+
+The exact fast magnetosonic speed is a root of a quartic. What HLL is given
+is the standard isotropic estimate, `c_ms² = c_s² + v_A² − c_s²v_A²` carried
+into the lab frame by the relativistic addition law — exact when the field
+is along the sweep or across it, an over-estimate in between. What HLL needs
+is that it is never an *under*-estimate, so the true values are obtained by
+differentiating the flux numerically and diagonalising:
+
+| 400 random states | ratio of the true outermost eigenvalue to the estimate |
+|---|---|
+| maximum | `0.999999998` |
+| median | `0.9991` |
+| 10th percentile | `0.9829` |
+| violations | **0** |
+
+Safe, and tight rather than safe and lazy.
+
+### The magnetised sweep, and the closed form it does have
+
+There is no exact solution to compare a magnetised shock tube with: the
+relativistic MHD Riemann problem has seven waves and no closed form to
+sample, unlike its unmagnetised counterpart. So the tube is held to
+conservation — `B^x` exactly constant because its flux is identically zero,
+rest mass to `2e−14` because the update telescopes — and to self-convergence
+under refinement, which is labelled as the weaker statement it is.
+
+The closed form is elsewhere. A transverse field perturbation with the fluid
+at rest is the sum of the two Alfvén waves, so it stands rather than travels
+and its amplitude follows `cos(2π v_A t)` with the relativistic Alfvén
+speed `v_A = B^x/√(ρh + B²)`:
+
+| `B^x` | `v_A` | `t = 0.2` | `t = 0.5` | `t = 1.0` | `t = 1.5` |
+|---|---|---|---|---|---|
+| 0.5 | 0.258199 | `−1.5e−6` | `−7.7e−6` | `−2.0e−5` | `−1.9e−5` |
+| 1.0 | 0.471405 | `−4.3e−6` | `−1.9e−5` | `−5.5e−6` | `+5.4e−5` |
+| 2.0 | 0.730297 | `−9.3e−6` | `−2.1e−5` | `+5.7e−5` | `−5.0e−5` |
+
+the entries being measured amplitude minus `cos(2π v_A t)`. It tracks through
+the sign changes, which is what makes it a measurement of the speed rather
+than of the decay.
+
+**One qualification on "conserved to round-off".** It holds unconditionally
+on a periodic grid and, with an open boundary, only while nothing has
+reached the edge. At 400 cells and `t = 0.4` the edges are untouched and the
+drift is `2e−14`; at 100 cells the diffused precursor of the fast wave has
+arrived and the drift is `2e−8`. That is the boundary doing its job rather
+than the scheme failing at it, and the suite states both.
+
+### What is not here
+
+HLLC and HLLD, which need the intermediate states of a seven-wave fan, so a
+rotational discontinuity comes out smeared. Multi-dimensional sweeps of the
+fluid — the constrained transport above carries the induction equation on a
+prescribed velocity, which is what the divergence acceptance is about, not a
+two-dimensional magnetohydrodynamic solver. And `Γ = 2`, the stiff index the
+published magnetised tubes use, which `GammaLaw` refuses because the sound
+speed reaches one in its ultrarelativistic limit; the tubes here run at
+`Γ = 5/3`.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared
@@ -4217,6 +4386,14 @@ the design document.
 - Einstein-scalar-Gauss-Bonnet scalarized black hole (issue #52)
 
 ### Milestone 5, hydrodynamics
+- Divergence of B preserved to round-off (issue #59) — **done**, and the
+  more interesting half is that the *other* divergence stencil applied to
+  the same field is `6.5e-4` and always was, so the acceptance only means
+  something once it says which operator it is about. What is *not* done in
+  #59 is a two-dimensional magnetohydrodynamic solver: constrained transport
+  here carries the induction equation on a prescribed velocity, which is
+  what the divergence acceptance is about. HLLD is also absent, so a
+  rotational discontinuity comes out smeared.
 - Relativistic shock tubes against Martí and Müller profiles (issue #57) —
   **done**, and against the exact Riemann solution rather than against the
   published figures, since the exact solution is what those figures are.

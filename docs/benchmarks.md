@@ -3639,6 +3639,230 @@ hydrodynamics solver, and `Star.dynamical_time` exists so that #57 and #59
 can make it. What this gives them is initial data known to be right to one
 part in `1e9` rather than plausible.
 
+## Relativistic hydrodynamics: an acceptance computed rather than transcribed
+
+Issue #57, scoped to the one-dimensional special-relativistic core. The
+acceptance reads "relativistic shock tubes match published profiles", and
+what a published profile *is* is the exact solution of the Riemann problem.
+So it is computed here rather than transcribed, which turns the acceptance
+from a comparison against a figure into an equality — and then the exact
+solver is itself held to the conservation laws, so the reference is not
+taken on trust either. The coupling to `nr.spherical` and `nr.bssn` is not
+in this pass; see the end of the section.
+
+### The exact solver, and what it is checked against
+
+Two branches. A rarefaction is crossed with the relativistic Riemann
+invariant along the isentrope,
+
+    J± = artanh(v) ± (2/√(Γ−1)) artanh(c_s/√(Γ−1))
+
+which reduces to the Newtonian `v ± 2c_s/(Γ−1)` as the sound speed shrinks —
+checked directly, ratio 1.0000005 at `c_s = 1e−3`. A shock is crossed with
+the Taub adiabat, which closes to a quadratic in the specific enthalpy.
+
+A closed form for a shock is one rearrangement away from being wrong, so it
+is checked against the jump conditions themselves, evaluated with **the same
+flux function the numerical scheme uses**:
+
+| what | residual |
+|---|---|
+| `F(U*) − F(U) − V(U* − U)`, 300 random shocks | `7.8e−13` worst, relative to the larger side |
+| Taub adiabat `h*² − h² = (h*/ρ* + h/ρ)(p* − p)` | `3.9e−16` |
+
+That is a statement about the algebra, not about a reference. A third check
+ties the two branches together: a weak shock and the isentrope through the
+same point osculate, with the difference cubic in the shock strength.
+
+| strength `(p* − p)/p` | `\|ρ* − ρ_isentrope\|/ρ` | ÷ strength³ |
+|---|---|---|
+| `9.64e−2` | `1.22e−5` | 0.0136 |
+| `9.96e−3` | `1.46e−8` | 0.0147 |
+| `1.00e−3` | `1.48e−11` | 0.0148 |
+
+A shock branch wrong by a constant, or by the wrong power, shows up here and
+nowhere else.
+
+### The two standard tubes
+
+With `Γ = 5/3`, both at rest:
+
+| | `p*` | `v*` | shock speed | `ρ*` behind the contact |
+|---|---|---|---|---|
+| `(10, 0, 13.33)` \| `(1, 0, 10⁻⁶)` | 1.447686 | 0.713990 | 0.828373 | 5.070618 |
+| `(1, 0, 1000)` \| `(1, 0, 0.01)` | 18.597079 | 0.960410 | 0.986804 | 10.415582 |
+
+These agree with the values Martí and Müller's two tests are usually quoted
+at, to the digits they are quoted at — which is a *second* confirmation
+rather than the only one, since the numbers came out of a solver already
+held to the jump conditions above.
+
+The numerical scheme then converges to that solution. First order in `L1` is
+all a discontinuity allows any scheme, whatever its order in smooth flow, so
+the measured rate rather than a tolerance is what is asserted:
+
+| tube, with `ppm-extremum` and HLLC | `L1(ρ)` at 800 cells | orders, 200 → 400 → 800 |
+|---|---|---|
+| `(1,0,1)` \| `(0.125,0,0.1)` | `8.2e−4` | 1.08, 0.86 |
+| `(10,0,13.33)` \| `(1,0,10⁻⁶)` | `1.4e−2` | 1.14, 0.76 |
+| `(1,0,1000)` \| `(1,0,0.01)` | `6.4e−2` | 0.59, 0.80 |
+
+The last row is slower because the shell between the contact and the shock is
+only a few cells wide at these resolutions, which is a resolution statement
+rather than a scheme one.
+
+### How well the primitives can be recovered is set by the flow
+
+Two independent amplifications, and the scale is their product. The recovery
+needs `τ + D + p − D W`, the internal energy, which is a small difference of
+large numbers whenever the flow is cold, so only `ε/fraction` of it survives
+— the fraction being that difference over `τ + D`. And the velocity comes out
+as `S/(τ + D + p)`, so an error in the pressure is an error in the velocity,
+which `W = 1/√(1 − v²)` turns into an error `W²` larger in everything
+downstream.
+
+The second term is the one that gets missed, because it is invisible until
+the flow is fast: a law fitted below `W = 3` reproduces its own data and
+then under-predicts by a hundred at `W = 27`. Together, over 300,000 random
+states with Lorentz factors from 1 to 80, the median round-trip error is a
+steady **half** of `ε W²/fraction` across five decades:
+
+| `ε W²/fraction` | samples | median error | ratio |
+|---|---|---|---|
+| `1e−16 … 1e−14` | 36209 | `2.00e−14` | 11.80 |
+| `1e−14 … 1e−12` | 56114 | `7.39e−14` | 0.97 |
+| `1e−12 … 1e−10` | 45207 | `2.28e−12` | 0.50 |
+| `1e−10 … 1e−8` | 42411 | `2.19e−10` | 0.50 |
+| `1e−8 … 1e−6` | 42681 | `2.22e−8` | 0.50 |
+| `1e−6 … 1e−4` | 43075 | `2.16e−6` | 0.50 |
+| `1e−4 … 1e−2` | 27190 | `1.14e−4` | 0.50 |
+
+The first row is the exception and it is informative: there the flow allows
+machine epsilon and what is actually reached is the bisection's own tolerance,
+`2e−14`. Everywhere else the flow is the binding constraint, and no
+rearrangement of the residual recovers digits the conserved variables do not
+carry. `recovery_precision` reports the scale so a caller can know it rather
+than discover it.
+
+### A floor that looked harmless, and 3.6% of states wrong by up to 68×
+
+Bisection needs a bracket, and the only hard lower bound on the pressure is
+`|S| − τ − D`, below which the implied velocity exceeds one. Putting an
+atmosphere floor of `1e−13 (τ + D)` there as well looks like ordinary
+defensive programming. It is not: for `p/ρ = 1e−12` at a Lorentz factor of
+27 that floor sits *above* the true pressure, so the root is outside the
+bracket — and bisection does not fail when that happens. It converges, to
+the bracket end, in the usual number of iterations, and returns a pressure
+with no sign that anything went wrong.
+
+Found by scanning 200,000 random states for the bracket's sign rather than
+for the answer's accuracy, which is the only way it shows:
+
+| | states whose bracket excludes the root | worst pressure error |
+|---|---|---|
+| with the atmosphere floor | 7156 of 200000 | 68× |
+| superluminal bound only | 0 of 200000 | within the state's own limit |
+
+The bracket now carries only the physical bound, and a state whose root is
+genuinely outside it — conserved variables no state of the equation of state
+produces — is refused by name instead of answered.
+
+The characteristic speeds, meanwhile, are relativistic velocity addition:
+`λ± = (v ± c_s)/(1 ± v c_s)`. Differentiating the flux numerically and
+diagonalising gives those three numbers to `4.5e−9`, which is the finite
+difference's limit rather than the formula's — and being velocity addition,
+they are subluminal by construction rather than by a clamp.
+
+### What each reconstruction actually delivers
+
+A pulse advected at uniform velocity and pressure has an exact solution —
+pure translation — and all three conserved variables are *affine* in the
+density there, so exact cell averages are available in closed form. That
+matters: seeding a finite-volume scheme with cell-centre values is an
+`O(dx²)` error in the initial data and would cap every order below at two,
+making WENO5 and minmod agree.
+
+| scheme | measured order, `dt ∼ dx` | with `dt ∼ dx^(5/3)` |
+|---|---|---|
+| piecewise constant | 0.79, 0.89, **0.95** | |
+| minmod | 1.60, 1.78, **1.87** | |
+| MC | 1.73, 1.90, **1.98** | |
+| PPM (Colella–Woodward) | 1.95, 2.20, **2.30** | 1.93, 2.18, 2.27 |
+| PPM (Colella–Sekora) | 3.99, 3.98, **3.92** | 3.99, 4.00, **4.00** |
+| WENO5 | 4.73, 4.25, **3.61** | 5.00, 5.00, **5.00** |
+
+Two things in that table are worth more than the numbers.
+
+**WENO5's last column is the honest one and its first is the trap.** At a
+fixed Courant number the step shrinks with the cell, so the third-order time
+error falls like `dx³` and eventually caps everything above it. The measured
+order then slides — 4.73, 4.25, 3.61 — towards three, and at no point looks
+obviously broken. Refining the step as `dx^(5/3)` gives 5.00, 5.00, 5.00.
+Both are kept in the suite, because a convergence test that quietly reports
+the smaller of two orders is the same failure as an autocorrelation time
+truncated by its window: confident, stable, and about the wrong thing.
+
+**PPM interpolates its faces to fourth order and converges at barely more
+than second.** The Colella–Woodward limiter cannot tell a smooth extremum
+from an overshoot, so where the profile turns over it cuts the parabola
+back. On a sine the limiter touches **exactly six faces at every
+resolution** — 32 points or 512, always the two extrema and one neighbour
+each — and a count that does not grow with the grid means their share of the
+error falls slowly. Removing the limiting entirely gives 3.99, 4.00, 4.00,
+which locates the loss precisely. Colella and Sekora's extremum branch
+repairs it, and the way it shows up is the check: on a smooth profile it
+reproduces the *unlimited* faces to every digit, meaning it correctly does
+nothing, while at a jump from 1 to 3 it still reconstructs inside `[1, 3]`.
+Both limiters are kept, because a scheme named for its high order can be
+delivering second and only a measurement says which one you have.
+
+### Two Riemann solvers, one wave apart
+
+HLLE averages over the whole fan, which folds the contact discontinuity into
+the averaging. HLLC restores it as a third wave. On a *stationary* contact —
+uniform pressure and velocity, a jump in density — HLLC's contact speed is
+exactly zero because the HLL momentum is, its star states are the outer
+states, and the flux is `(0, p, 0)` at every face. Nothing moves.
+
+And the two leftover errors have different sources, which is checkable by
+moving one of them:
+
+| recovery tolerance | HLLC drift in ρ | HLLE drift in ρ |
+|---|---|---|
+| `1e−11` | `1.3e−10` | 3.793 |
+| `1e−13` | `6.3e−13` | 3.793 |
+| `1e−15` | `5.1e−14` | 3.793 |
+
+The jump is 9. HLLC's residual is the primitive recovery and tracks it across
+two decades; HLLE's is the `λ_L λ_R (U_R − U_L)` term in its own flux and
+does not move at all. One number belongs to the arithmetic and the other to
+the scheme, and changing the arithmetic is how you tell.
+
+The contact speed is a root of a quadratic whose constant term is that HLL
+momentum, and `(−b − √(b²−4ac))/(2a)` is the classic place a root is lost to
+cancellation. `contact_speed` takes the stable `c/q` form and keeps the other
+behind a flag so the difference could be measured — and the honest answer is
+that it barely matters here: the two agree to `4e−14`, because `4ac/b²` is of
+order one for this quadratic rather than small. The exactness above comes
+from the constant term vanishing and from nothing else.
+
+### Conservation is a property of the form
+
+The update subtracts neighbouring fluxes, so each face is added once and
+subtracted once and the total cancels before any physics is consulted. Rest
+mass drifts by `2e−14` over a shock tube — on every reconstruction and every
+Riemann solver alike, and through a discontinuity where nothing else is
+accurate at all. That is the summation's round-off, not the scheme's error.
+
+### What is not here
+
+The coupling to `nr.spherical` and `nr.bssn` that issue #57 also lists: this
+pass is flat-space and one-dimensional, with no metric source terms and no
+gravity. Multi-dimensional sweeps, magnetic fields and non-ideal equations of
+state are likewise absent. The recovery takes `pressure` and
+`sound_speed_squared` from its equation of state and nothing else, so the
+hook a different one would use is already the only surface.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared
@@ -3916,12 +4140,21 @@ the design document.
 - Einstein-scalar-Gauss-Bonnet scalarized black hole (issue #52)
 
 ### Milestone 5, hydrodynamics
-- Relativistic shock tubes against Martí and Müller profiles (issue #57)
+- Relativistic shock tubes against Martí and Müller profiles (issue #57) —
+  **done**, and against the exact Riemann solution rather than against the
+  published figures, since the exact solution is what those figures are.
+  Both standard tubes' star states come out at the digits the literature
+  quotes, and the exact solver is itself held to the jump conditions of the
+  scheme's own flux. What is *not* done in #57 is the coupling to
+  `nr.spherical` and `nr.bssn`: this pass is flat-space and
+  one-dimensional, with no metric source terms.
 - TOV star stable for 10 dynamical times, L2 density error below 1e-3 (issue #58)
   — the equation-of-state layer and the star are in, checked against the
   Schwarzschild interior solution to 1e-9 and the Lane-Emden radius at first
-  order in the compactness. The *stability* half needs the evolution from
-  #57 and #59; `Star.dynamical_time` is there for it.
+  order in the compactness. The *stability* half needs a spherical evolution
+  with gravity, which #57's flat one-dimensional core is not; #59 and the
+  metric coupling deferred out of #57 are what it waits on.
+  `Star.dynamical_time` is there for it.
 
 ### Milestone 6, lattice
 - Two-dimensional φ⁴ critical coupling, to 1% (issue #63) — the hybrid Monte

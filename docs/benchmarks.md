@@ -3461,6 +3461,69 @@ Starobinsky's turning points at `+0.500` and `−0.353` are not a reflection of
 each other and the doubled half-period still matches the true one to `1e−13`.
 The code was right and undersold; the docstring now says why.
 
+## Lattice views: pictures that say what a number cannot
+
+Issue #67. Four views, each drawn because the corresponding number is either
+missing the point or actively misleading. All of them take stored results —
+a `Chain` or a `GrowthReport` — and none of them runs anything, which is the
+acceptance read literally.
+
+### Binning gives a second error estimate, and its shape gives a third thing
+
+Averaging over bins of increasing length decorrelates the data, so the error
+on the mean rises from the naive value and flattens once the bins are long
+compared with the correlation time. The plateau sits at `√(2τ_int)` times
+the naive error, which it reaches from information entirely different from
+summing the autocorrelation function:
+
+| `ρ` | τ | plateau / naive | `√(2τ)` |
+|---|---|---|---|
+| 0 | 0.5 | 1.000 | 1.000 |
+| 0.5 | 1.5 | 1.746 | 1.732 |
+| 0.8 | 2.9 | 3.02 | 2.959 |
+| 0.9 | 9.5 | 4.285 | 4.359 |
+
+The two estimators agree to within 4% from uncorrelated data up to `ρ = 0.9`,
+so drawing them on the same axes is a check rather than a decoration.
+
+**And the shape answers what neither number can.** A reported `τ_int = 9.5`
+says nothing about whether the run was long enough to *measure* 9.5. A curve
+still climbing at the largest usable bin has not converged. The tail also
+goes noisy as the bin count falls — visible on the plot, invisible in any
+summary — which is why `plateau_error` reads the median of the curve's upper
+half rather than its last point.
+
+### The growth spectrum makes the round-off floor unmistakable
+
+The failure #66 turned up took several experiments to establish: past a
+dynamic range of about `1/ε` the quiet modes stop reporting themselves and
+start reporting round-off from the loudest one, at a steady, plausible growth
+rate. In a column of numbers it reads as a slow resonance.
+
+On the two-panel view it is one glance. The upper panel has the resolvable
+modes sitting exactly on the Floquet curve and the floored ones floating at
+`0.06` where the prediction is flat zero; the lower panel shows why — every
+floored mode lies on a **horizontal line at `~1e−15`** relative amplitude,
+inside the shaded region below the resolution floor. A flat line at machine
+epsilon is not something a physical spectrum does.
+
+The floored modes are marked rather than dropped, so the reader sees how many
+there are.
+
+### The other two
+
+**The observable series** carries both error bands, for the same reason: when
+two independent estimators of the same error disagree, one of them is wrong,
+and the picture says so before a table would. It also annotates
+`sign_changes`, so the #63 failure — a chain that stopped tunnelling and
+reported a *tighter* error — is visible on the same plot as the error it
+invalidates.
+
+**The autocorrelation function** is drawn with the summation window marked.
+`τ_int` is a number; where the Madras-Sokal criterion stopped the sum is a
+judgement, and a reader cannot audit it from the number alone. A curve still
+well above zero at the cut is a run that was too short.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared

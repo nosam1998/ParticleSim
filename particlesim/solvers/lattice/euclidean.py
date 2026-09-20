@@ -60,6 +60,9 @@ CHARACTER_TERMS = 60
 #: Zero crossings below which a chain has not sampled both wells of a broken phase.
 ERGODICITY_FLOOR = 30
 
+#: Bins a binning analysis keeps, below which the spread of bin means is itself noise.
+MINIMUM_BINS = 16
+
 
 class Model(Protocol):
     """What hybrid Monte Carlo needs from a theory."""
@@ -398,6 +401,65 @@ def integrated_autocorrelation(series, window: int | None = None) -> float:
     return max(tau, 0.5)
 
 
+def binned_errors(series, sizes=None):
+    """Error on the mean against bin size: ``(sizes, errors)``.
+
+    The picture a single ``tau_int`` cannot give. Averaging over bins of
+    increasing length decorrelates the data, so the error rises from the
+    naive value and flattens once the bin is long compared with the
+    correlation time. The **plateau** is the honest error, and whether the
+    curve has actually reached one is the thing worth looking at: a reported
+    ``tau`` of 9.5 says nothing about whether the run was long enough to
+    measure 9.5.
+
+    The plateau sits at ``sqrt(2 tau_int)`` times the naive error, which the
+    suite checks against an autoregressive process of known ``tau``.
+
+    Bin sizes default to powers of two that still leave at least sixteen
+    bins, because the spread of a handful of bin means is itself too noisy
+    to read a plateau from.
+    """
+    values = np.asarray(series, dtype=float)
+    if values.size < MINIMUM_BINS:
+        raise ValueError(
+            f"binning needs at least {MINIMUM_BINS} samples to leave a readable curve, "
+            f"got {values.size}"
+        )
+    if sizes is None:
+        largest = max(1, values.size // MINIMUM_BINS)
+        sizes = [size for size in (2**power for power in range(64)) if size <= largest]
+    chosen = []
+    errors = []
+    for size in sizes:
+        count = values.size // int(size)
+        if count < 2:
+            continue
+        means = values[: count * int(size)].reshape(count, int(size)).mean(axis=1)
+        chosen.append(int(size))
+        errors.append(float(np.std(means, ddof=1) / np.sqrt(count)))
+    return np.array(chosen), np.array(errors)
+
+
+def plateau_error(series) -> float:
+    """The binning estimate of the error on the mean.
+
+    Read as the median of the upper half of the binning curve, where the
+    bins are long compared with the correlation time and the curve has
+    flattened. A median rather than the last point, because the bin count
+    falls as the bin grows and the tail of the curve is noisy -- which is
+    itself visible in :func:`binned_errors` and is why the picture is worth
+    drawing.
+
+    This is an *independent* estimate of the same quantity
+    :attr:`Chain.error` gets by summing the autocorrelation function. The
+    two use different information, so their agreeing is a check on both;
+    the suite holds them to ten percent of each other on a process whose
+    ``tau`` is known exactly.
+    """
+    _, errors = binned_errors(series)
+    return float(np.median(errors[len(errors) // 2 :]))
+
+
 def binder_cumulant(magnetisations) -> float:
     """``1 - <m^4>/(3 <m^2>^2)``: zero for a Gaussian, 2/3 for a two-state signal.
 
@@ -415,11 +477,14 @@ def binder_cumulant(magnetisations) -> float:
 __all__ = [
     "CHARACTER_TERMS",
     "ERGODICITY_FLOOR",
+    "MINIMUM_BINS",
     "Chain",
     "CompactU1",
     "HybridMonteCarlo",
     "Model",
     "Phi4",
     "binder_cumulant",
+    "binned_errors",
     "integrated_autocorrelation",
+    "plateau_error",
 ]

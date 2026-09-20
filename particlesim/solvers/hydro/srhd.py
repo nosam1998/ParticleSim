@@ -24,23 +24,46 @@ on it diverges for exactly the cold, fast states a shock tube spends its time
 in. Working in ``ln p`` keeps the tolerance relative across a bracket that
 spans many decades.
 
-**And how well it can possibly work is set by the flow, not the algorithm.**
-The recovery needs ``tau + D + p - D W``, which is the internal energy -- a
-small difference of large numbers whenever the flow is cold. Double precision
-keeps only ``eps/fraction`` of it, where the fraction is that difference over
-``tau + D``, and the measured round-trip error follows that law across four
-decades:
+**The bracket is the superluminal limit and nothing else.** Below
+``|S| - tau - D`` the implied velocity exceeds one, so that is a hard lower
+bound on the pressure; an atmosphere floor put there instead looks harmless
+and is not. For a cold enough flow -- ``p/rho`` at ``1e-12`` and a Lorentz
+factor of 27 -- a floor of ``1e-13 (tau + D)`` sits *above* the true
+pressure, the root is outside the bracket, and bisection does not fail. It
+converges, confidently, to the bracket end: 3.6% of a random sample came
+back with pressures wrong by up to a factor of 68. The bracket now carries
+only the physical bound, and a state whose root is genuinely outside it is
+refused by name rather than answered.
 
-    fraction          median round-trip error    eps/fraction
-    1e-9 .. 1e-7            1.16e-8                 1.0e-8
-    1e-7 .. 1e-5            1.13e-10                1.0e-10
-    1e-5 .. 1e-3            1.38e-12                1.0e-12
-    1e-3 .. 1e-1            2.45e-14                1.0e-14
+**And how well the recovery can possibly work is set by the flow, not the
+algorithm.** Two amplifications, and the bound is their product:
 
-So a cold relativistic flow is recoverable to far fewer digits than the
+* ``tau + D + p - D W`` is the internal energy, a small difference of large
+  numbers whenever the flow is cold. Only ``eps/fraction`` of it survives,
+  where the fraction is that difference over ``tau + D``.
+* the velocity comes out as ``S/(tau + D + p)``, so an error in the pressure
+  is an error in the velocity, and ``W = 1/sqrt(1 - v^2)`` turns that into
+  an error ``W^2`` larger in everything downstream.
+
+The second is invisible until the flow is fast, which is exactly how it gets
+missed: a law fitted below ``W = 3`` reproduces its own data and
+under-predicts by a hundred at ``W = 27``. Together, over 300,000 random
+states with Lorentz factors from 1 to 80, the median round-trip error is a
+steady **half** of ``eps W^2 / fraction`` across five decades:
+
+    eps W^2 / fraction     median round-trip error    ratio
+    1e-14 .. 1e-12               7.39e-14             0.97
+    1e-12 .. 1e-10               2.28e-12             0.50
+    1e-10 .. 1e-8                2.19e-10             0.50
+    1e-8  .. 1e-6                2.22e-8              0.50
+    1e-6  .. 1e-4                2.16e-6              0.50
+    1e-4  .. 1e-2                1.14e-4              0.50
+
+Below that the bisection's own tolerance is the floor, at ``2e-14``. So a
+cold or fast relativistic flow is recoverable to far fewer digits than the
 arithmetic suggests, and no rearrangement of the residual recovers digits the
 conserved variables do not carry. :func:`recovery_precision` reports the
-bound so a caller can know it rather than discover it.
+scale so a caller can know it rather than discover it.
 
 **What the schemes are held to.** A smooth pulse advected at uniform
 velocity and pressure has an exact solution -- pure translation -- so each
@@ -55,7 +78,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-#: Floor applied to recovered primitives, as a fraction of the local scale.
+#: Floor applied to *reconstructed* primitives, as a fraction of the largest
+#: value on the grid. Deliberately not used to bracket the pressure recovery:
+#: for a cold enough flow this floor sits above the true pressure, and a
+#: bracket that excludes the root does not fail, it answers.
 ATMOSPHERE = 1e-13
 
 #: Largest Lorentz factor the recovery will report before refusing.
@@ -144,15 +170,29 @@ def conserved_to_primitive(conserved_density, momentum, energy, eos: GammaLaw, t
         specific = (total - scale) / scale - pressure * factor / conserved_density
         return np.where(superluminal, np.inf, pressure - eos.pressure(density, specific))
 
-    floor = ATMOSPHERE * (energy + conserved_density)
-    low = np.maximum(np.abs(momentum) - energy - conserved_density, 0.0)
-    low = np.maximum(low * (1.0 + 1e-12), floor)
+    # The one hard lower bound there is: below |S| - tau - D the implied
+    # velocity is superluminal. Anything else put under the root -- an
+    # atmosphere floor, say -- is a guess, and a guess above the true
+    # pressure puts the root outside the bracket and the bisection then
+    # converges confidently to the bracket end instead. Only the logarithm
+    # needs a positive number, so that is all the floor is for.
+    superluminal_limit = np.maximum(np.abs(momentum) - energy - conserved_density, 0.0)
+    low = np.maximum(superluminal_limit * (1.0 + 1e-12), np.finfo(float).tiny)
     high = np.maximum((eos.gamma - 1.0) * (energy + conserved_density), low * 10.0)
     for _ in range(200):
         climbing = residual(high) < 0.0
         if not climbing.any():
             break
         high = np.where(climbing, 2.0 * high, high)
+    unbracketed = residual(low) > 0.0
+    if np.any(unbracketed):
+        index = int(np.argmax(unbracketed))
+        raise ValueError(
+            f"no pressure between {low[index]:.6g} and {high[index]:.6g} satisfies the "
+            f"recovery for (D, S, tau) = ({conserved_density[index]:.6g}, "
+            f"{momentum[index]:.6g}, {energy[index]:.6g}); these conserved variables do "
+            "not correspond to any state of this equation of state"
+        )
 
     lower, upper = np.log(low), np.log(high)
     for _ in range(400):
@@ -194,14 +234,25 @@ def cold_flow_fraction(conserved_density, momentum, energy, pressure, eos: Gamma
 
 
 def recovery_precision(conserved_density, momentum, energy, pressure, eos: GammaLaw):
-    """``eps_machine / cold_flow_fraction``: the accuracy this state allows.
+    """``eps W^2 / cold_flow_fraction``: the accuracy this state allows.
 
-    A law rather than a tolerance -- across four decades the median
-    round-trip error tracks it to within a factor of about 1.2 -- and a
-    property of evolving ``(D, S, tau)`` rather than of this implementation.
+    Two independent amplifications, and the bound is their product. The
+    first is the cancellation :func:`cold_flow_fraction` measures. The
+    second is that the velocity comes out as ``S/(tau + D + p)``, so an
+    error in the pressure is an error in the velocity, and the Lorentz
+    factor turns that into an error ``W^2`` larger in everything downstream
+    -- which is invisible until the flow is fast, and is why a law fitted at
+    ``W < 3`` under-predicts by a hundred at ``W = 27``.
+
+    A law rather than a tolerance: over six decades of the bound and Lorentz
+    factors from 1 to 80, the median round-trip error is a steady 0.4 of it.
+    And a property of evolving ``(D, S, tau)``, not of this implementation.
     """
+    conserved_density = np.asarray(conserved_density, dtype=float)
+    total = np.asarray(energy, dtype=float) + conserved_density + np.asarray(pressure, dtype=float)
+    factor = lorentz(np.asarray(momentum, dtype=float) / total)
     fraction = np.abs(cold_flow_fraction(conserved_density, momentum, energy, pressure, eos))
-    return np.finfo(float).eps / np.maximum(fraction, np.finfo(float).tiny)
+    return np.finfo(float).eps * factor**2 / np.maximum(fraction, np.finfo(float).tiny)
 
 
 def flux(density, velocity, pressure, eos: GammaLaw):

@@ -42,6 +42,7 @@ from particlesim.solvers.hydro.riemann import (
     riemann_flux,
 )
 from particlesim.solvers.hydro.srhd import (
+    ATMOSPHERE,
     MAXIMUM_LORENTZ,
     GammaLaw,
     characteristic_speeds,
@@ -97,32 +98,82 @@ def test_the_conserved_variables_round_trip(eos):
     assert np.max(np.abs(recovered[2] / pressure - 1.0)) < 1e-9
 
 
-def test_recovery_precision_bounds_the_round_trip_error(eos):
+@pytest.fixture(scope="module")
+def recovery_sample(eos):
+    """Random states spanning both amplifications: cold flows and fast ones."""
+    rng = np.random.default_rng(13)
+    count = 40000
+    density = 10.0 ** rng.uniform(-2.0, 1.0, count)
+    velocity = np.tanh(rng.uniform(-5.0, 5.0, count))
+    pressure = density * 10.0 ** rng.uniform(-12.0, 1.0, count)
+    conserved = primitive_to_conserved(density, velocity, pressure, eos)
+    actual = np.abs(conserved_to_primitive(*conserved, eos)[2] / pressure - 1.0)
+    return conserved, density, velocity, pressure, actual
+
+
+def test_recovery_precision_tracks_the_round_trip_error(eos, recovery_sample):
     """The accuracy is set by the flow, not by the algorithm.
 
-    ``tau + D + p - D W`` is the internal energy, and for a cold fast flow
-    it is a small difference of large numbers. Double precision keeps
-    ``eps/fraction`` of it, and the measured error tracks that across four
-    decades -- so this asserts a *law*, binned by the predicted bound, not a
-    tolerance. Rearranging the residual cannot beat it; the digits are not
-    in the conserved variables to begin with.
+    Two amplifications multiplied together: the cold-flow cancellation, and
+    the ``W^2`` that follows from the velocity being ``S/(tau + D + p)``.
+    Binned by the predicted scale, the median error is a steady half of it
+    over five decades -- a *law*, not a tolerance. Rearranging the residual
+    cannot beat it; the digits are not in the conserved variables to begin
+    with.
     """
-    rng = np.random.default_rng(13)
-    count = 6000
-    density = 10.0 ** rng.uniform(-2.0, 1.0, count)
-    velocity = np.tanh(rng.uniform(-3.0, 3.0, count))
-    pressure = density * 10.0 ** rng.uniform(-9.0, -1.0, count)
-
-    conserved = primitive_to_conserved(density, velocity, pressure, eos)
+    conserved, _, _, pressure, actual = recovery_sample
     bound = recovery_precision(*conserved[:2], conserved[2], pressure, eos)
-    actual = np.abs(conserved_to_primitive(*conserved, eos)[2] / pressure - 1.0)
-
-    for low in (1e-15, 1e-13, 1e-11, 1e-9):
+    for low in (1e-12, 1e-10, 1e-8, 1e-6):
         inside = (bound >= low) & (bound < low * 100.0)
-        if inside.sum() < 30:
-            continue
-        ratio = np.median(actual[inside] / bound[inside])
-        assert 0.05 < ratio < 20.0, (low, ratio, inside.sum())
+        assert inside.sum() > 200, (low, inside.sum())
+        assert np.median(actual[inside] / bound[inside]) == pytest.approx(0.5, abs=0.15)
+
+
+def test_the_lorentz_factor_is_the_half_of_the_law_that_hides(eos, recovery_sample):
+    """A bound fitted at ``W < 3`` reproduces its own data and is wrong at ``W = 27``.
+
+    Dropping the ``W^2`` leaves something that looks like a working law
+    wherever it was calibrated, because the states that expose it are the
+    fast ones and a slow sample has none. Binning the same data by Lorentz
+    factor shows the missing factor growing by two orders between ``W < 2``
+    and ``W > 16``, while the full scale stays flat.
+    """
+    conserved, _, velocity, pressure, actual = recovery_sample
+    factor = lorentz(velocity)
+    partial = recovery_precision(*conserved[:2], conserved[2], pressure, eos) / factor**2
+    alive = partial > 1e-13
+    slow = alive & (factor < 2.0)
+    fast = alive & (factor > 16.0)
+    assert slow.sum() > 100 and fast.sum() > 100
+    without = np.median(actual[fast] / partial[fast]) / np.median(actual[slow] / partial[slow])
+    assert without > 50.0
+
+
+def test_a_state_colder_than_the_atmosphere_is_still_recovered(eos):
+    """The regression: a pressure below the floor that used to bracket the root.
+
+    At ``p/rho = 1.1e-12`` and ``W = 27`` the true pressure is sixty-six
+    times *below* ``ATMOSPHERE (tau + D)``. With that floor in the bracket
+    the root was outside it, and bisection answered with the bracket end
+    rather than failing -- a density wrong by a factor of 68, arrived at in
+    the usual number of iterations. The bracket now carries only the
+    superluminal bound, and what is left is what the state itself allows.
+    """
+    density, velocity = 0.1854, 0.999313
+    pressure = density * 1.094e-12
+    conserved = primitive_to_conserved(density, velocity, pressure, eos)
+    assert pressure < 0.02 * ATMOSPHERE * _scalar(conserved[2] + conserved[0])
+
+    recovered = conserved_to_primitive(*conserved, eos)
+    allowed = _scalar(recovery_precision(*conserved[:2], conserved[2], pressure, eos))
+    assert abs(_scalar(recovered[2]) / pressure - 1.0) < allowed
+    assert abs(_scalar(recovered[0]) / density - 1.0) < 1e-11
+
+
+def test_recovery_refuses_conserved_variables_no_state_produces(eos):
+    """Rather than converging to the bracket end and reporting it as an answer."""
+    with pytest.raises(ValueError, match="do not correspond to any state"):
+        conserved_to_primitive(np.array([1.0]), np.array([0.0]), np.array([-0.5]), eos)
 
 
 def test_a_relativistically_hot_gas_loses_nothing_to_the_cancellation(eos):

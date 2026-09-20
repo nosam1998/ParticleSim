@@ -3713,25 +3713,59 @@ rather than a scheme one.
 
 ### How well the primitives can be recovered is set by the flow
 
-The recovery needs `τ + D + p − D W`, which is the internal energy — a small
-difference of large numbers whenever the flow is cold. Double precision keeps
-`ε/fraction` of it, where the fraction is that difference over `τ + D`, and
-the measured round-trip error follows that over **five decades**:
+Two independent amplifications, and the scale is their product. The recovery
+needs `τ + D + p − D W`, the internal energy, which is a small difference of
+large numbers whenever the flow is cold, so only `ε/fraction` of it survives
+— the fraction being that difference over `τ + D`. And the velocity comes out
+as `S/(τ + D + p)`, so an error in the pressure is an error in the velocity,
+which `W = 1/√(1 − v²)` turns into an error `W²` larger in everything
+downstream.
 
-| predicted bound | samples | median error | ratio to bound |
+The second term is the one that gets missed, because it is invisible until
+the flow is fast: a law fitted below `W = 3` reproduces its own data and
+then under-predicts by a hundred at `W = 27`. Together, over 300,000 random
+states with Lorentz factors from 1 to 80, the median round-trip error is a
+steady **half** of `ε W²/fraction` across five decades:
+
+| `ε W²/fraction` | samples | median error | ratio |
 |---|---|---|---|
-| `1e−16 … 1e−14` | 23095 | `1.75e−14` | 5.72 |
-| `1e−14 … 1e−12` | 44760 | `1.42e−13` | 1.31 |
-| `1e−12 … 1e−10` | 44136 | `1.43e−11` | 1.13 |
-| `1e−10 … 1e−8` | 44394 | `1.45e−9` | 1.13 |
-| `1e−8 … 1e−6` | 43615 | `1.33e−7` | 1.14 |
+| `1e−16 … 1e−14` | 36209 | `2.00e−14` | 11.80 |
+| `1e−14 … 1e−12` | 56114 | `7.39e−14` | 0.97 |
+| `1e−12 … 1e−10` | 45207 | `2.28e−12` | 0.50 |
+| `1e−10 … 1e−8` | 42411 | `2.19e−10` | 0.50 |
+| `1e−8 … 1e−6` | 42681 | `2.22e−8` | 0.50 |
+| `1e−6 … 1e−4` | 43075 | `2.16e−6` | 0.50 |
+| `1e−4 … 1e−2` | 27190 | `1.14e−4` | 0.50 |
 
-The first row is the one exception and it is informative: there the flow
-allows machine epsilon, and what is actually reached is the bisection's own
-tolerance instead. Everywhere else the flow is the binding constraint and no
+The first row is the exception and it is informative: there the flow allows
+machine epsilon and what is actually reached is the bisection's own tolerance,
+`2e−14`. Everywhere else the flow is the binding constraint, and no
 rearrangement of the residual recovers digits the conserved variables do not
-carry. `recovery_precision` reports the bound so a caller can know it rather
+carry. `recovery_precision` reports the scale so a caller can know it rather
 than discover it.
+
+### A floor that looked harmless, and 3.6% of states wrong by up to 68×
+
+Bisection needs a bracket, and the only hard lower bound on the pressure is
+`|S| − τ − D`, below which the implied velocity exceeds one. Putting an
+atmosphere floor of `1e−13 (τ + D)` there as well looks like ordinary
+defensive programming. It is not: for `p/ρ = 1e−12` at a Lorentz factor of
+27 that floor sits *above* the true pressure, so the root is outside the
+bracket — and bisection does not fail when that happens. It converges, to
+the bracket end, in the usual number of iterations, and returns a pressure
+with no sign that anything went wrong.
+
+Found by scanning 200,000 random states for the bracket's sign rather than
+for the answer's accuracy, which is the only way it shows:
+
+| | states whose bracket excludes the root | worst pressure error |
+|---|---|---|
+| with the atmosphere floor | 7156 of 200000 | 68× |
+| superluminal bound only | 0 of 200000 | within the state's own limit |
+
+The bracket now carries only the physical bound, and a state whose root is
+genuinely outside it — conserved variables no state of the equation of state
+produces — is refused by name instead of answered.
 
 The characteristic speeds, meanwhile, are relativistic velocity addition:
 `λ± = (v ± c_s)/(1 ± v c_s)`. Differentiating the flux numerically and

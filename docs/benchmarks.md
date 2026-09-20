@@ -3863,6 +3863,83 @@ state are likewise absent. The recovery takes `pressure` and
 `sound_speed_squared` from its equation of state and nothing else, so the
 hook a different one would use is already the only surface.
 
+## Matter views: where the error is, and whether the shock is in the right place
+
+Issue #61. Four pictures, all drawn from a stored HDF5 checkpoint and none of
+them running a solver, which is the acceptance read literally. The reason to
+have them is that an `L1` error on a shock tube is one number answering the
+least interesting question.
+
+### A checkpoint that does not carry its initial data cannot be checked
+
+`tube_attributes` writes the two Riemann states, the elapsed time, the
+interface and the adiabatic index into the file's attributes, and
+`stored_tube` reads them back and recomputes the exact solution. Without
+that record the stored profile is a trace: a later reader can plot it, but
+nothing can turn it into a comparison, and a checkpoint outlives the session
+that produced it. A file missing the record is refused by name rather than
+plotted against nothing.
+
+### Most of the error is at the waves — which is the diagnosis, not the norm
+
+A conservative scheme is not accurate at a discontinuity; nothing is. What
+it does is be inaccurate *there*. Measured on the blast wave at 400 cells,
+with the split taken five cells either side of each of the five wave
+positions — ten percent of the grid:
+
+| scheme | `L1(ρ)` | share of the error within 5 cells of a wave |
+|---|---|---|
+| minmod | `5.99e−2` | 70% |
+| PPM (Colella–Sekora) | `2.39e−2` | 77% |
+| WENO5 | `3.03e−2` | 74% |
+
+and on the strong blast (`p_L = 1000`) the higher-order schemes put **97%**
+of their error into 8.5% of the cells. So a run whose error is spread evenly
+across the smooth regions is a different failure from one that merely smears
+its shock, and the two have the same `L1`. The control is in the suite: a
+uniformly distributed error gives an error share exactly equal to the cell
+share, which is what makes 77% a finding rather than a number.
+
+### The position converges; the width does not
+
+The shock's position is read off the profile by interpolating to its own
+half-height, within a stretch of grid bounded by the *neighbouring* waves
+rather than by a fixed distance — because a window wide enough to hold the
+shock at one resolution holds the contact as well at another, and the
+half-height then has two crossings and the answer is whichever one the
+search reached first. Bounded this way there is exactly one crossing, or the
+measurement is refused.
+
+| cells | offset from the exact position | in cells | ratio |
+|---|---|---|---|
+| 200 | `2.43e−3` | 0.49 | |
+| 400 | `1.09e−3` | 0.44 | 2.22 |
+| 800 | `5.26e−4` | 0.42 | 2.08 |
+
+Two statements about the same feature pointing opposite ways: the absolute
+offset halves at every doubling — first order — while the offset *in cells*
+does not move, because the jump never gets narrower than the grid. The
+picture carries both. The `L1` carries neither.
+
+At 200 cells the blast wave's contact and shock are only nine cells apart,
+and the measurement is refused as unresolved rather than reported. That is
+the same choice the lattice views make about modes at the round-off floor:
+the reader should be told which parts of the picture are not results.
+
+### The remaining two
+
+**The scheme overlay** zooms to the plateau between the contact and the
+shock, because that is the only place the schemes visibly differ; everywhere
+else they lie on top of each other and on the exact solution, and a legend
+of `L1` values next to identical curves looks arbitrary. Each curve carries
+its own error so the ordering in the legend can be read against the ordering
+in the picture.
+
+**The resolution study** annotates the slope of every interval rather than
+fitting one order through all the points. On the blast wave those are 0.89,
+1.14 and 0.76 over successive doublings — a rate that is not settling, which
+a single fitted 0.93 reports as a rate.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared

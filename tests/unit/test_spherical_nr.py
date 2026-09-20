@@ -2,8 +2,15 @@
 
 import numpy as np
 import pytest
+from scipy.integrate import quad
 
 from particlesim.core.spherical import SphericalGrid
+from particlesim.solvers.nr.polar import (
+    midpoint_mass,
+    midpoints,
+    solve_lapse,
+    solve_polar_metric,
+)
 from particlesim.solvers.nr.spherical import (
     ScalarCollapse,
     SphericalState,
@@ -190,3 +197,139 @@ def test_refining_the_grid_resolves_data_a_coarse_grid_refuses():
     assert (a >= 1.0 - 1e-12).all()
     assert fine.adm_mass(a) > 0
     assert (1 - 1 / a**2).max() > 0.99
+
+
+def test_the_midpoint_stencil_falls_back_rather_than_reading_past_the_end():
+    """Two points do not span the fourth-order stencil. The interpolation is
+    used by the lapse solve on whatever radial extent it is handed, so the
+    short case has to degrade to the average rather than index out of range.
+    """
+    values = np.array([1.0, 3.0])
+    np.testing.assert_allclose(midpoints(values), [2.0])
+    assert len(midpoints(np.arange(3.0))) == 2
+
+
+def test_the_midpoint_stencil_is_exact_for_a_cubic():
+    """Fourth-order accuracy means the four-point stencil reproduces any
+    cubic exactly, endpoints included -- the endpoints use a one-sided
+    quadratic, so they are held to the weaker claim they actually make.
+    """
+    x = np.linspace(0.0, 3.0, 8)
+    cubic = 2.0 - 0.5 * x + 0.25 * x**2 - 0.125 * x**3
+    mid = x[:-1] + 0.5 * (x[1] - x[0])
+    exact = 2.0 - 0.5 * mid + 0.25 * mid**2 - 0.125 * mid**3
+    np.testing.assert_allclose(midpoints(cubic)[1:-1], exact[1:-1], rtol=1e-12)
+
+
+@pytest.mark.parametrize(
+    ("label", "peak", "r_max"),
+    [("shell away from the origin", 2.0, 6.0), ("matter filling the centre", 0.0, 4.0)],
+)
+def test_the_lapse_quadrature_is_fourth_order_in_the_mass_it_samples(label, peak, r_max):
+    """The slicing condition's slope depends on the mass, so Simpson's rule
+    needs the mass at each cell midpoint and the accuracy of *that* sets the
+    accuracy of the lapse. This measures the quadrature alone: the mass and
+    its derivative are handed in exactly, so the mass solve cannot
+    contribute, and the answer is an integral scipy evaluates independently.
+
+    Both placements are tested because they fail differently. Away from the
+    origin, interpolating the midpoint mass from values alone is enough --
+    the four-point stencil gets fourth order there and only the two-point
+    average is second. With matter at the centre, where the mass is cubic in
+    the radius and the slope carries ``m / r^2``, the stencil is second order
+    too: 2.00 against Hermite's 4.00, and at 800 cells twenty thousand times
+    less accurate. A shell-only test would have passed the stencil.
+    """
+    amplitude, width = (0.05, 0.35) if peak else (0.02, 1.5)
+
+    def mass_of(r):
+        return amplitude * r**3 * np.exp(-(((r - peak) / width) ** 2))
+
+    def dmass_of(r):
+        shape = np.exp(-(((r - peak) / width) ** 2))
+        return amplitude * shape * (3 * r**2 - 2 * r**3 * (r - peak) / width**2)
+
+    def slope_of(r, m):
+        return m / (r**2 * (1.0 - 2.0 * m / r))
+
+    errors = []
+    for n in (50, 100, 200, 400):
+        dr = r_max / n
+        radii = (np.arange(n) + 0.5) * dr
+        mass = mass_of(radii)
+        alpha = solve_lapse(
+            radii,
+            dr,
+            mass,
+            lambda i, mid, r, m: slope_of(r, m),
+            lambda i, mid, r, m: dmass_of(r),
+        )
+        # The grid's last point is r_max - dr/2, not r_max. Integrating the
+        # truth to r_max instead leaves a half cell out, which is O(dr) and
+        # swamps everything being measured -- it reads as first order.
+        exact, _ = quad(lambda r: slope_of(r, mass_of(r)), 0.0, radii[-1], limit=400, epsabs=1e-14)
+        first_cell = 0.5 * radii[0] * slope_of(radii[0], mass[0])
+        errors.append(abs(float(np.log(alpha[-1] / alpha[0])) + first_cell - exact))
+
+    orders = [np.log2(errors[i] / errors[i + 1]) for i in range(len(errors) - 1)]
+    assert all(3.5 < o < 4.3 for o in orders), f"{label}: orders were {orders}, errors {errors}"
+
+
+def test_the_midpoint_mass_is_exact_where_the_mass_is_cubic():
+    """The Misner-Sharp mass goes as ``C r^3`` at the origin and the lapse
+    slope carries ``m / r^2``, so a relative error in the midpoint mass at
+    the innermost cell is divided by ``h^2`` and survives as ``O(h^2)`` in
+    the integral. Both rules that use values alone are badly wrong there and
+    in opposite directions, which is why swapping one for the other changes
+    the sign of the lapse perturbation at the centre rather than just its
+    size. Hermite fits a cubic through the values and the derivatives, so on
+    a cubic it is not approximately right but exact.
+    """
+    spacing = 0.25
+    radii = (np.arange(6) + 0.5) * spacing
+    coefficient = 1.7
+    mass = coefficient * radii**3
+
+    def mass_slope(index, mid, radius, value):
+        return 3.0 * coefficient * radius**2
+
+    hermite = midpoint_mass(radii, spacing, mass, mass_slope)
+    truth = coefficient * (radii[:-1] + 0.5 * spacing) ** 3
+    np.testing.assert_allclose(hermite, truth, rtol=1e-13)
+
+    # What the value-only rules do at that first midpoint, for the record.
+    average = 0.5 * (mass[0] + mass[1])
+    stencil = midpoints(mass)[0]
+    assert average / truth[0] == pytest.approx(1.75, rel=1e-12)
+    assert stencil / truth[0] == pytest.approx(0.625, rel=1e-12)
+
+
+def test_the_metric_solve_hands_the_mass_derivative_to_the_lapse():
+    """The quadrature tests call ``solve_lapse`` directly, so they would not
+    notice the mass source quietly ceasing to be passed through. That
+    threading is the whole fix: without it the lapse falls back to
+    interpolating from values alone, which is second order wherever there is
+    matter at the centre. This pins the wiring rather than the arithmetic.
+    """
+    radii = (np.arange(40) + 0.5) * 0.1
+    density = np.exp(-((radii / 0.8) ** 2))
+    source = 2.0 * np.pi * radii**2 * density
+    source_mid = midpoints(source)
+    density_mid = midpoints(density)
+
+    def mass_slope(index, mid, radius, mass):
+        value = source_mid[index] if mid else source[index]
+        return value * (1.0 - 2.0 * mass / radius)
+
+    def lapse_slope(index, mid, radius, mass):
+        value = density_mid[index] if mid else density[index]
+        return mass / (radius**2 * (1.0 - 2.0 * mass / radius)) + 2.0 * np.pi * radius * value
+
+    _, alpha, mass = solve_polar_metric(radii, 0.1, mass_slope, lapse_slope)
+    hermite = solve_lapse(radii, 0.1, mass, lapse_slope, mass_slope)
+    values_only = solve_lapse(radii, 0.1, mass, lapse_slope)
+
+    np.testing.assert_allclose(alpha, hermite, rtol=0, atol=0)
+    assert not np.allclose(alpha, values_only, rtol=1e-9), (
+        "the two rules agree, so this data cannot tell them apart and the test proves nothing"
+    )

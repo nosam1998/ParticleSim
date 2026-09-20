@@ -73,7 +73,7 @@ from particlesim.solvers.hydro.srhd import (
     conserved_to_primitive,
     primitive_to_conserved,
 )
-from particlesim.solvers.nr.polar import midpoints, solve_lapse, solve_mass
+from particlesim.solvers.nr.polar import Source, midpoints, solve_lapse, solve_mass
 
 #: Rest-mass density of the atmosphere, as a fraction of the central density.
 ATMOSPHERE = 1e-10
@@ -144,6 +144,10 @@ class SphericalHydro:
     # --- the constraint solve -------------------------------------------
 
     def _mass(self, densitised_energy: np.ndarray) -> np.ndarray:
+        """The Misner-Sharp mass. See :meth:`_mass_source` for the equation."""
+        return solve_mass(self.radii, self.spacing, self._mass_source(densitised_energy))
+
+    def _mass_source(self, densitised_energy: np.ndarray) -> Source:
         """``dm/dr = 4 pi (E + D_h) sqrt(1 - 2m/r)``, which needs no recovery.
 
         The factor is the whole reason to evolve densitised variables: the
@@ -151,6 +155,13 @@ class SphericalHydro:
         ``a`` is what the integration is solving for, so writing the source
         with ``sqrt(1 - 2m/r)`` in it removes the circularity rather than
         iterating around it.
+
+        It is returned rather than consumed because the lapse solve wants it
+        too. The slicing condition samples the mass at cell midpoints, and
+        interpolating to those from values alone is wrong by 75% at the
+        innermost one, where the mass is cubic in the radius. Handing the
+        derivative over lets that interpolation be a Hermite fit, which is
+        exact for a cubic.
         """
         total = 4.0 * np.pi * densitised_energy
         middle = midpoints(total)
@@ -159,9 +170,11 @@ class SphericalHydro:
             value = middle[index] if mid else total[index]
             return value * math.sqrt(max(1.0 - 2.0 * mass / radius, 0.0))
 
-        return solve_mass(self.radii, self.spacing, slope)
+        return slope
 
-    def _lapse(self, mass: np.ndarray, radial_stress: np.ndarray) -> np.ndarray:
+    def _lapse(
+        self, mass: np.ndarray, radial_stress: np.ndarray, mass_slope: Source | None = None
+    ) -> np.ndarray:
         """``d(ln alpha)/dr = (m + 4 pi r^3 S^r_r)/(r(r - 2m))``, the polar condition."""
         stress_mid = midpoints(radial_stress)
 
@@ -169,7 +182,7 @@ class SphericalHydro:
             stress = stress_mid[index] if mid else radial_stress[index]
             return (value + 4.0 * np.pi * radius**3 * stress) / (radius * (radius - 2.0 * value))
 
-        return solve_lapse(self.radii, self.spacing, mass, slope)
+        return solve_lapse(self.radii, self.spacing, mass, slope, mass_slope)
 
     def decompose(self, state: np.ndarray):
         """``(rho, v, p, a, alpha, m)`` from the densitised conserved variables.
@@ -181,7 +194,8 @@ class SphericalHydro:
         """
         state = np.asarray(state, dtype=float)
         radii = self.radii
-        mass = self._mass(state[0] + state[2])
+        mass_source = self._mass_source(state[0] + state[2])
+        mass = solve_mass(radii, self.spacing, mass_source)
         a = 1.0 / np.sqrt(1.0 - 2.0 * mass / radii)
         volume = a * radii**2
 
@@ -191,7 +205,7 @@ class SphericalHydro:
         rest, velocity, pressure = conserved_to_primitive(
             density, momentum, energy, self.eos, self.recovery_tolerance
         )
-        lapse = self._lapse(mass, momentum * velocity + pressure)
+        lapse = self._lapse(mass, momentum * velocity + pressure, mass_source)
         return rest, velocity, pressure, a, lapse, mass
 
     def regularise(self, density, momentum, energy):

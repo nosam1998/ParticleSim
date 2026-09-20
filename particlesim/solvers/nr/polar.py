@@ -46,6 +46,10 @@ def midpoints(values: np.ndarray) -> np.ndarray:
     order regardless of the Runge-Kutta stage count, which is the usual way
     an ostensibly fourth-order code turns out to be second order.
     """
+    if len(values) < 3:
+        # Two points carry no third derivative to cancel, so the average is
+        # the best available and the caller is below the stencil's width.
+        return 0.5 * (values[:-1] + values[1:])
     out = np.empty(len(values) - 1)
     out[1:-1] = (-values[:-3] + 9 * values[1:-2] + 9 * values[2:-1] - values[3:]) / 16.0
     out[0] = (3 * values[0] + 6 * values[1] - values[2]) / 8.0
@@ -101,15 +105,84 @@ def solve_mass(radii: np.ndarray, spacing: float, slope: Source) -> np.ndarray:
     return mass
 
 
-def solve_lapse(radii: np.ndarray, spacing: float, mass: np.ndarray, slope: Source) -> np.ndarray:
+def midpoint_mass(
+    radii: np.ndarray,
+    spacing: float,
+    mass: np.ndarray,
+    mass_slope: Source | None = None,
+) -> np.ndarray:
+    """The mass at cell midpoints, for the lapse quadrature to sample.
+
+    **Hermite, not interpolation from values alone, and the reason is the
+    origin.** The Misner-Sharp mass behaves as ``m = C r^3`` near ``r = 0``,
+    and the lapse slope carries ``m / r^2``, so a *relative* error in the
+    mass at the first midpoint is divided by ``h^2`` and survives in the
+    integral as ``O(h^2)``. Both obvious rules are badly wrong exactly there.
+    With cell centres at ``(i + 1/2) h`` the first midpoint sits at ``r = h``,
+    and against the true ``C h^3``:
+
+    ===========================  ==========
+    two-point average             ``+75%``
+    one-sided quadratic stencil   ``-37.5%``
+    cubic Hermite                 exact
+    ===========================  ==========
+
+    The two are not merely inaccurate but wrong in opposite directions, which
+    is worse than it sounds: swapping one for the other flips the sign of the
+    lapse perturbation at the centre, and the origin is where this solver is
+    least forgiving. Doing that alone -- replacing the average with the
+    fourth-order stencil, which is the smaller error of the two -- reawakened
+    a growing mode at the origin that the average had happened to suppress.
+
+    Hermite avoids the choice. It fits a cubic through ``m`` and ``dm/dr`` at
+    the two bracketing nodes, so it is exact for a cubic and therefore exact
+    where the mass is one, and it is fourth-order accurate everywhere else
+    with no one-sided stencil at either end. The derivative is free: the mass
+    source is already a callable and is what the mass solve integrated.
+
+    Without ``mass_slope`` there is no derivative to use and this falls back
+    to :func:`midpoints`, which is fourth order away from the origin and
+    carries the ``-37.5%`` first-midpoint error described above.
+    """
+    if mass_slope is None:
+        return midpoints(mass)
+    derivative = np.array(
+        [mass_slope(index, False, radii[index], mass[index]) for index in range(len(radii))]
+    )
+    return 0.5 * (mass[:-1] + mass[1:]) + spacing / 8.0 * (derivative[:-1] - derivative[1:])
+
+
+def solve_lapse(
+    radii: np.ndarray,
+    spacing: float,
+    mass: np.ndarray,
+    slope: Source,
+    mass_slope: Source | None = None,
+) -> np.ndarray:
     """Simpson's rule for ``ln alpha``, normalised so ``alpha a -> 1`` at the edge.
 
     The boundary condition is that the outermost point matches Schwarzschild,
     which is what makes the lapse a gauge choice with a physical asymptote
     rather than an arbitrary scale.
+
+    **Pass** ``mass_slope`` **whenever there is one.** The slicing
+    condition's slope depends on the mass, so Simpson's midpoint sample needs
+    ``m`` at the midpoint, and how that is obtained is what sets the order of
+    the whole lapse -- see :func:`midpoint_mass`, which explains why the two
+    ways of getting it from values alone are both wrong at the origin and
+    what the derivative buys. Omitting it is second order wherever there is
+    matter at the centre.
+
+    Simpson's rule offers no protection here. A midpoint error enters every
+    interval with weight ``4 dr / 6``, and summing ``1/dr`` of them preserves
+    whatever order the interpolation had. The lapse converged at second order
+    while the mass beside it converged at fourth, and it survived because of
+    what was being measured: the convergence test watched the ADM mass, which
+    the mass solve already had right, and the lapse was never measured on its
+    own.
     """
     middle = radii[:-1] + 0.5 * spacing
-    mass_middle = 0.5 * (mass[:-1] + mass[1:])
+    mass_middle = midpoint_mass(radii, spacing, mass, mass_slope)
     logarithm = np.empty_like(radii)
     # Near the origin the integrand is linear in r, so the first interval
     # integrates to the integrand at the first point times half its radius.
@@ -126,7 +199,7 @@ def solve_lapse(radii: np.ndarray, spacing: float, mass: np.ndarray, slope: Sour
 def solve_polar_metric(radii: np.ndarray, spacing: float, mass_slope: Source, lapse_slope: Source):
     """``(a, alpha, m)``. The lapse solve runs second because it needs the mass."""
     mass = solve_mass(radii, spacing, mass_slope)
-    lapse = solve_lapse(radii, spacing, mass, lapse_slope)
+    lapse = solve_lapse(radii, spacing, mass, lapse_slope, mass_slope)
     return 1.0 / np.sqrt(1.0 - 2.0 * mass / radii), lapse, mass
 
 
@@ -139,6 +212,7 @@ __all__ = [
     "PolarSlicingBreakdown",
     "Source",
     "mass_aspect",
+    "midpoint_mass",
     "midpoints",
     "solve_lapse",
     "solve_mass",

@@ -4109,6 +4109,152 @@ published magnetised tubes use, which `GammaLaw` refuses because the sound
 speed reaches one in its ultrarelativistic limit; the tubes here run at
 `Γ = 5/3`.
 
+## A star that is an exact solution, and the branch it sits on
+
+Issue #57's remaining task — the coupling to `nr.spherical` — and issue
+#58's acceptance, which was waiting on it. The fluid is evolved in
+conservative form on a polar-areal background whose metric is recovered from
+the constraints at every stage rather than evolved, so the constraints
+cannot drift: they are solved, not monitored.
+
+### The right-hand side vanishes on a Tolman-Oppenheimer-Volkoff star
+
+A static star is an exact solution of this system, so every sign and factor
+in the flux divergence and the three source terms has to cancel against the
+others. Setting the momentum equation to zero at rest gives
+
+    alpha p' + (e + p) alpha' = 0
+
+and the polar slicing condition gives `alpha'/alpha = (m + 4 pi r^3 p)/(r(r
+- 2m))`, whose product is exactly the structure equation `solve_tov`
+integrates. The evolution and the stellar-structure solver are the same
+physics reached two different ways, and the suite compares them rather than
+trusting either.
+
+| reconstruction | max abs(rhs) at 800 cells | orders over 200 -> 400 -> 800 |
+|---|---|---|
+| minmod | `6.26e-8` | 1.98, 1.99 |
+| PPM (Colella-Sekora) | `1.15e-8` | 2.00, 2.00 |
+| WENO5 | `1.15e-8` | 2.00, 2.00 |
+
+**That the order does not improve with the reconstruction is the informative
+part.** What caps it is the source term, evaluated at the cell centre rather
+than averaged over the cell — an `O(dx^2)` error no face interpolation can
+undo. The higher-order schemes are five times smaller in absolute terms and
+exactly as convergent, which is the signature of a constant-factor
+improvement rather than an order one. A well-balanced quadrature of the
+source is what would lift it, and is not here.
+
+**The control matters more than the convergence.** The first version of this
+was caught by a residual that sat flat at 1% while the grid was refined
+eightfold: the star had been built with one adiabatic index and evolved with
+another, so it was not a solution of the system being evolved. A residual
+that does not converge is a different statement from one that is merely
+large, and the suite keeps the mismatched case so the converging one means
+something.
+
+The metric solve is checked the same way — against the integration that
+produced the star. The ADM mass agrees with `solve_tov` to `1e-5`, the
+exterior `a` with Schwarzschild to `1e-4`, and `alpha a = 1` outside the
+star.
+
+### Issue #58's acceptance
+
+A star at `rho_c = 4.83e-4` (`2M/R = 0.251`), on a 160-cell grid, over ten
+dynamical times:
+
+| dynamical times | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `L2` of `drho/rho_c`, times 1e4 | 1.28 | 1.79 | 0.76 | 0.66 | 1.50 | 1.15 | 1.20 | 0.79 | 1.22 | 0.88 |
+
+`8.8e-5` at the end, an order of magnitude inside the `1e-3` the acceptance
+asks for, with the rest mass conserved to `3.6e-6` and the ADM mass to
+`1.1e-5`. What matters more than the final number is that the sequence
+**comes back down**: a star ringing about its equilibrium and a star leaving
+it look identical at any single time, and only the shape of the history
+tells them apart. A marginally stable star at `rho_c = 1.24e-3`
+(`2M/R = 0.377`, just below the turning point) gives `6.7e-4` over the same
+ten times.
+
+### The check the acceptance does not ask for
+
+A star past the maximum-mass point of its own sequence is unstable to radial
+collapse. `solve_tov` locates that point without evolving anything — it is
+where `dM/drho_c` changes sign — so the evolution can be asked to agree, and
+the quantity compared is the *sign of a derivative*, which no tolerance can
+be tuned to. For `Gamma = 1.9`, `K = 100`, the turning point is at
+`rho_c = 1.39e-3`. Perturbing each star with the same `1e-3` velocity kick
+and evolving five dynamical times:
+
+| `rho_c` | `2M/R` | `dM/drho_c` | perturbation, in units of the kick |
+|---|---|---|---|
+| `4.83e-4` | 0.251 | `+6.74e3` | 2.6 |
+| `8.61e-4` | 0.330 | `+1.16e3` | 2.2 |
+| `1.24e-3` | 0.377 | `+1.35e2` | 12.5 |
+| `1.79e-3` | 0.416 | `-1.43e2` | 57 |
+| `2.34e-3` | 0.438 | `-1.62e2` | 122 |
+| `2.89e-3` | 0.450 | `-1.38e2` | 195 |
+| `3.78e-3` | 0.460 | `-9.78e1` | 356 |
+| `4.85e-3` | 0.461 | `-6.47e1` | 559 |
+
+Two orders of magnitude apart, with the crossover between the two rows that
+bracket the sign change, and the amplitude rising monotonically past it.
+
+This was found the wrong way round, which is worth recording. The first long
+run was set up at `rho_c = 2.34e-3` and grew exponentially with the error
+concentrated within `r/R < 0.13`, and the growth persisted under refinement.
+That is the signature of a numerical instability at the origin — and it was
+not one. The star was simply on the unstable branch and the code had found
+out. An hour spent looking for a bug in a correct answer is the cost of not
+checking which branch a test star sits on.
+
+### The limiter at the stellar centre, again
+
+The centre of a star is a smooth maximum of the density, and a
+one-sided-slope limiter cannot tell a smooth extremum from an overshoot.
+Measured directly: minmod zeroes the density slope in **cell zero** — the
+centre — at 100, 200 and 400 cells alike. That is a systematic forcing
+applied every stage at exactly the place the error grows, and it shows:
+
+| dynamical times | 0.5 | 1.0 | 2.0 |
+|---|---|---|---|
+| minmod, `L2` of `drho/rho_c` | `1.45e-4` | `5.08e-4` | `1.21e-3` |
+| PPM (Colella-Sekora) | `7.88e-5` | `1.15e-4` | `4.15e-5` |
+
+One rises monotonically; the other comes back down. It is the same finding
+as the advected pulse in the issue #57 section, arriving this time as a
+physical consequence rather than a convergence rate — and it is the
+difference between a star that drifts off its equilibrium and one that rings
+about it.
+
+### The floor that is easy to miss
+
+Outside the star there is nothing to evolve and a great deal that can go
+wrong. The obvious floor is on the density, held at a fixed *fraction* of
+the central density so a star and the same star rescaled behave identically.
+The second one is easy to miss: the recovery has a root only if the energy
+can pay for the momentum, and for a cold flow
+
+    tau = sqrt(D^2 + S^2) - D
+
+exactly. A single step that hands an atmosphere cell some momentum without
+the energy to carry it lands below that, and the recovery then does not
+misbehave — it refuses, several thousand steps into a run, naming numbers
+that look perfectly ordinary (`D = 2.3e-13`, `S = -3.7e-16`,
+`tau = 2.6e-23`). Both floors are applied to the conserved variables before
+any recovery is attempted, and both break conservation where they fire,
+which is why `floored_mass` reports how much.
+
+### What is not here
+
+The coupling to `nr.bssn`, which is three-dimensional and a different
+problem. A well-balanced source quadrature, which is what caps the static
+residual at second order. And gravitational collapse through a horizon,
+which polar-areal slicing cannot cover: it is horizon-avoiding, so a
+collapsing star asymptotes to `2m/r = 1` with the lapse collapsing rather
+than forming a trapped surface, and the constraint integration raises
+`PolarSlicingBreakdown` rather than continuing past it.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared
@@ -4399,16 +4545,17 @@ the design document.
   published figures, since the exact solution is what those figures are.
   Both standard tubes' star states come out at the digits the literature
   quotes, and the exact solver is itself held to the jump conditions of the
-  scheme's own flux. What is *not* done in #57 is the coupling to
-  `nr.spherical` and `nr.bssn`: this pass is flat-space and
-  one-dimensional, with no metric source terms.
-- TOV star stable for 10 dynamical times, L2 density error below 1e-3 (issue #58)
-  — the equation-of-state layer and the star are in, checked against the
-  Schwarzschild interior solution to 1e-9 and the Lane-Emden radius at first
-  order in the compactness. The *stability* half needs a spherical evolution
-  with gravity, which #57's flat one-dimensional core is not; #59 and the
-  metric coupling deferred out of #57 are what it waits on.
-  `Star.dynamical_time` is there for it.
+  scheme's own flux. The coupling to `nr.spherical` is done too, with the
+  curvature source terms held to a star that is an exact solution of them.
+  What remains of #57 is `nr.bssn`, which is three-dimensional and a
+  different problem.
+- TOV star stable for 10 dynamical times, L2 density error below 1e-3 (issue
+  #58) — **done**, at `8.8e-5` on a 160-cell grid, and the history comes
+  back down rather than only growing. The sharper statement is the one the
+  acceptance does not ask for: the evolution puts the stability boundary
+  where `solve_tov` puts the turning point of `M(rho_c)`, bounded below it
+  and exponential above, comparing the sign of a derivative rather than a
+  tolerance.
 
 ### Milestone 6, lattice
 - Two-dimensional φ⁴ critical coupling, to 1% (issue #63) — the hybrid Monte

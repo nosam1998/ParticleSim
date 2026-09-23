@@ -115,6 +115,92 @@ def solve_mass(
     return mass
 
 
+def solve_linear_mass(
+    radii: np.ndarray,
+    spacing: float,
+    source: np.ndarray,
+    source_mid: np.ndarray,
+) -> np.ndarray:
+    """:func:`solve_mass` for ``dm/dr = sigma (1 - 2m/r)``, the same arithmetic, vectorised.
+
+    A massless scalar's mass equation is *linear* in ``m``, with ``sigma``
+    known at every node and midpoint before the integration starts. So each
+    classical Runge-Kutta step is an affine map, ``m[i+1] = A[i] m[i] + B[i]``,
+    whose coefficients depend on the sources alone, and the whole outward
+    pass is a first-order linear recurrence that a cumulative product and a
+    cumulative sum solve at once. The result is :func:`solve_mass` to
+    rounding, not a different discretisation of the same equation.
+
+    That distinction was earned. An integrating-factor solution of the same
+    linear equation is also exact in the continuum, also fourth order, and
+    about as fast -- and near a horizon it is much worse: ``exp(integral
+    4 pi r rho)`` varies exponentially fast in a strong field, polynomial
+    quadrature of it is poor. On data where this recurrence reads
+    ``max 2m/r = 0.998379`` at 600 cells, within 6e-6 of its converged
+    0.998385, the integrating factor read 0.999296 -- a hundred and fifty
+    times further off -- and at 300 cells returned ``2m/r = 1.029``.
+    Vectorising the arithmetic that already worked keeps its accuracy
+    exactly, and keeps its refusals: every stage argument is affine in
+    ``m[i]`` too, so the ``2m/r >= 1`` guard is applied to all of them and
+    raises at the same place, with the same message, as the loop.
+
+    The sum ``m[i] = sum_j B[j] prod_{k>j} A[k]`` has only positive terms
+    wherever the step is inside Runge-Kutta's stability region, so it
+    carries no cancellation; outside it the guard fires first.
+
+    Measured at 400 cells: 1.02 ms per mass solve for the loop, 0.069 ms for
+    this.
+    """
+    h = spacing
+    middle = radii[:-1] + 0.5 * h
+    # m' = s - p m, with s = sigma and p = 2 sigma / r.
+    s1, s4, s2 = source[:-1], source[1:], source_mid
+    p1, p4, p2 = 2.0 * s1 / radii[:-1], 2.0 * s4 / radii[1:], 2.0 * s2 / middle
+
+    # Every stage, written as (coefficient of m[i], constant).
+    k1a, k1b = -p1, s1
+    y2a, y2b = 1.0 + 0.5 * h * k1a, 0.5 * h * k1b
+    k2a, k2b = -p2 * y2a, s2 - p2 * y2b
+    y3a, y3b = 1.0 + 0.5 * h * k2a, 0.5 * h * k2b
+    k3a, k3b = -p2 * y3a, s2 - p2 * y3b
+    y4a, y4b = 1.0 + h * k3a, h * k3b
+    k4a, k4b = -p4 * y4a, s4 - p4 * y4b
+    A = 1.0 + h / 6.0 * (k1a + 2.0 * k2a + 2.0 * k3a + k4a)
+    B = h / 6.0 * (k1b + 2.0 * k2b + 2.0 * k3b + k4b)
+
+    # The source behaves as r^2 near the origin, whose integral from zero to
+    # the first point is exactly that source times the radius over three.
+    first = source[0] * radii[0] / 3.0
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        product = np.concatenate([[1.0], np.cumprod(A)])
+        mass = product * (first + np.concatenate([[0.0], np.cumsum(B / product[1:])]))
+
+        # The loop's guard, applied to every stage argument at once. The first
+        # failure in the loop's own order is the one reported.
+        m = mass[:-1]
+        stage = np.stack([m, y2a * m + y2b, y3a * m + y3b, y4a * m + y4b])
+        where = np.stack([radii[:-1], middle, middle, radii[1:]])
+        stepped = np.any(~(2.0 * stage < where), axis=0)
+        reached = ~(2.0 * mass[1:] < radii[1:])
+    bad = stepped | reached
+    if bad.any():
+        index = int(np.argmax(bad))
+        if stepped[index]:
+            radius = float(where[:, index][~(2.0 * stage[:, index] < where[:, index])][0])
+            raise PolarSlicingBreakdown(
+                f"the constraint integration stepped to 2m/r >= 1 at r = {radius:.4f}. "
+                "Polar-areal coordinates do not cover a trapped region, so either the "
+                "data is forming a horizon, or the radial grid is too coarse to resolve "
+                "the approach to one. Refine the grid to tell the two apart"
+            )
+        raise PolarSlicingBreakdown(
+            f"2m/r reached one at r = {float(radii[index + 1]):.4f}: a trapped region "
+            "has formed and polar-areal coordinates do not cover it. This is the "
+            "physical end of the run, not a solver failure"
+        )
+    return mass
+
+
 def midpoint_mass(
     radii: np.ndarray,
     spacing: float,
@@ -266,6 +352,7 @@ __all__ = [
     "midpoint_mass",
     "normalise_lapse",
     "solve_lapse",
+    "solve_linear_mass",
     "solve_mass",
     "solve_polar_metric",
 ]

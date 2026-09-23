@@ -333,3 +333,63 @@ def test_the_metric_solve_hands_the_mass_derivative_to_the_lapse():
     assert not np.allclose(alpha, values_only, rtol=1e-9), (
         "the two rules agree, so this data cannot tell them apart and the test proves nothing"
     )
+
+
+def _callable_metric(sim, Phi, Pi):
+    """The metric exactly as ``solve_metric`` computed it before vectorising."""
+    from particlesim.solvers.nr.polar import solve_polar_metric
+
+    density = Pi**2 + Phi**2
+    source = 2.0 * np.pi * sim.r**2 * density
+    source_mid, density_mid = midpoints(source), midpoints(density)
+
+    def mass_slope(i, mid, radius, mass):
+        return (source_mid[i] if mid else source[i]) * (1.0 - 2.0 * mass / radius)
+
+    def lapse_slope(i, mid, radius, mass):
+        value = density_mid[i] if mid else density[i]
+        return mass / (radius**2 * (1.0 - 2.0 * mass / radius)) + 2.0 * np.pi * radius * value
+
+    a, alpha, _ = solve_polar_metric(sim.r, sim.dr, mass_slope, lapse_slope)
+    return a, alpha
+
+
+@pytest.mark.parametrize(
+    ("r_max", "n", "amplitude", "r0", "width"),
+    [
+        (10.0, 400, 3e-3, 3.0, 0.7),  # weak shell
+        (20.0, 1600, 0.01, 8.0, 1.0),  # strong, resolved: 2m/r reaches 0.998
+        (20.0, 600, 0.01, 8.0, 1.0),  # near a horizon on a coarse grid
+    ],
+)
+def test_the_vectorised_metric_is_the_loop_to_rounding(r_max, n, amplitude, r0, width):
+    """Vectorising changed the arithmetic's order, not the arithmetic.
+
+    That was the requirement, because a different discretisation of the same
+    equation was tried first and failed: an integrating-factor solution is
+    exact in the continuum and fourth order, and near a horizon it read
+    ``max 2m/r = 0.999296`` where this reads 0.998379, against a converged
+    0.998385. The comparison runs where the lapse spans forty-eight decades,
+    which is where rounding differences would compound if anything did.
+    """
+    sim = sim_at(n, r_max=r_max)
+    st = gaussian_pulse(sim.grid, amplitude=amplitude, r0=r0, width=width, ingoing=True)
+    a_new, alpha_new = sim.solve_metric(st.Phi, st.Pi)
+    a_old, alpha_old = _callable_metric(sim, st.Phi, st.Pi)
+    np.testing.assert_allclose(a_new, a_old, rtol=1e-12, atol=0)
+    np.testing.assert_allclose(alpha_new, alpha_old, rtol=1e-11, atol=0)
+
+
+def test_the_vectorised_metric_refuses_where_the_loop_refused():
+    """The loop raised when any Runge-Kutta stage stepped to ``2m/r >= 1``.
+    Every stage is affine in the mass, so the vectorised solve checks all of
+    them and must raise at the same radius, with the same words."""
+    from particlesim.solvers.nr.spherical import PolarSlicingBreakdown
+
+    sim = sim_at(300)
+    st = gaussian_pulse(sim.grid, amplitude=0.01, r0=8.0, width=1.0, ingoing=True)
+    with pytest.raises(PolarSlicingBreakdown) as old:
+        _callable_metric(sim, st.Phi, st.Pi)
+    with pytest.raises(PolarSlicingBreakdown) as new:
+        sim.solve_metric(st.Phi, st.Pi)
+    assert str(new.value) == str(old.value)

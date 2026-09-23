@@ -4936,6 +4936,57 @@ uniform run after only four coarse steps, over which a signal from the
 interface travels a tenth of a unit and never reaches the region being
 compared: a flat `5e-10` at every resolution, measuring nothing at all.
 
+## The same arithmetic, vectorised, and a faster method that was worse
+
+Profiling one scalar-collapse step at 400 cells: 16.1 ms, of which ninety per
+cent was the metric solve — a Python loop over cells for the mass
+(Runge-Kutta) and another for the lapse (Simpson). A threshold search is
+twenty-odd runs, and a refinement hierarchy calls the solve on every level at
+every Runge-Kutta stage, so the refinement work of issue #111 was going to be
+unaffordable before it was finished.
+
+**The first idea was a better method, and it was wrong in the place that
+matters.** The scalar's mass equation `dm/dr = s (1 − 2m/r)` is linear in `m`,
+so it has an exact integrating-factor solution built from cumulative
+integrals, which vectorise. Written for `x = 1 − 2m/r` it is even positive by
+construction. It was fourth order on smooth data, exact in vacuum, and 27×
+faster. Near a horizon:
+
+| cells | Runge-Kutta loop | integrating factor |
+|---|---|---|
+| 300 | refused | `2m/r = 1.029` |
+| 600 | 0.9983791 | 0.9992963 |
+| 1600 | 0.9983845 | 0.9983991 |
+| 6400 | 0.9983846 | 0.9983846 |
+
+The integrating factor is `exp(∫ 4πr ρ dr)`, which varies exponentially fast in
+a strong field, and polynomial quadrature of a steep exponential is poor. At
+600 cells it is 150 times further from the converged value than the loop it
+was meant to replace — and "positive by construction" did not survive
+under-resolution either.
+
+**The fix was to keep the arithmetic and change only its order.** Because the
+equation is linear in `m`, each classical Runge-Kutta step is an affine map
+`m[i+1] = A[i] m[i] + B[i]` whose coefficients depend on the sources alone,
+and the whole outward pass is a linear recurrence that a cumulative product
+and a cumulative sum solve at once. Every stage argument is affine in `m[i]`
+too, so the loop's `2m/r ≥ 1` guard applies to all of them at once and raises
+at the same radius with the same message. Once the mass is known the lapse is
+a quadrature, and Simpson's rule is a cumulative sum.
+
+| | loop | vectorised |
+|---|---|---|
+| mass solve, 400 cells | 1.02 ms | 0.069 ms |
+| full step, 400 cells | 16.1 ms | 0.9 ms |
+| collapse run to `t = 16` | 41 s | 2 s |
+| agreement | — | 5e-13 relative, where the lapse spans 48 decades |
+| refusals | — | identical, same message |
+
+The recurrence has only positive terms wherever the step is inside
+Runge-Kutta's stability region, so there is no cancellation to amplify; outside
+it the guard fires first. The fluid's mass equation carries `sqrt(1 − 2m/r)`
+and is not linear, so it keeps the loop.
+
 ## Not implemented yet
 
 Grouped by the milestone that will add them. Each is named in Section 10 of

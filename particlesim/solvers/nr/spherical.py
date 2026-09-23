@@ -204,10 +204,22 @@ class ScalarCollapse:
 
     # --- evolution ------------------------------------------------------
 
-    def rhs(self, state: SphericalState) -> tuple[np.ndarray, np.ndarray]:
+    def rhs(
+        self,
+        state: SphericalState,
+        metric: tuple[np.ndarray, np.ndarray] | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """``(dPhi/dt, dPi/dt)``, solving for the metric unless one is supplied.
+
+        ``metric`` exists for refinement levels. A level's own solve gets
+        ``a`` right, because the mass is local, but normalises the lapse at
+        the level's own outer edge as though that edge were the asymptotic
+        boundary. It is not, unless the matter happens to lie entirely
+        inside it; see :mod:`particlesim.solvers.nr.subcycle`.
+        """
         r = self.r
         Phi, Pi = state.Phi, state.Pi
-        a, alpha = self.solve_metric(Phi, Pi)
+        a, alpha = self.solve_metric(Phi, Pi) if metric is None else metric
         f = alpha / a
 
         # Phi is odd across the origin and Pi is even; alpha, a and so f are

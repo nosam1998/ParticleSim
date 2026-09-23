@@ -4841,6 +4841,101 @@ the wrong conclusion. Anything that reaches across the origin has to be fed
 a field that genuinely has the parity it is told to assume, and a
 convergence test is not a check on that.
 
+## Subcycling in time, and the lapse a refinement level cannot solve for
+
+The refinement levels now evolve (issue #111). Each takes its own Courant
+step, a child `RATIO` of them per parent step, and after the child has caught
+up its solution is restricted onto the parent cells it covers. A single-level
+`Subcycler` reproduces the ordinary solver bit for bit.
+
+**Boundary data in time.** A child's outer edge is an interface, and it needs
+the parent's solution at instants the parent never lands on. Interpolating
+linearly between the parent's two endpoints is the textbook choice. Measured
+on the solver's own data, half a step in:
+
+| step | linear | Hermite |
+|---|---|---|
+| `dt` | 1.52e-6 | 1.81e-11 |
+| `dt/2` | 3.80e-7 (2.00) | 1.13e-12 (4.00) |
+| `dt/4` | 9.49e-8 (2.00) | 7.04e-14 (4.00) |
+
+The parent has already evaluated its right-hand side at both ends of its
+step, so a cubic Hermite through both values and both slopes costs nothing
+extra and is eighty thousand times more accurate at the working step size.
+
+**The lapse, which no level can solve for alone.** Each level solves its own
+constraints, and for the mass that is fine: the Misner-Sharp mass depends only
+on the matter inside a radius. The lapse is different. The slicing condition
+fixes `d(ln alpha)/dr` locally, but the constant is fixed at the asymptotic
+boundary, and a child's own solve fixes it at the child's outer edge instead —
+as though that edge were infinity.
+
+That is only true if every bit of matter lies inside the child, and the first
+two-level run happened to arrange exactly that: an ingoing shell at `r = 3`
+with the refinement boundary at `r = 5`, vacuum at the interface. It matched a
+uniform grid at the child's spacing to four figures and converged at 17.3 per
+doubling. Moving the boundary to `r = 2.5`, inside the shell:
+
+| boundary | hierarchy vs uniform at child spacing | per doubling |
+|---|---|---|
+| `r = 5` (vacuum) | 1.11e-7 → 6.72e-9 → 4.15e-10 | 16.5, 16.2 |
+| `r = 2.5`, child normalises itself | 6.50e-3 → 6.66e-3 | **1.0** |
+| `r = 2.5`, lapse taken from the parent | 5.28e-5 → 3.32e-6 → 2.24e-7 | 15.9, 14.8 |
+
+With its own normalisation the child is nine hundred times *worse* than not
+refining at all, at every resolution. Its lapse is off by a constant factor —
+about 11% for this shell, measurable at `t = 0` without evolving anything — so
+the child runs at the wrong rate of coordinate time, and that is not a
+truncation error for refinement to remove. A collapse run puts matter across
+every refinement boundary, twice: once on the way in and again as the pulse
+disperses. The vacuum placement was the one configuration in which the defect
+cannot appear.
+
+The fix keeps each level's own `a`, and its own lapse *profile*, since
+`d(ln alpha)/dr` is local, and rescales the profile so its outermost value
+agrees with the parent's lapse there at that instant. The parent's is taken
+from its own parent the same way, so a question the finest level asks about
+its own stage time is carried, through every intermediate step, to the
+coarsest level — which alone sees the asymptotic boundary. Three levels
+converge at 14.8 per doubling.
+
+**Each ingredient, removed.** The contrasts are in the tests rather than
+asserted, since both defects produce runs that look healthy:
+
+| variant, boundary inside the shell | n = 100 | n = 200 | ratio |
+|---|---|---|---|
+| Hermite in time, parent's lapse | 5.28e-5 | 3.32e-6 | 15.9 |
+| linear in time | 7.56e-5 | 1.11e-5 | 6.8 |
+| child normalises its own lapse | 6.50e-3 | 6.66e-3 | 1.0 |
+
+Linear interpolation reads 6.8 rather than a clean 4 because the interior's
+fourth-order error is still mixed in at these resolutions; it is three times
+worse at the finer one and falling more slowly.
+
+**ADM mass, conserved across the boundary.** The pulse is ingoing and nothing
+leaves the grid over two light-crossing units, so the ADM mass is fixed and
+any change is error. Read from the composite constraint solve, which takes
+each radius from the finest level that owns it, with the matter straddling
+the boundary at `r = 2.5`:
+
+| coarse cells | hierarchy | uniform n | uniform 2n |
+|---|---|---|---|
+| 100 | 1.33e-3 | 1.52e-3 | 9.85e-5 |
+| 200 | 7.53e-5 (×17.7) | 9.85e-5 | 6.24e-6 |
+
+The r = 2.5 hierarchy does not reach the uniform run's accuracy, and should
+not: the pulse spends part of its trip on the coarse level before it enters
+the child, and refining afterwards cannot recover what was lost before. What
+the measurement shows is that nothing further is lost at the interface.
+
+**The measurement lied twice more on the way.** The first comparison was
+probed with `np.interp`, which is piecewise linear, and reported second order
+for the hierarchy *and* for a plain uniform grid — impossible for the latter,
+which is what gave it away. And an early version compared the child with the
+uniform run after only four coarse steps, over which a signal from the
+interface travels a tenth of a unit and never reaches the region being
+compared: a flat `5e-10` at every resolution, measuring nothing at all.
+
 ## Not implemented yet
 
 Grouped by the milestone that will add them. Each is named in Section 10 of

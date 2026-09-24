@@ -110,6 +110,9 @@ def _module(backend: str):
 #: time and spend more in XLA than in the run.
 _DISSIPATORS: dict[Any, Callable] = {}
 
+#: Whether the Gamma-driver's ``B^i`` also gets ``Gammabar^i``'s upwind correction.
+DRIVER_SEES_UPWIND = True
+
 #: Compiled upwinding corrections, keyed the same way.
 _UPWINDERS: dict[Any, Callable] = {}
 
@@ -517,6 +520,7 @@ class Evolution:
     damping: float = 2.0
     enforce: bool = True
     upwind: bool = False
+    advect: bool = True
 
     @classmethod
     def build(
@@ -532,6 +536,7 @@ class Evolution:
         jit: bool = True,
         enforce: bool = True,
         upwind: bool = False,
+        advect: bool = True,
     ) -> Evolution:
         kernel = rhs_kernel(
             order=order,
@@ -539,6 +544,7 @@ class Evolution:
             slicing=slicing,
             shift_condition=shift_condition,
             damping=damping,
+            advect=advect,
             jit=jit,
         )
         return cls(
@@ -554,6 +560,7 @@ class Evolution:
             damping=damping,
             enforce=enforce,
             upwind=upwind,
+            advect=advect,
         )
 
     @property
@@ -644,7 +651,8 @@ class Evolution:
             damped = self._dissipator()(module.stack([state[name] for name in names]))
             rates = {name: rates[name] + damped[index] for index, name in enumerate(names)}
         if self.upwind:
-            advected = [name for name in state if name not in UNADVECTED]
+            gauge = set() if self.advect else {"alpha", *(f"beta{i}" for i in INDICES)}
+            advected = [name for name in state if name not in UNADVECTED | gauge]
             shift = module.stack([state[f"beta{i}"] for i in INDICES])
             corrections = self._upwinder()(module.stack([state[name] for name in advected]), shift)
             for index, name in enumerate(advected):
@@ -657,7 +665,11 @@ class Evolution:
                 # coordinates. Measured on a two-level puncture before this
                 # line: the conformal metric reached 11 at r = 2.4 M and the
                 # run failed at t = 90 M.
-                if name.startswith("Gt") and self.shift_condition == "gamma_driver":
+                if (
+                    DRIVER_SEES_UPWIND
+                    and name.startswith("Gt")
+                    and self.shift_condition == "gamma_driver"
+                ):
                     driver = f"B{name[2:]}"
                     if driver in rates:
                         rates[driver] = rates[driver] + corrections[index]

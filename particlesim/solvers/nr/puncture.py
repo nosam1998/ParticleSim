@@ -86,6 +86,7 @@ class TwoLevelPuncture:
         upwind: bool = True,
         dissipation: float = bssn.DISSIPATION,
         buffer: int = 6,
+        advect: bool = True,
         backend: str = "jax",
     ) -> tuple[TwoLevelPuncture, dict[str, Any], dict[str, Any]]:
         """The setup and its initial coarse and fine states.
@@ -109,7 +110,11 @@ class TwoLevelPuncture:
         fine_axis = origin * spacing + np.arange(mesh.RATIO * box) * spacing / mesh.RATIO
 
         evolution = bssn.Evolution.build(
-            (spacing,) * DIMENSION, backend=backend, dissipation=dissipation, upwind=upwind
+            (spacing,) * DIMENSION,
+            backend=backend,
+            dissipation=dissipation,
+            upwind=upwind,
+            advect=advect,
         )
         width = max(3, int(round(zone / spacing)))
         coarse_mesh = np.meshgrid(axis, axis, axis, indexing="ij")

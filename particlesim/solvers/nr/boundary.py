@@ -256,6 +256,28 @@ class Bounded:
     def time_step(self) -> float:
         return self.evolution.time_step
 
+    # What a refinement hierarchy asks of its coarse level, so that a bounded
+    # evolution can be one: the outer boundary belongs to the coarsest level
+    # and to no other.
+    @property
+    def spacing(self) -> tuple[float, ...]:
+        return self.evolution.spacing
+
+    @property
+    def order(self) -> int:
+        return self.evolution.order
+
+    @property
+    def backend(self) -> str:
+        return self.evolution.backend
+
+    @property
+    def enforce(self) -> bool:
+        return self.evolution.enforce
+
+    def project(self, state) -> dict[str, Any]:
+        return self.evolution.project(state)
+
     def step(self, state, time_step: float | None = None):
         """One classical fourth-order step, the boundary applied at each stage."""
         step = self.time_step if time_step is None else float(time_step)

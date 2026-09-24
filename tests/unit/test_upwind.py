@@ -117,3 +117,25 @@ def test_upwinding_is_refused_at_other_orders():
     _, upwinded = _evolutions(spacing)
     with pytest.raises(ValueError, match="order 4 only"):
         replace(upwinded, order=2).right_hand_side(state)
+
+
+@pytest.mark.slow
+def test_the_gamma_driver_sees_the_upwinded_connection_rate():
+    """``d_t B^i = d_t Gammabar^i - eta B^i``, so ``B^i`` gets exactly ``Gammabar^i``'s correction.
+
+    Without it a stationary ``Gammabar^i`` still drives ``B^i`` by minus the
+    correction, ``B`` settles away from zero and the shift grows without
+    bound. On a two-level puncture that took the conformal metric to 11 at
+    ``r = 2.4 M`` and ended the run at ``t = 90 M``.
+    """
+    state, spacing = _state(16)
+    x = np.arange(16)[:, None, None] / 16
+    state["Gt0"] = 0.01 * np.sin(2 * np.pi * x) * np.ones((1, 16, 4))
+    kwargs = dict(slicing="one_plus_log", shift_condition="gamma_driver", dissipation=0.0)
+    centred = bssn.Evolution.build(spacing, **kwargs)
+    upwinded = bssn.Evolution.build(spacing, upwind=True, **kwargs)
+    plain, corrected = centred.right_hand_side(state), upwinded.right_hand_side(state)
+    connection = np.asarray(corrected["Gt0"]) - np.asarray(plain["Gt0"])
+    driver = np.asarray(corrected["B0"]) - np.asarray(plain["B0"])
+    assert np.max(np.abs(connection)) > 1e-6
+    assert np.max(np.abs(driver - connection)) < 1e-12

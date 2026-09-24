@@ -649,6 +649,18 @@ class Evolution:
             corrections = self._upwinder()(module.stack([state[name] for name in advected]), shift)
             for index, name in enumerate(advected):
                 rates[name] = rates[name] + corrections[index]
+                # The Gamma-driver's B^i is driven by d_t Gammabar^i itself, so
+                # it has to see the same upwinded rate Gammabar^i does. Leave it
+                # the kernel's centred one and a stationary Gammabar^i still
+                # drives d_t B^i = -(correction) - eta B^i: B settles away from
+                # zero, the shift grows without bound and drags the
+                # coordinates. Measured on a two-level puncture before this
+                # line: the conformal metric reached 11 at r = 2.4 M and the
+                # run failed at t = 90 M.
+                if name.startswith("Gt") and self.shift_condition == "gamma_driver":
+                    driver = f"B{name[2:]}"
+                    if driver in rates:
+                        rates[driver] = rates[driver] + corrections[index]
         return rates
 
     def _raw_step(self, state, step):

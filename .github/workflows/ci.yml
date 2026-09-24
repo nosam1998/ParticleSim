@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -43,4 +44,23 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked --all-extras
-      - run: uv run pytest -q -m slow
+      # The 3D kernels are derived by SymPy on first use and cached on disk;
+      # a CCZ4 right-hand side takes over ten minutes on a runner. Without
+      # the cache every run re-derives each of them, and with pytest's
+      # 600 s default the first test to need one times out mid-derivation,
+      # so nothing is cached and the next test starts over. Restore and
+      # save are separate so the cache is kept even when a test fails.
+      - name: Restore derived kernels
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/particlesim
+          key: kernels-${{ hashFiles('particlesim/symbolic/**', 'particlesim/solvers/nr/**') }}
+          restore-keys: kernels-
+      # A test that derives a kernel pays for it inside its own timeout.
+      - run: uv run pytest -q -m slow -o timeout=2400
+      - name: Save derived kernels
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/particlesim
+          key: kernels-${{ hashFiles('particlesim/symbolic/**', 'particlesim/solvers/nr/**') }}

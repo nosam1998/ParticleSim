@@ -8,11 +8,14 @@ import particlesim.solvers.nr.subcycle as subcycle
 from particlesim.core.interpolate import hermite
 from particlesim.core.spherical import SphericalGrid
 from particlesim.solvers.nr.hierarchy import RATIO, Hierarchy, Level, _interpolate
+from particlesim.solvers.nr.polar import PolarSlicingBreakdown
 from particlesim.solvers.nr.spherical import ScalarCollapse, gaussian_pulse
 from particlesim.solvers.nr.subcycle import (
+    ANCHOR_CELLS,
     INTERFACE_CELLS,
     Interface,
     Subcycler,
+    mass_flux,
     normalised_metric,
 )
 
@@ -203,7 +206,9 @@ def test_a_child_normalising_its_own_lapse_does_not_converge_at_all(monkeypatch)
     monkeypatch.setattr(
         subcycle,
         "normalised_metric",
-        lambda sim, state, interface, fraction: real(sim, state, None, fraction),
+        lambda sim, state, interface, fraction, anchor=None: real(
+            sim, state, None, fraction, anchor
+        ),
     )
     near, far = distances([INSIDE_THE_SHELL])
     assert far > 1e-3 and near / far < 1.5, f"distances {near:.3e}, {far:.3e}"
@@ -246,3 +251,65 @@ def test_the_adm_mass_is_conserved_through_a_refinement_boundary():
         drifts.append(abs(adm(sub.hierarchy()) - start) / start)
     assert drifts[1] < drifts[0] / 12.0, f"drifts {drifts}"
     assert drifts[1] < 1e-4
+
+
+# --- a parent's covered interior ----------------------------------------
+
+
+def test_an_anchored_solve_given_the_true_mass_is_the_plain_solve():
+    grid = SphericalGrid(r_max=R_MAX, n=400)
+    sim = ScalarCollapse(grid)
+    state = gaussian_pulse(grid, amplitude=AMPLITUDE, r0=CENTRE, width=WIDTH, ingoing=True)
+    a, alpha = sim.solve_metric(state.Phi, state.Pi)
+    mass = 0.5 * sim.r * (1.0 - 1.0 / a**2)
+    anchored = sim.solve_anchored_metric(state.Phi, state.Pi, 100, float(mass[100]))
+    np.testing.assert_allclose(anchored[0], a, rtol=1e-14)
+    np.testing.assert_allclose(anchored[1], alpha, rtol=1e-14)
+
+
+def test_the_mass_flux_is_the_rate_the_mass_changes():
+    """``dm/dt = 4 pi r^2 alpha Phi Pi / a^3`` at a fixed radius, against the
+    mass the constraint solve returns there, differenced in time."""
+    sim = ScalarCollapse(SphericalGrid(r_max=R_MAX, n=400))
+    state = gaussian_pulse(sim.grid, amplitude=AMPLITUDE, r0=CENTRE, width=WIDTH, ingoing=True)
+    cell = 100
+    times, masses, fluxes = [], [], []
+    for _ in range(int(2.0 / sim.dt)):
+        metric = sim.solve_metric(state.Phi, state.Pi)
+        times.append(state.t)
+        masses.append(0.5 * sim.r[cell] * (1.0 - 1.0 / metric[0][cell] ** 2))
+        fluxes.append(mass_flux(sim, state, metric, cell))
+        state = sim.step(state, sim.dt)
+    rate = np.gradient(np.array(masses), np.array(times))
+    fluxes = np.array(fluxes)
+    assert np.abs(rate - fluxes)[2:-2].max() < 2e-3 * np.abs(fluxes).max()
+
+
+def test_nothing_in_a_parent_s_covered_interior_reaches_outside_it():
+    """A parent steps its own copy of the region its child covers, and near
+    threshold that copy holds structure far below its spacing. Integrating
+    the mass through it once stopped a dispersing run with a ``2m/r >= 1`` at
+    the base grid's first cell, and fed a wrong mass into every level's lapse.
+
+    So fill the covered interior with values no solve could accept and step:
+    nothing may refuse, and the child -- whose data and lapse both come from
+    the parent -- must come out exactly as it does from clean data.
+    """
+    clean = nested(200, [INSIDE_THE_SHELL])
+    parent = clean.levels[0]
+    Phi, Pi = np.array(parent.Phi), np.array(parent.Pi)
+    anchor = int(round(clean.levels[1].outer / parent.spacing)) - ANCHOR_CELLS
+    reach = 12  # one step: four stages through the dissipation's three cells
+    Phi[: anchor - reach] = 40.0
+    Pi[: anchor - reach] = 40.0
+    with pytest.raises(PolarSlicingBreakdown):
+        ScalarCollapse(parent.grid).solve_metric(Phi, Pi)
+    dirty = Hierarchy([Level(parent.grid, Phi, Pi), clean.levels[1]])
+
+    ends = []
+    for hierarchy in (clean, dirty):
+        sub = Subcycler(hierarchy, courant=COURANT)
+        sub.step()
+        ends.append(sub.states[1])
+    np.testing.assert_allclose(ends[1].Phi, ends[0].Phi, rtol=0.0, atol=1e-13)
+    np.testing.assert_allclose(ends[1].Pi, ends[0].Pi, rtol=0.0, atol=1e-13)

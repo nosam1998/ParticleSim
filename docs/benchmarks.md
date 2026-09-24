@@ -5098,6 +5098,56 @@ retired them all by `t = 7.5`, and the curvature at the origin fell below
 1e-6 by `t = 11.5` and to 4e-8 by 15.5 — where the uniform grid at this
 amplitude, before the fix, had held 9e3.
 
+## A parent's copy of its child's region stopped runs that were dispersing
+
+A level with a child keeps evolving its own copy of the region the child
+covers; the restriction overwrites it after every step, and the Richardson
+estimate needs it. Near threshold that copy holds structure hundreds of times
+smaller than its spacing, and the level's constraint solve integrated the
+mass straight through it. Two things followed, both invisible until the
+threshold search was pushed below a relative distance of about 1e-7.
+
+**It stopped runs that were dispersing.** Bisected to 1e-12, the threshold on
+the curvature-trigger hierarchy put 5e-8 below it on the supercritical side.
+Traced, that run's composite solution was dispersing — `2m/r` down to 0.27,
+the lapse at the centre back up from 0.043 to 0.135 — when the base level,
+spacing 0.025, raised `2m/r ≥ 1` at its first cell, `r = 0.0125`, during its
+own step. The search reads a refused slicing as collapse.
+
+**And it made the verdict non-monotonic.** The same mass, integrated through
+the covered region, fixes the lapse every finer level is normalised to, so
+under-resolved noise in the base grid's copy of the origin set the rate of
+coordinate time for the whole hierarchy. Below the bisected threshold:
+
+| `1 − p/p*` | before | after |
+|---|---|---|
+| 1.5e-7 | subcritical, peak 1.86e6 | subcritical, 1.87e6 |
+| 1e-7 | **supercritical** (refused) | subcritical, 2.25e6 |
+| 5e-8 | **supercritical** (refused) | subcritical, 3.34e6 |
+| 1e-8 | subcritical, 5.42e6 | subcritical, 5.42e6 |
+
+**The fix is the one the issue asked for:** the mass accumulating continuously
+through level boundaries. A level with a child takes the mass at an anchor
+cell fourteen cells inside the child's edge from the finer levels, at the
+start of each of its steps while they are all at the same instant, and
+integrates outward from there. During the step the anchor mass is one more
+Runge-Kutta variable, advanced by the flux through that sphere,
+`dm/dt = 4π r² α Φ Π / a³` — checked against the mass the constraint solve
+returns, differenced in time, to 5e-5 at 800 cells — and a child asking for
+its parent's metric mid-step gets the mass by the same cubic Hermite as the
+fields. The lapse is integrated separately on each side of the anchor, so
+that not even a `nan` in the covered copy can reach the cells outside it. The
+covered interior keeps its own solve, matched at the anchor, and falls back
+to a regular profile where that refuses.
+
+Fourteen cells because one Runge-Kutta step reaches twelve — four stages,
+each through the three-cell radius of the dissipation — and the child's
+interface reads the two parent cells inside its edge. With the covered
+interior deeper than that filled with values no solve accepts, the child
+comes out of a step identical to one from clean data. The fourth-order and
+ADM-conservation tests through a refinement boundary pass unchanged, and a
+single level's metric solve is bit-for-bit what it was.
+
 ## Not implemented yet
 
 Grouped by the milestone that will add them. Each is named in Section 10 of

@@ -108,6 +108,12 @@ from particlesim.solvers.nr.spherical import ScalarCollapse, SphericalState
 #: Two is what the fourth-order centred stencil reaches for.
 INTERFACE_CELLS = 2
 
+#: Cells between a parent's mass anchor and its child's edge; see
+#: :meth:`Subcycler._anchor`. One step reaches twelve cells -- four stages,
+#: each through the three-cell radius of the dissipation -- and the child's
+#: interface reads the two parent cells inside its edge.
+ANCHOR_CELLS = 14
+
 Metric = tuple[np.ndarray, np.ndarray]
 
 
@@ -133,6 +139,13 @@ class Interface:
     upstream: Interface | None = None
     offset: float = 0.0
     span: float = 1.0
+    #: The parent's anchor cell and the mass there at both ends of its step,
+    #: with the flux that carries it; see :func:`step_anchored`.
+    anchor: int | None = None
+    mass_before: float = 0.0
+    mass_after: float = 0.0
+    flux_before: float = 0.0
+    flux_after: float = 0.0
     _metrics: dict[float, Metric] = field(default_factory=dict, repr=False)
 
     def upstream_fraction(self, fraction: float) -> float:
@@ -170,11 +183,25 @@ class Interface:
             _interpolate(level, radii, state.Pi, odd=False),
         )
 
+    def anchor_at(self, fraction: float) -> tuple[int, float] | None:
+        """The parent's anchor mass at that instant, by the same cubic Hermite."""
+        if self.anchor is None:
+            return None
+        f = min(max(fraction, 0.0), 1.0)
+        mass = hermite(
+            self.mass_before, self.mass_after, self.flux_before, self.flux_after, self.step, f
+        )
+        return self.anchor, float(mass)
+
     def metric_at(self, fraction: float) -> Metric:
         """The parent's metric at that instant, with its lapse properly normalised."""
         if fraction not in self._metrics:
             self._metrics[fraction] = normalised_metric(
-                self.sim, self.state_at(fraction), self.upstream, self.upstream_fraction(fraction)
+                self.sim,
+                self.state_at(fraction),
+                self.upstream,
+                self.upstream_fraction(fraction),
+                self.anchor_at(fraction),
             )
         return self._metrics[fraction]
 
@@ -190,6 +217,7 @@ def normalised_metric(
     state: SphericalState,
     interface: Interface | None,
     fraction: float,
+    anchor: tuple[int, float] | None = None,
 ) -> Metric:
     """``(a, alpha)`` on one level, with the lapse taken from the parent at the edge.
 
@@ -199,8 +227,15 @@ def normalised_metric(
     whole profile is rescaled until its outermost value is the parent's there.
     The coarsest level has no parent and is normalised against the asymptotic
     boundary, which is the one place that normalisation is true.
+
+    ``anchor`` is ``(cell, mass)`` for a level with a child: the mass there
+    is given rather than integrated through the covered region; see
+    :meth:`~particlesim.solvers.nr.spherical.ScalarCollapse.solve_anchored_metric`.
     """
-    a, alpha = sim.solve_metric(state.Phi, state.Pi)
+    if anchor is None:
+        a, alpha = sim.solve_metric(state.Phi, state.Pi)
+    else:
+        a, alpha = sim.solve_anchored_metric(state.Phi, state.Pi, *anchor)
     if interface is None:
         return a, alpha
     edge = interface.lapse_at(fraction, float(sim.r[-1]))
@@ -212,24 +247,43 @@ def level_slope(
     state: SphericalState,
     interface: Interface | None,
     fraction: float,
-) -> tuple[SphericalState, tuple[np.ndarray, np.ndarray]]:
-    """The level's state with its interface cells filled, and its right-hand side.
+    anchor: tuple[int, float] | None = None,
+) -> tuple[SphericalState, tuple[np.ndarray, np.ndarray], Metric | None]:
+    """The level's state with its interface cells filled, its right-hand side,
+    and the metric that went into it.
 
     Without an interface the level is the outermost one: its own metric
     solve is correct and its own outgoing condition applies.
     """
     if interface is None:
-        return state, sim.rhs(state)
+        if anchor is None:
+            return state, sim.rhs(state), None
+        metric = normalised_metric(sim, state, None, fraction, anchor)
+        return state, sim.rhs(state, metric), metric
     phi, pi = interface.fields_at(fraction, sim.r[-INTERFACE_CELLS:])
     Phi, Pi = np.array(state.Phi), np.array(state.Pi)
     Phi[-INTERFACE_CELLS:], Pi[-INTERFACE_CELLS:] = phi, pi
     driven = state.with_fields(Phi, Pi)
-    dPhi, dPi = sim.rhs(driven, normalised_metric(sim, driven, interface, fraction))
+    metric = normalised_metric(sim, driven, interface, fraction, anchor)
+    dPhi, dPi = sim.rhs(driven, metric)
     # The interface cells are prescribed at every stage, so they must not
     # also integrate on their own.
     dPhi[-INTERFACE_CELLS:] = 0.0
     dPi[-INTERFACE_CELLS:] = 0.0
-    return driven, (dPhi, dPi)
+    return driven, (dPhi, dPi), metric
+
+
+def mass_flux(sim: ScalarCollapse, state: SphericalState, metric: Metric, index: int) -> float:
+    """``dm/dt`` at ``r[index]``: ``4 pi r^2 alpha Phi Pi / a^3``.
+
+    The momentum constraint, ``da/dt = 4 pi r alpha Phi Pi``, written for the
+    Misner-Sharp mass ``m = (r/2)(1 - 1/a^2)``. The mass inside a sphere
+    changes only by what crosses it.
+    """
+    a, alpha = metric
+    r = float(sim.r[index])
+    flux = state.Phi[index] * state.Pi[index] * alpha[index] / a[index] ** 3
+    return float(4.0 * np.pi * r**2 * flux)
 
 
 def step_with_interface(
@@ -266,6 +320,46 @@ def step_with_interface(
     Pi = state.Pi + dt / 6.0 * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])
     after = SphericalState(state.t + dt, Phi, Pi)
     return level_slope(sim, after, interface, offset + span)[0]
+
+
+def step_anchored(
+    sim: ScalarCollapse,
+    state: SphericalState,
+    dt: float,
+    interface: Interface | None,
+    offset: float,
+    index: int,
+    mass: float,
+) -> tuple[SphericalState, float]:
+    """:func:`step_with_interface` for a level with a child, carrying its anchor mass.
+
+    The mass at the anchor cell is one more variable of the same Runge-Kutta
+    step, with the flux through that sphere as its right-hand side, so it is
+    fourth order in time like everything else. It starts every step from the
+    finer levels' value (:meth:`Subcycler._anchor`) the way the covered
+    fields start from their restriction.
+    """
+    span = dt / interface.step if interface is not None else 1.0
+
+    def slope(fields: SphericalState, fraction: float, m: float):
+        driven, k, metric = level_slope(sim, fields, interface, fraction, (index, m))
+        return k, mass_flux(sim, driven, metric, index)
+
+    k1, f1 = slope(state, offset, mass)
+    s2 = state.with_fields(state.Phi + 0.5 * dt * k1[0], state.Pi + 0.5 * dt * k1[1])
+    k2, f2 = slope(s2, offset + 0.5 * span, mass + 0.5 * dt * f1)
+    s3 = state.with_fields(state.Phi + 0.5 * dt * k2[0], state.Pi + 0.5 * dt * k2[1])
+    k3, f3 = slope(s3, offset + 0.5 * span, mass + 0.5 * dt * f2)
+    s4 = state.with_fields(state.Phi + dt * k3[0], state.Pi + dt * k3[1])
+    k4, f4 = slope(s4, offset + span, mass + dt * f3)
+
+    Phi = state.Phi + dt / 6.0 * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0])
+    Pi = state.Pi + dt / 6.0 * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])
+    after_mass = mass + dt / 6.0 * (f1 + 2 * f2 + 2 * f3 + f4)
+    after = SphericalState(state.t + dt, Phi, Pi)
+    if interface is not None:
+        after = level_slope(sim, after, interface, offset + span, (index, after_mass))[0]
+    return after, after_mass
 
 
 class Subcycler:
@@ -372,20 +466,39 @@ class Subcycler:
 
     def _advance(self, index: int, dt: float, interface: Interface | None, offset: float) -> None:
         sim, before = self.sims[index], self.states[index]
-        after = step_with_interface(sim, before, dt, interface, offset)
+        anchor = self._anchor(index)
+        if anchor is None:
+            after = step_with_interface(sim, before, dt, interface, offset)
+        else:
+            after, after_mass = step_anchored(sim, before, dt, interface, offset, *anchor)
 
         if index + 1 < self.depth:
             span = dt / interface.step if interface is not None else 1.0
+            pinned = None if anchor is None else (anchor[0], after_mass)
+            start, slope_before, metric_before = level_slope(sim, before, interface, offset, anchor)
+            end, slope_after, metric_after = level_slope(
+                sim, after, interface, offset + span, pinned
+            )
+            anchored = {}
+            if anchor is not None:
+                anchored = {
+                    "anchor": anchor[0],
+                    "mass_before": anchor[1],
+                    "mass_after": after_mass,
+                    "flux_before": mass_flux(sim, start, metric_before, anchor[0]),
+                    "flux_after": mass_flux(sim, end, metric_after, anchor[0]),
+                }
             child = Interface(
                 sim=sim,
                 before=before,
                 after=after,
-                slope_before=level_slope(sim, before, interface, offset)[1],
-                slope_after=level_slope(sim, after, interface, offset + span)[1],
+                slope_before=slope_before,
+                slope_after=slope_after,
                 step=dt,
                 upstream=interface,
                 offset=offset,
                 span=span,
+                **anchored,
             )
             for k in range(RATIO):
                 self._advance(index + 1, dt / RATIO, child, k / RATIO)
@@ -397,6 +510,39 @@ class Subcycler:
         regridding = self.tolerance is not None or self.cells_per_radius is not None
         if regridding and index == max(self.depth - 2, 0):
             self._regrid()
+
+    def _anchor(self, index: int) -> tuple[int, float] | None:
+        """``(cell, mass)`` where a level with a child takes its mass from the child.
+
+        The cell sits ``ANCHOR_CELLS`` inside the child's edge: far enough in
+        that nothing the level does to its covered interior during a step can
+        reach the cells that feed the child's interface, and inside the region
+        the child owns, where its mass is well resolved. ``None`` for the
+        finest level, and for a child too small to leave room.
+        """
+        if index + 1 >= self.depth:
+            return None
+        sim, child = self.sims[index], self.sims[index + 1]
+        cell = int(round(child.grid.r_max / sim.dr)) - ANCHOR_CELLS
+        if cell < ANCHOR_CELLS:
+            return None
+        return cell, self._mass_at(index + 1, float(sim.r[cell]))
+
+    def _mass_at(self, index: int, radius: float) -> float:
+        """The Misner-Sharp mass inside ``radius`` from level ``index`` and those below.
+
+        Called while every level from ``index`` down is at the same instant,
+        so each takes its own anchor from the next, down to the finest.
+        """
+        sim, state = self.sims[index], self.states[index]
+        anchor = self._anchor(index)
+        if anchor is None:
+            a, _ = sim.solve_metric(state.Phi, state.Pi)
+        else:
+            a, _ = sim.solve_anchored_metric(state.Phi, state.Pi, *anchor)
+        mass = 0.5 * sim.r * (1.0 - 1.0 / a**2)
+        level = Level(sim.grid, mass, mass)
+        return float(_interpolate(level, np.array([radius]), mass, odd=True)[0])
 
     def _restrict(self, index: int, parent: SphericalState) -> SphericalState:
         """Carry the child's solution back onto the parent cells it evolved.

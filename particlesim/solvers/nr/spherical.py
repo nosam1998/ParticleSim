@@ -131,18 +131,21 @@ class ScalarCollapse:
 
     #: Default Kreiss-Oliger coefficient.
     #:
-    #: Measured, not guessed. The spherical flux term ``2 f Phi / r``
-    #: amplifies short-wavelength error at the innermost cell at a rate that
-    #: goes as ``1 / r ~ 2 / dr``, while KO damps it at ``epsilon / dr``. The
-    #: two therefore compete at a value of ``epsilon`` that does not shrink
-    #: with the grid, so the coefficient has a floor no amount of refinement
-    #: removes. Below it a run looks clean for a couple of light-crossing
-    #: times and then grows an origin mode that *creates* ADM mass: at
-    #: ``epsilon = 0.02`` a weak pulse that should disperse to nothing
-    #: instead ends with three times the mass it started with. At 0.1 and at
-    #: 0.2 the physical peak agrees to four figures and the late-time origin
-    #: is quiet, which is what says the dissipation is removing noise rather
-    #: than solution.
+    #: **Not a stability requirement.** It was once: with the ``Pi`` equation
+    #: written expanded, the flux term ``2 f Phi / r`` grew short-wavelength
+    #: error at the innermost cell at a rate ``~ 1/dr`` that only damping at
+    #: ``epsilon/dr`` could hold, so the coefficient had a floor near 0.1 that
+    #: no refinement removed -- below it a weak pulse ended with three times
+    #: the mass it started with, and a near-critical bounce was unstable at
+    #: 0.2. Written conservatively the pair conserves the discrete energy (see
+    #: :meth:`rhs`) and that pulse is clean with no dissipation at all.
+    #:
+    #: What it still does is damp what the grid cannot represent. After a
+    #: bounce 0.4% below threshold at 400 cells, the remains of the last echo
+    #: linger at the origin at a curvature of 37 with no dissipation, 2.0 at
+    #: 0.1 and 0.11 at 0.2, against 5e-6 at 1600 cells where they are
+    #: resolved. None of it makes mass. The physical peak of a strong bounce
+    #: agrees at 0.05, 0.1 and 0.2 to four figures from 800 cells up.
     DEFAULT_DISSIPATION = 0.1
 
     def __init__(
@@ -238,9 +241,19 @@ class ScalarCollapse:
         # their derivatives come out even and odd respectively, as the
         # evolution equations require.
         dPhi = _d_dr(f * Pi, r, parity=1)
-        # Write the flux term as (1/r^2) d(r^2 f Phi)/dr expanded, which keeps
-        # the r^2 factors from cancelling to round-off at large radius.
-        dPi = _d_dr(f * Phi, r, parity=-1) + 2.0 * f * Phi / r
+        # Conservative, not expanded, and that is the whole of the origin's
+        # stability. With the reflection ghosts of a cell-centred grid the
+        # odd-parity stencil is exactly minus the transpose of the even one,
+        # so (1/r^2) D(r^2 g) is minus the adjoint of D in the sum over r^2,
+        # and with f = 1 the pair conserves sum r^2 (Phi^2 + Pi^2) exactly.
+        # Expanded as D(g) + 2 g / r it is not the adjoint, and the defect is
+        # a growth rate ~ 1/dr at the origin; see test_spherical_origin.py.
+        # The price is accuracy at the innermost cells: the stencil's error on
+        # an r^5 term is divided by r^2 ~ dr^2 / 4 there, so the first few are
+        # locally second order. Measured through the ADM mass drift the scheme
+        # is still fourth order, and by that measure six to ten thousand times
+        # more accurate than the expanded form at the same resolution.
+        dPi = _d_dr(r**2 * f * Phi, r, parity=-1) / r**2
 
         if self.dissipation > 0:
             dPhi = dPhi + _dissipate(Phi, self.dr, -1, self.dissipation)

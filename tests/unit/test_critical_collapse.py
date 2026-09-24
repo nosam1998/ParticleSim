@@ -6,10 +6,12 @@ import pytest
 from particlesim.analysis.critical_collapse import (
     InitialDataTooStrong,
     ScalingFit,
+    Threshold,
     bisect_threshold,
     evolve_to_verdict,
     fit_scaling,
     run_amplitude,
+    subcritical_scaling,
 )
 from particlesim.core.spherical import SphericalGrid
 from particlesim.solvers.nr.spherical import ScalarCollapse, gaussian_pulse
@@ -17,7 +19,8 @@ from particlesim.solvers.nr.spherical import ScalarCollapse, gaussian_pulse
 # A thin shell: width / r0 = 1/8, so the initial slice stays weak right up
 # to threshold. The reference threshold below was measured on this family.
 R0, WIDTH, RMAX = 4.0, 0.5, 10.0
-REFERENCE_PSTAR = 8.470419e-4  # n = 400, bracketed to a relative width of 6e-7
+# n = 400, bracketed to a relative width of 4.5e-7. 8.482933e-4 at n = 800.
+REFERENCE_PSTAR = 8.483530e-4
 
 
 def shell(sim: ScalarCollapse, amplitude: float):
@@ -42,10 +45,13 @@ def test_fit_recovers_choptuiks_exponent_from_ideal_data():
 def test_fit_refuses_an_exponent_when_the_peaks_have_plateaued():
     """A plateau is the absence of a measurement, not a noisy one.
 
-    These are the peaks actually measured on a uniform grid at n = 400: two
-    decades in 1 - p/p* and five per cent in the peak. Choptuik's exponent
-    predicts a factor of 5.6 per decade, so fitting a line through this and
-    reporting the slope would be reporting the grid spacing.
+    These are peaks once measured on a uniform grid at n = 400: two decades
+    in 1 - p/p* and five per cent in the peak. Choptuik's exponent predicts a
+    factor of 5.6 per decade, so fitting a line through this and reporting
+    the slope would have been reporting a defect -- which it was, though not
+    the one first blamed. The plateau was an origin instability holding a
+    grid-scale curvature, not the grid failing to resolve the critical
+    solution; see test_uniform_grid_resolves_the_scaling_law_it_once_missed.
     """
     eps = (1e-1, 3e-2, 1e-2, 3e-3, 1e-3)
     measured = (9.1118e3, 9.1432e3, 9.1713e3, 9.5939e3, 9.5857e3)
@@ -126,7 +132,7 @@ def test_the_collapse_threshold_is_sharp_and_resolution_stable():
     the spherical evolution had done, each of them silently.
 
     The reference value comes from an n = 400 search bracketed to a relative
-    width of 6e-7. A coarser grid must land near it, and either side of it
+    width of 4.5e-7. A coarser grid must land near it, and either side of it
     must behave oppositely.
     """
     make = sim_factory(150)
@@ -145,6 +151,34 @@ def test_the_collapse_threshold_is_sharp_and_resolution_stable():
     assert below.peak_compactness < 0.7
     assert above.peak_compactness > 0.75 or above.slicing_refused
     assert above.peak_compactness > 1.4 * below.peak_compactness
+
+
+@pytest.mark.slow
+@pytest.mark.benchmark
+def test_uniform_grid_resolves_the_scaling_law_it_once_missed():
+    """Peak curvature grows toward threshold, as Choptuik's law says it must.
+
+    At this resolution it used not to: three decades in ``1 - p/p*`` moved
+    the peak by six per cent, around 9e3, and the plateau was read as the
+    grid's dynamic range running out. It was an origin instability -- the
+    ``Pi`` equation written in a form that makes energy at the origin, which
+    held a grid-scale curvature there near threshold and made mass while it
+    did (test_spherical_origin.py). With it fixed the peaks grow by a factor
+    of four per decade here.
+
+    This pins that the law is seen, not the exponent's value. The peaks
+    converge with resolution down to ``1 - p/p* = 3e-3`` and grow with it
+    closer than that -- 3.0e3, 3.4e3 and 5.1e3 at 1e-3 on 400, 800 and 1600
+    cells -- so the grid does run out of dynamic range, only much later than
+    the plateau suggested, and an exponent needs the refinement of #111.
+    """
+    make = sim_factory(400)
+    threshold = Threshold(REFERENCE_PSTAR, REFERENCE_PSTAR, resolution=400, evaluations=0)
+    fit = subcritical_scaling(make, shell, threshold, epsilons=(1e-2, 3e-3, 1e-3), t_end=10.0)
+    assert len(fit.epsilons) == 3
+    assert not fit.saturated
+    assert max(fit.peaks) / min(fit.peaks) > 3.5
+    assert 0.25 < fit.gamma < 0.45
 
 
 def test_scaling_fit_is_printable_either_way():

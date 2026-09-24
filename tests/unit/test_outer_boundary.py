@@ -198,9 +198,11 @@ def test_the_boundary_lowers_the_constraint_rather_than_raising_it():
         64      1.243e-03      1.088e-05      0.01
 
     The periodic numbers do not converge at all, since whatever the pulse
-    deposits stays in the domain. The radiative ones converge at order 1.7 to
-    2.0 -- a second-order boundary on a fourth-order interior, which is the
-    real limitation and caps the constraint there.
+    deposits stays in the domain. The radiative ones converged at order 1.7
+    to 2.0 with a second-order stencil at the edge. With
+    :func:`~particlesim.solvers.nr.boundary.edge_derivative` they are
+    9.9e-06, 5.4e-06 and 4.4e-06. What is left there is the bump's own
+    violation, parked at the centre by the frozen shift.
     """
     from particlesim.solvers.nr.bssn import constraint_kernel, physical_slice_arrays
 
@@ -226,3 +228,126 @@ def test_the_boundary_lowers_the_constraint_rather_than_raising_it():
 
     open_domain, closed_domain = hamiltonian(radiative), hamiltonian(periodic)
     assert open_domain < closed_domain / 10.0, (open_domain, closed_domain)
+
+
+# --- the Teukolsky wave -----------------------------------------------------
+
+
+TEUKOLSKY_EXTENT = 10.0
+TEUKOLSKY_ZONE = 1.0
+TEUKOLSKY_CUBE = 2.5
+
+
+def _teukolsky_measure(n: int, final: float, every: float = 0.5):
+    """Evolve a linear Teukolsky wave through the radiative boundary.
+
+    Returns ``(t, amplitude, error)`` samples over the cube ``|x| <= 2.5``,
+    both divided by the wave's amplitude: the largest departure of the
+    conformal metric from flat, and the RMS difference from Teukolsky's
+    closed form at the same time. The closed form is the control a Gaussian
+    pulse did not have -- it says what the interior *should* hold at every
+    moment, including after the wave has gone, so a reflection is measured
+    as error rather than inferred from a norm that failed to fall.
+    """
+    from particlesim.solvers.nr import teukolsky
+
+    amplitude = 1e-6
+    shape = (n, n, n)
+    state, spacing = teukolsky.teukolsky_wave(
+        shape=shape, amplitude=amplitude, width=1.0, extent=TEUKOLSKY_EXTENT
+    )
+    axis = np.linspace(0.0, TEUKOLSKY_EXTENT, n, endpoint=False) - TEUKOLSKY_EXTENT / 2
+    mesh = tuple(np.meshgrid(axis, axis, axis, indexing="ij"))
+    evolution = bssn.Evolution.build(spacing, slicing="harmonic", shift_condition="frozen")
+    width = int(round(TEUKOLSKY_ZONE / spacing[0]))
+    bounded = boundary.Bounded(
+        evolution, boundary.Radiative(coords=mesh, spacing=spacing, axes=AXES, width=width)
+    )
+    inside = np.abs(axis) <= TEUKOLSKY_CUBE + 1e-9
+    cube = np.ix_(inside, inside, inside)
+    names = [f"gt{i}{j}" for i in range(3) for j in range(i, 3)]
+
+    def sample(time, current):
+        exact, _ = teukolsky.teukolsky_wave(
+            shape=shape,
+            amplitude=amplitude,
+            width=1.0,
+            extent=TEUKOLSKY_EXTENT,
+            time=time,
+            backend="numpy",
+        )
+        flat = {name: 1.0 if name[2] == name[3] else 0.0 for name in names}
+        largest = max(
+            float(np.max(np.abs(np.asarray(current[name])[cube] - flat[name]))) for name in names
+        )
+        error = np.sqrt(
+            sum(
+                np.mean((np.asarray(current[name])[cube] - exact[name][cube]) ** 2)
+                for name in names
+            )
+        )
+        return time, largest / amplitude, float(error) / amplitude
+
+    steps = int(round(final / evolution.time_step))
+    step = final / steps
+    stride = max(1, int(round(every / step)))
+    current = dict(state)
+    samples = [sample(0.0, current)]
+    for index in range(1, steps + 1):
+        current = bounded.step(current, step)
+        if index % stride == 0:
+            samples.append(sample(index * step, current))
+    return samples
+
+
+def test_the_edge_derivative_keeps_fourth_order_to_the_last_point():
+    """The condition acts at the outermost points, so their stencil sets its order.
+
+    :func:`particlesim.core.grid.derivative` is second order there; the
+    boundary's own derivative is fourth order everywhere, at both edges.
+    """
+    errors = []
+    for n in (20, 40, 80):
+        x = np.linspace(0.0, 1.0, n)
+        field = np.sin(3 * x)[:, None] * np.ones((1, 4))
+        exact = 3 * np.cos(3 * x)[:, None]
+        errors.append(np.max(np.abs(boundary.edge_derivative(field, 0, x[1] - x[0]) - exact)))
+    orders = np.log2(np.array(errors[:-1]) / np.array(errors[1:]))
+    assert np.all(orders > 3.9), orders
+
+
+@pytest.mark.slow
+@pytest.mark.benchmark
+def test_a_teukolsky_wave_leaves_without_a_reflection_above_truncation():
+    """Issue #132's acceptance test, on the wave it names.
+
+    Linear Teukolsky wave, ``λ = 1``, box of 10 at 40 points, a zone one
+    unit deep starting at ``r = 4``. Measured in the cube ``|x| <= 2.5``
+    against the closed form, as multiples of the amplitude:
+
+        t                 0      2.5    3.5    6.5    8.0    8.5    10
+        largest |h|       48     5.47   3.74   0.142  0.163  0.244  0.129
+        error, fourth     0      0.071  0.063  0.062  0.071  0.064  0.056
+        error, second     0      0.071  0.062  0.114  0.134  0.139  0.109
+
+    Until ``t = 3.5`` the error is the interior's truncation error and the
+    boundary is invisible in it. After the wave has gone, what is left is
+    what came back, and with the fourth-order edge it is no larger than the
+    truncation error was: 0.071 against 0.071. With the second-order edge
+    :func:`particlesim.core.grid.derivative` would have supplied, it is
+    twice that -- which is why the bound below is 1.5 and not 1, and why it
+    is a bound on this boundary's stencil and not a formality.
+
+    Whether that reflection is discretisation or a property of Sommerfeld
+    itself is not something one resolution can say; a box of 12 at 48 and
+    72 points can, and it converges at order 3.2 (``docs/benchmarks.md``).
+    """
+    samples = _teukolsky_measure(40, 10.0)
+    assert all(np.isfinite(value) for _, amp, err in samples for value in (amp, err))
+    initial = samples[0][1]
+    truncation = max(err for time, _, err in samples if time <= 3.5)
+    after = [(amp, err) for time, amp, err in samples if time >= 7.5]
+
+    assert max(err for _, err in after) < 1.5 * truncation, samples
+    # Two orders of magnitude, from 48 to at most 0.24 at this resolution.
+    assert max(amp for amp, _ in after) < initial / 100.0, samples

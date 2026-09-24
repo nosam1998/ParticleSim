@@ -50,11 +50,25 @@ boundaries, at 1.25 crossing times:
 Thirty to a hundred times *better*, because the violation leaves with the
 pulse instead of recirculating forever. The periodic numbers do not converge
 at all -- 1.297, 1.224, 1.243 -- since whatever the pulse deposits stays in
-the domain; the radiative ones converge at order 1.7 to 2.0. So the boundary
-is a second-order condition on a fourth-order interior, which caps the
-constraint's convergence at second order and is the standard limitation of
-Sommerfeld. That is the real reason to want a constraint-preserving
-boundary, and it is not the reason one would have guessed.
+the domain; the radiative ones converged at order 1.7 to 2.0, which was
+read as Sommerfeld being a second-order condition.
+
+**It was the stencil.** The derivative the condition takes fell back to
+second-order one-sided differences at the two outermost points, which are
+the points the condition exists for. :func:`edge_derivative` keeps fourth
+order there. That halves the reflection of a Teukolsky wave, and it lowers
+the pulse's constraint above to 9.9e-06, 5.4e-06 and 4.4e-06. That is four
+times lower at 32 points, and what remains is the bump's own violation
+parked at the centre by the frozen shift, not anything the boundary does.
+
+**A Teukolsky wave leaves, and what comes back is truncation error.**
+Measured against the closed form in a cube inside a box of 12, with the
+zone from ``r = 5``, the error after the reflection is no larger than the
+error the interior made while the wave was inside. It converges at order
+3.2, from 5.7e-02 at 48 points to 1.5e-02 at 72, so it is discretisation
+and not Sommerfeld's own reflection at this radius. The constraints
+converge at order 2.3 for ``H`` and 3.3 for ``M``. See
+:mod:`particlesim.solvers.nr.teukolsky` and ``docs/benchmarks.md``.
 
 **The cost that is real is arithmetic.** :meth:`Radiative.rates` takes three
 bounded-domain derivatives per variable per stage over the *whole* array,
@@ -89,6 +103,39 @@ ASYMPTOTIC: dict[str, float] = {
     **{f"gt{i}{j}": (1.0 if i == j else 0.0) for i in INDICES for j in range(i, DIMENSION)},
     **{f"At{i}{j}": 0.0 for i in INDICES for j in range(i, DIMENSION)},
 }
+
+
+def edge_derivative(field, axis: int, step: float, order: int = 4) -> np.ndarray:
+    """A bounded-domain derivative that keeps its order at the edge.
+
+    :func:`particlesim.core.grid.derivative` falls back to second-order
+    one-sided differences at the outermost points, which is harmless for a
+    diagnostic and is not harmless here: those points are where the
+    condition acts, and a second-order stencil there made the reflection of
+    a Teukolsky wave twice what the fourth-order one gives. The one-sided
+    stencils below are fourth order,
+
+        f'_0 = (-25 f_0 + 48 f_1 - 36 f_2 + 16 f_3 - 3 f_4) / 12h
+        f'_1 = (-3 f_0 - 10 f_1 + 18 f_2 - 6 f_3 + f_4) / 12h
+
+    and mirrored with the sign flipped at the far edge. Both lean on the
+    interior, which is upwind for a wave leaving the domain. At sixth order
+    the third point from the edge takes the centred fourth-order stencil,
+    so the edge is fourth order either way.
+    """
+    out = derivative(np.asarray(field), axis, step, order=order)
+    if order == 2:
+        return out
+    a = np.moveaxis(np.asarray(field), axis, 0)
+    o = np.moveaxis(out, axis, 0)
+    o[0] = (-25 * a[0] + 48 * a[1] - 36 * a[2] + 16 * a[3] - 3 * a[4]) / (12 * step)
+    o[1] = (-3 * a[0] - 10 * a[1] + 18 * a[2] - 6 * a[3] + a[4]) / (12 * step)
+    o[-1] = (25 * a[-1] - 48 * a[-2] + 36 * a[-3] - 16 * a[-4] + 3 * a[-5]) / (12 * step)
+    o[-2] = (3 * a[-1] + 10 * a[-2] - 18 * a[-3] + 6 * a[-4] - a[-5]) / (12 * step)
+    if order == 6:
+        o[2] = (-a[4] + 8 * a[3] - 8 * a[1] + a[0]) / (12 * step)
+        o[-3] = (a[-5] - 8 * a[-4] + 8 * a[-2] - a[-1]) / (12 * step)
+    return out
 
 
 @dataclass(frozen=True, eq=False)
@@ -149,10 +196,10 @@ class Radiative:
 
         Computed on the whole array and used only in the zone, because the
         derivative it needs is the *bounded-domain* one --
-        :func:`particlesim.core.grid.derivative`, which falls back to a
-        one-sided stencil at an edge rather than wrapping. That is the one
-        place in this file where not wrapping matters, and slicing a slab out
-        first would put the wrap back.
+        :func:`edge_derivative`, which uses one-sided stencils at an edge
+        rather than wrapping. That is the one place in this file where not
+        wrapping matters, and slicing a slab out first would put the wrap
+        back.
 
         Three derivatives per variable per call is the cost, and it is the
         reason this is worth restricting to a slab once it carries a
@@ -166,7 +213,7 @@ class Radiative:
             gradient = sum(
                 np.asarray(self.coords[axis])
                 / radius
-                * derivative(field, axis, self.spacing[axis], order=self.order)
+                * edge_derivative(field, axis, self.spacing[axis], order=self.order)
                 for axis in range(DIMENSION)
             )
             out[name] = -self.speed * (gradient + (field - background) / radius)
@@ -249,4 +296,4 @@ def interior(array, width: int, axes) -> np.ndarray:
     return out[tuple(slices)]
 
 
-__all__ = ["ASYMPTOTIC", "Bounded", "Radiative", "interior"]
+__all__ = ["ASYMPTOTIC", "Bounded", "Radiative", "edge_derivative", "interior"]

@@ -1378,6 +1378,99 @@ convergence at second order. Constraint-preserving boundary conditions are
 the fix and are not attempted here; the argument for wanting them is this
 convergence cap, not the constraint injection that turned out not to happen.
 
+*Postscript, after the Teukolsky wave below.* The "second-order boundary"
+was the stencil, not Sommerfeld. `core.grid.derivative` falls back to
+second-order one-sided differences at the two outermost points, which is
+exactly where the condition acts. With fourth-order one-sided stencils there
+the same measurement reads 9.9e−06, 5.4e−06 and 4.4e−06, which is four times
+lower at 32 points and no longer converging cleanly. What is left does not
+come from the boundary. It sits where the bump started. Inside `r < 0.5`,
+`|H|` is 2.8e−05 at both 32 and 48 points, and `Γ̃^x` is 1.5e−06 at both.
+Beyond `r = 1.5` it falls from 6.2e−06 to 2.2e−06. The bump violates the
+constraints on purpose, and with a frozen shift part of that violation has
+no speed and never leaves. The table above measured the edge stencil's
+error shrinking on top of that residue.
+
+### A Teukolsky wave, and a stencil that was half the reflection
+
+`particlesim.solvers.nr.teukolsky` builds Teukolsky's (1982) even-parity
+`l = 2, m = 0` wave as BSSN data. It uses `g(x) = a x exp(−x²/λ²)` and an
+outgoing wave minus an incoming one, which is the regular choice and makes
+the data time-symmetric at `t = 0`. It solves the *linearised* equations,
+so the first check is that the constraints fail at second order in `a` and
+no lower. In the central half of a box of 8, `|H|/a` is:
+
+| amplitude | n = 32 | n = 64 | |
+|---|---|---|---|
+| 1e−2 | 24.4 | 24.5 | quadratic, resolution-independent |
+| 1e−3 | 2.30 | 2.22 | |
+| 1e−8 | 0.322 | 0.0220 | truncation only, ×14.6 |
+
+Flipping the sign of `B` gives 329 and 248 instead: the violation stops
+falling with the amplitude, a hundred times larger at `a = 1e−3`. At
+`t = 1`, where `K_ij` is not zero, the linear part converges at 3.82, 3.91,
+3.96 and 3.97 from 32 to 128 points for `H`, and at 3.81 to 3.98 for `M`.
+
+**The formula cancels at the origin**, where each of its terms goes as
+`a/r⁴`. Near `r = 0` it is evaluated from its Taylor series instead. Each
+of `A`, `B` and `C` is `Σ c_q g⁽q⁾(t) r^(q−5)`, and the coefficients below
+`q = 5` vanish, which is the regularity condition written out. The
+derivatives of the profile are Hermite functions. The series and the
+formula agree to 1e−12 where they meet.
+
+**Measured over the whole box, the constraint grows with resolution**, as
+`h^(−1/2)`. At `t = 1` the wave's tail at the edge is `e^(−9) H₅(3)`, about
+half the amplitude in `C`, and the wrapped stencil turns it into a jump.
+That is the reason for measuring in the interior. The same tail misled the
+first boundary run too. With the zone at `r = 3` on a box of 8, the
+momentum constraint in the interior jumped to 1.7e−02 and 1.8e−02 by
+`t = 0.5` at 32 and 48 points, against 5e−03 and 3e−04 for the periodic
+control, long before the wave arrived. Sommerfeld was pushing a standing
+tail outward, and the result did not converge. On a box of 12, with the zone
+at `r = 5`, the tail is `2e−09` of the peak. There the radiative run matches
+a periodic run at the same spacing to three figures until `t = 2.5`, when
+the smaller periodic box's own wrap begins.
+
+**The measurement.** The wave uses `a = 1e−6`, `λ = 1`, a box of 12, and a
+zone one unit deep from `r = 5`. Harmonic slicing with a frozen shift keeps
+the evolution in Teukolsky's gauge to `O(a²)`, so the closed form is the
+control at every time, including after the wave has gone. Measured in the
+cube `|x| ≤ 2.5`, as multiples of `a`:
+
+| | n = 48 | n = 72 | n = 96 |
+|---|---|---|---|
+| truncation error while the wave is inside (`t ≤ 3`, max) | 7.1e−02 | 1.48e−02 | N96_TRUNC |
+| error after the reflection (`t = 8`–`10.5`, max) | 5.7e−02 | 1.52e−02 | N96_REFL |
+| largest `\|h\|` after the wave has left (`t ≥ 8`) | 0.19 | 0.049 | N96_AMP |
+| `‖H‖` after the reflection (`t = 8`–`10.5`, max) | 8.3e−02 | 3.3e−02 | N96_H |
+| `‖M‖` after the reflection (`t = 8`–`10.5`, max) | 1.33e−01 | 3.5e−02 | N96_M |
+
+The wave starts at 48 and crosses the cube's edge at about 5. **After the
+reflection the error is the truncation error.** At each resolution it is no
+larger than the error the interior made while the wave was still inside,
+and it converges at order 3.2. So it is discretisation, not a property of
+Sommerfeld at this radius. N96_SENTENCE
+
+**Half of it was the stencil.** The same run at 48 points with the old
+second-order edge gives 0.12 after the reflection against 0.057, and
+`‖M‖` 0.25 against 0.13. The constraints now converge at about order 2.3
+for `H` and 3.3 for `M`. A second-order edge capped them at 1.6: from 32 to
+48 points on a box of 8, `‖H‖` went from 0.71 to 0.37 while the wave was
+leaving.
+
+**Two corrections that did not help.** The Einstein Toolkit's NewRad adds
+the Sommerfeld residual measured at the nearest interior point, scaled by
+`(r_in/r)^p`, to cover a field's non-radiative falloff. It made the
+reflection *twice* as large for both `p = 2` and `p = 3`. NewRad is written
+for a ghost layer one stencil wide; this zone is several points deep, and
+a residual that is a wave rather than a slowly varying term does not
+extrapolate that way. It is not in the code.
+
+The test in `tests/unit/test_outer_boundary.py` runs a box of 10 at 40
+points. There the error after the reflection is 0.071 against 0.071 of
+truncation with the fourth-order edge, and 0.139 with the second-order one.
+The test bounds it at 1.5×, which the old stencil fails.
+
 ### What is not done
 
 - **Not constraint-preserving**, as above.
@@ -1385,11 +1478,6 @@ convergence cap, not the constraint injection that turned out not to happen.
   derivatives per variable per stage over the *whole* array — seventy-two
   array passes a stage for BSSN — and it dominates the run at 64³. The
   obvious fix is to compute them only in the zone.
-- **Not tested against a Teukolsky wave**, which is #132's stated acceptance
-  test and needs Teukolsky initial data that does not exist yet. What is
-  measured instead is a Gaussian pulse, which is a weaker claim: a pulse that
-  leaves is necessary for a working boundary and not sufficient to call it
-  quantitatively correct for radiation extraction.
 
 
 ## Quasinormal modes and horizons: the one number that is not a convergence test
@@ -5226,7 +5314,9 @@ the design document.
 
 ### Milestone 4, three-dimensional numerical relativity
 - Single Schwarzschild puncture stable to t = 1000 M (issue #51)
-- Gauge wave and Teukolsky wave convergence (issue #51)
+- Gauge wave and Teukolsky wave convergence (issue #51) — Teukolsky data
+  exists now, and its interior error converges at order 3.9 on the way out
+  through the radiative boundary; see that section
 - Head-on binary black hole final mass and radiated energy, to 5% (issue #51)
 - Einstein-scalar-Gauss-Bonnet scalarized black hole (issue #52)
 

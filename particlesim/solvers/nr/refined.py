@@ -102,7 +102,14 @@ class Hierarchy:
     buffer: int = 0
 
     @classmethod
-    def build(cls, coarse: Evolution, box: Box, parent_shape, interpolation: int = 4) -> Hierarchy:
+    def build(
+        cls,
+        coarse: Evolution,
+        box: Box,
+        parent_shape,
+        interpolation: int = 4,
+        buffer: int | None = None,
+    ) -> Hierarchy:
         """The fine level from the coarse one: same kernel, half the spacing.
 
         The emitted kernels take the spacing as an argument and difference
@@ -114,6 +121,22 @@ class Hierarchy:
         against. It is needed to tell a box that spans an axis from one that
         merely happens to be the same size, and a box that does not fit is
         refused here rather than producing a silently wrapped fine level.
+
+        ``buffer`` overrides :func:`~particlesim.solvers.nr.mesh.buffer_width`.
+        That width assumes the wrap's damage compounds over four stages, which
+        it no longer does now the buffer is refilled at every stage: only one
+        stencil radius is ever wrong at once. On the two-level gauge wave the
+        error in a fixed window is *lower* with a narrower buffer, because
+        more of the box is evolved at the fine spacing instead of
+        interpolated from the coarse one:
+
+            buffer   n = 32     n = 64     n = 128    ratios
+            12       1.43e-4    1.04e-5    6.39e-7    13.8, 16.2
+            6        8.45e-5    6.34e-6    4.34e-7    13.3, 14.6
+            3        4.14e-5    4.49e-6    3.26e-7     9.2, 13.8
+
+        The default stays at twelve so that measurements already made with it
+        stand; a buffer narrower than the widest stencil is refused.
         """
         parent_shape = tuple(int(value) for value in parent_shape)
         if not box.contains(parent_shape):
@@ -123,9 +146,18 @@ class Hierarchy:
                 "would be filled from the wrap rather than from its parent"
             )
         radius, _ = dissipation_operator(coarse.order)
-        width = mesh.buffer_width(
-            stencil_radius=coarse.order // 2, dissipation_radius=radius, stages=4
-        )
+        widest = max(coarse.order // 2, radius)
+        if buffer is None:
+            width = mesh.buffer_width(
+                stencil_radius=coarse.order // 2, dissipation_radius=radius, stages=4
+            )
+        elif int(buffer) < widest:
+            raise ValueError(
+                f"a buffer of {buffer} points is narrower than the widest stencil "
+                f"radius {widest}: the wrapped rates would reach the interior"
+            )
+        else:
+            width = int(buffer)
         fine = replace(coarse, spacing=box.spacing(coarse.spacing))
         return cls(
             coarse=coarse,

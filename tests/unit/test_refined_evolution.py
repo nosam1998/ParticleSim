@@ -113,6 +113,24 @@ def test_a_box_that_does_not_fit_is_refused():
         refined.Hierarchy.build(coarse, mesh.Box(origin=(28, 0, 0), shape=(8, 8, 8)), (32, 8, 8))
 
 
+def test_the_buffer_can_be_narrowed_to_the_widest_stencil_and_no_further():
+    """Refilled at every stage, the buffer only has to cover one stencil's reach.
+
+    Kreiss-Oliger reaches three points, so three is the floor. The two-level
+    gauge wave is more accurate, not less, with a narrower buffer: in the
+    fixed window its error at n = 32 is 1.43e-4, 8.45e-5 and 4.14e-5 for
+    buffers of 12, 6 and 3, because more of the box is evolved at the fine
+    spacing rather than interpolated.
+    """
+    _, spacing = bssn.gauge_wave(shape=(32, 8, 8), amplitude=0.1, extent=1.0)
+    coarse = bssn.Evolution.build(spacing, slicing="harmonic", shift_condition="frozen")
+    box = mesh.Box(origin=(4, 0, 0), shape=(24, 8, 8))
+    assert refined.Hierarchy.build(coarse, box, (32, 8, 8), buffer=6).buffer == 6
+    assert refined.Hierarchy.build(coarse, box, (32, 8, 8), buffer=3).buffer == 3
+    with pytest.raises(ValueError, match="narrower than the widest stencil"):
+        refined.Hierarchy.build(coarse, box, (32, 8, 8), buffer=2)
+
+
 # --- the time interpolant ------------------------------------------------
 
 

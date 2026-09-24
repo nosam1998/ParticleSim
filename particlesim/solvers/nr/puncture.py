@@ -85,6 +85,7 @@ class TwoLevelPuncture:
         mass: float = 1.0,
         upwind: bool = True,
         dissipation: float = bssn.DISSIPATION,
+        buffer: int = 6,
         backend: str = "jax",
     ) -> tuple[TwoLevelPuncture, dict[str, Any], dict[str, Any]]:
         """The setup and its initial coarse and fine states.
@@ -92,6 +93,13 @@ class TwoLevelPuncture:
         ``n`` coarse points across a box of side ``extent`` (in units of
         ``M``), a fine box ``box`` coarse points wide at the centre, and a
         radiative zone ``zone`` deep at the coarse level's edge.
+
+        ``buffer`` is six fine points rather than the hierarchy's default
+        twelve. With twelve, a 48-point fine box keeps only ``+-3 M`` of its
+        own, and a run at ``M/4`` grew a constraint violation from
+        ``t = 40 M`` at the edge of that region -- the conformal metric
+        reaching 5.7 at ``r = 2.4 M``, fed by a coarse level that cannot
+        resolve the field there. Six keeps ``+-4.5 M`` at the same cost.
         """
         spacing = extent / n
         axis = np.arange(n) * spacing
@@ -113,7 +121,7 @@ class TwoLevelPuncture:
             width=width,
             backend=backend,
         )
-        plain = Hierarchy.build(evolution, region, (n,) * DIMENSION)
+        plain = Hierarchy.build(evolution, region, (n,) * DIMENSION, buffer=buffer)
         hierarchy = Hierarchy(
             coarse=Bounded(evolution, boundary),
             fine=plain.fine,

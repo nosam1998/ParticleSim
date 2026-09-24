@@ -2340,6 +2340,129 @@ separates them by 26%.
 caustic wherever it happens finds a spurious one, and at `128³` reports a
 comfortable pass for the acceptance this code does not meet.
 
+### The short-range half: TreePM, and a lattice fine enough across
+
+The split is Hernquist and Bode's, as in GADGET-2. The mesh solves for
+`φ_k exp(−k² r_s²)`, and every pair closer than `4.5 r_s` gets back what that
+Gaussian took off:
+
+    m/(4π r²) [erfc(r/2r_s) + (r/(r_s √π)) exp(−r²/4r_s²)]
+
+Neighbours come from a periodic k-d tree. Within the cutoff the sum is direct,
+not a multipole walk, so this is P3M's short range behind TreePM's split. At
+about 200 neighbours a particle, a walk would have little to group.
+
+**A pair, against Newton plus the background.** The periodic Green's function
+with a neutralising background solves `∇²G = δ − 1/L³`. Near the source it is
+`−1/(4πr)` plus a regular part whose Laplacian is `−1/L³`, and cubic symmetry
+makes that `−r²/(6L³)` up to fourth order. So the pull on a second particle is
+`m/(4πr²) − mr/(3L³)` to `O(r³)`. At `32³` with `r_s` = 2 cells, over twenty
+random placements and directions:
+
+| separation (cells) | TreePM error | plain mesh, fraction of Newton |
+|---|---|---|
+| 0.1 | 1.6e−07 | — |
+| 0.3 | 4.6e−06 | 0.02–0.03 |
+| 1 | 2.5e−04 | 0.43–0.74 |
+| 2 | 2.5e−03 | 0.07–1.12 |
+| 4 | 6.8e−03 | 0.29–1.07 |
+
+Near the 9-cell cutoff, where the short-range force ends at 1.75% of Newton's,
+the error is about 1% (0.8% at `64³`, 8.9 cells out). The pair forces are
+antisymmetric, so the net force is round-off.
+
+**Why the caustic tests the pair force and nothing else.** The pancake is
+symmetric about `q = 0`. In one dimension a uniform sheet pulls with `σ/2` at
+any distance, so the mass outside the central pair pulls its two members
+equally and oppositely and cancels. What is left is their mutual attraction
+`σ` against the background's push `ρ̄·gap`, at separations falling to zero.
+That is exactly what a mesh cannot represent below a cell, and what the
+short-range force is for.
+
+**It is also where particles stop looking like a sheet.** A slab of the initial
+lattice is a square lattice of point masses. Two aligned lattices of pitch `b`
+at separation `D` pull with
+
+    (σ/2) [1 + Σ_{G≠0} exp(−|G| D)]
+
+summed over the reciprocal lattice, not with `σ/2`. With uniform sheets
+following Gauss's law, that sum is the only correction. It makes an exact
+reference for the frozen pancake. As a fraction of the peak force, with TreePM
+on a `64³` mesh and the plain mesh on the particles' own `16³`:
+
+| lattice across | `a` | central gap | TreePM | plain mesh |
+|---|---|---|---|---|
+| 16 × 16 | 1.6 | 0.21 spacings | 4.4e−03 | 0.62 |
+| 32 × 32 | 0.5 | 0.75 | 4.8e−03 | 0.10 |
+| 32 × 32 | 1.9 | 0.06 | 1.5e−03 | 0.99 |
+
+Every particle in a slab feels the same force to 2e−15, and none feels one
+across it.
+
+The correction is not small. At `a = 1.6` the lattice sum multiplies the
+central pair's relative pull by the following factors, depending on how many
+particles there are across:
+
+| across | 16 × 16 | 32 × 32 | 64 × 64 | 128 × 128 |
+|---|---|---|---|---|
+| pull / uniform sheets | 3.14 | 1.36 | 1.026 | 1.0002 |
+
+It falls as `exp(−2π D/b)`.
+
+**So point masses on a cubic lattice collapse early, and that is the right
+answer.** The problem they pose is not the continuum one. The sheet model is
+sixteen lattice sheets moving under one-dimensional Gauss plus the lattice sum,
+integrated with the same kick-drift-kick. It predicts each TreePM run to half a
+point. Sixteen slabs, a `128³` mesh, `r_s` = 2 cells, 300 steps, against the
+exact `a = 1/A = 2` (the sixteen-slab lattice's own discrete caustic is +0.64%):
+
+| across | particles | TreePM | sheet model |
+|---|---|---|---|
+| 16 × 16 | 4,096 | −14.8% | −15.3% |
+| 32 × 32 | 16,384 | −4.6% | −5.0% |
+| 64 × 64 | 65,536 | **−0.97%** | −1.33% |
+| 128 × 128 | 262,144 | — | +0.06% |
+
+**Issue #78's 2% is met at the true caustic,** the central pair's crossing, with
+no false caustic beside it: the first crossing anywhere is the central one in
+every row. The 64 × 64 run crosses at `a = 1.98055`. With 600 steps it crosses
+at 1.98040, so the step is not what is left. On a `256³` mesh, with `r_s` half
+as long, it crosses at 1.97378: −1.31% against the sheet model's −1.33%. The
+remaining gap to the model was the mesh's, and it closes.
+
+**Softening is a knob, and it can be turned to pass.** Plummer softening
+weakens a pair closer than `ε`, which makes the caustic late. The lattice makes
+it early, so some `ε` cancels the two. On the cubic lattice, the sheet model
+moves 34 points across half a slab spacing of softening:
+
+| `ε` (slab spacings) | 0 | 0.1 | 0.2 | 0.3 | 0.5 |
+|---|---|---|---|---|---|
+| caustic | −15.3% | −10.6% | −2.9% | +4.3% | +18.4% |
+
+TreePM at `ε = 0.2` reads −4.9%. Somewhere between 0.2 and 0.3 of a spacing it
+lands on `a = 2`, with a 15% error underneath it. The acceptance run uses point
+masses, where the only error is the lattice's, and that one goes away as the
+lattice refines.
+
+**Two cells for `r_s`, and a mesh finer than the particles.** GADGET-2 uses
+1.25 cells. On the particles' own `16³` mesh that leaves the frozen pancake's
+force 2.7% wrong at `a = 0.5`, and it moved the cubic lattice's caustic by four
+points: −11.0% against the sheet model's −15.3%. Two cells on `64³` leaves
+0.5%. What sets the short-range cost is `r_s` in comoving units, so a finer
+mesh buys a shorter reach. Sixteen slabs of 64 × 64 on `128³` come to 6.7
+million pairs.
+
+**The window is divided out here, and only here.** Dividing the whole field by
+`sinc⁴(kh/2)` amplifies aliased power (see "Deconvolving the window makes it
+worse" above). Behind the Gaussian there is almost none left: the division is
+at most 6.1 per axis at Nyquist, where the filter at two cells is `7e−18`. On
+the frozen pancake at `a = 1.9` (`128³`, 32 × 32 across) it takes the error
+from 2.5e−03 to 5.0e−04.
+
+**The closing kick's force is the next step's opening one,** at the same
+positions and scale factor, so `run` hands it on. That halves the force
+evaluations and leaves the result bit-for-bit what repeated `step` calls give.
+
 ### Initial conditions from a spectrum
 
 The Gaussian field is drawn as real-space white noise and coloured in Fourier
@@ -5539,8 +5662,9 @@ the design document.
   not exercised: no GPU on the machine this ran on.
 
 ### Milestones 8 and 9
-- Zel'dovich pancake caustic time, to 2% (issue #78) — the mesh half is in,
-  and measured: 7.7% late at `128³` at the true caustic, converging at a
-  decaying order. Needs the short-range force, not more cells.
+- Zel'dovich pancake caustic time, to 2% (issue #78) — **done** with TreePM:
+  0.97% early at the true caustic, with sixteen slabs of 64 × 64 point masses.
+  A cubic lattice is 15% early, correctly, because its sheets are not uniform;
+  the plain mesh is 7.7% late at `128³`.
 - BFSS energy versus temperature at one coupling (issue #85)
 - IKKT dimension-emergence observable (issue #86)

@@ -1296,6 +1296,82 @@ go with them — which is its own piece of work and is what
 [#51](https://github.com/nosam1998/ParticleSim/issues/51)'s benchmarks are
 waiting on too. #48 stays open for it.
 
+### A puncture on two levels, now that there is an edge
+
+`particlesim.solvers.nr.puncture.TwoLevelPuncture` sets up the pieces:
+- Brill–Lindquist data with the puncture a quarter of a coarse cell off
+  the grid. That is half a fine cell, so neither level samples it.
+  `brill_lindquist`'s half-cell stagger lands exactly on a fine point.
+- Exact data on both levels, since prolonging across `1/r` is what
+  interpolation cannot do.
+- The moving-puncture gauge.
+- The radiative condition on the coarse level's edge, which `Bounded` now
+  allows by answering what a hierarchy asks of its coarse level.
+
+Three things had to change before it ran for more than a few `M`.
+
+**Upwinded advection.** With centred advection, at a fine spacing of `M/4`,
+the run fails before `t = 10 M`. At the grid point nearest the puncture the
+lapse collapses, `K` climbs and `Ã_xx` goes from 1.4 to 3.4 in a quarter
+of `M`, then `NaN`. At `M/2` the same run survives past `t = 20 M`, which is
+a grid-scale instability that only the finer grid resolves.
+`Evolution(upwind=True)` replaces each advective derivative with the
+fourth-order lopsided one. It is applied outside the kernel, because the
+advection terms are linear in their derivative, so the lopsided-minus-centred
+difference can be added afterwards. That difference is a single fifth
+difference, `(−1, 5, −10, 10, −5, 1)/12h`. So upwinding is the centred scheme
+plus an `h⁴` dissipation aimed along the shift, and no kernel is
+re-derived. The `M/4` run then passes `t = 20 M`. Five times the
+Kreiss–Oliger dissipation also gets past `t = 10 M`.
+
+**A narrower buffer.** `mesh.buffer_width` gives twelve fine points: four
+stages times the dissipation's reach. That assumes the wrap's damage
+compounds from stage to stage, and it stopped compounding when the buffer
+began to be refilled at every stage. On the two-level gauge wave the error in
+a fixed window is lower with a narrower buffer:
+
+| buffer | n = 32 | n = 64 | n = 128 | ratios |
+|---|---|---|---|---|
+| 12 | 1.43e−4 | 1.04e−5 | 6.39e−7 | 13.8, 16.2 |
+| 6 | 8.45e−5 | 6.34e−6 | 4.34e−7 | 13.3, 14.6 |
+| 3 | 4.14e−5 | 4.49e−6 | 3.26e−7 | 9.2, 13.8 |
+
+With twelve, a 48-point fine box keeps only `±3 M` of its own. `Hierarchy.build`
+now takes a `buffer`, refusing one narrower than the widest stencil. The
+default stays at twelve, and the puncture uses six.
+
+**The gauge unadvected.** The kernel carries `β^k ∂_k` terms in the lapse and
+shift equations and none in the driver's, which mixes two published forms of
+the Gamma-driver. On the puncture that drifts. Coarse spacing `M/2`, fine
+`M/4`; the largest diagonal component of the conformal metric, read from the
+checkpoints each run left:
+
+| t / M | 10 | 40 | 50 | 60 | 70 | 80 | 90 |
+|---|---|---|---|---|---|---|---|
+| advected, box 18, interior `±4.5 M` | | | | 5.80 | 7.64 | 11.3 | NaN |
+| advected, box 20, interior `±5.5 M` | | 3.17 | 4.31 | 5.56 | | | |
+| not advected, box 18 | 1.16 | 1.30 | 1.34 | 1.38 | | | |
+
+The peak sits near `r = 2.4 M` along each axis, and the `Γ̃` constraint stays
+small while it grows: 0.05 against `|Γ̃| ≈ 1.2` at 80 M. So the coordinates
+are drifting, and the equations are not being violated. The driver `B^i`
+grows with it, from 0.22 to 2.1 between 60 and 80 M. In the original form,
+which advects neither the lapse nor the shift, `B` stays near `2e−3`. A puncture that does
+not move loses nothing by it, and `TwoLevelPuncture` uses it.
+
+One wrong turn along the way. The upwind correction had been added to
+`Γ̃^i`'s rate and not to `B^i`'s, which is driven by it. The guess that this
+caused the drift was tested and failed: with the correction added, the
+advected gauge failed at 50 M instead of 90. In the unadvected gauge the two
+agree to three figures. The driver keeps the correction, since it is the rate
+`Γ̃` actually has.
+
+**Where the long run stands.** The unadvected gauge is still settling at
+`t = 60 M`. The lapse at the sample nearest the puncture is 0.017 and
+falling, and the constraint outside `2 M` is creeping, from 0.016 at 25 M to
+0.041 at 60 M. Whether that saturates is what the rest of the thousand `M`
+says, and it is measured, not asserted here.
+
 
 ## A radiative outer boundary: letting a pulse leave
 

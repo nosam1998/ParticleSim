@@ -28,9 +28,9 @@ dissipation also gets past ``t = 10 M``.
 **The gauge is not advected, and that is the difference between 90 M and
 the long run.** With the lapse and shift equations carrying their
 ``beta^k d_k`` terms and the driver ``B^i`` not, the coordinates drift: the
-conformal metric along each axis grows 3.2, 5.8, 7.6, 11 at ``t`` = 40, 60,
-70, 80 M near ``r = 2.4 M`` while the ``Gammabar`` constraint stays small, and
-the run fails at 90 M. That mixes two published forms of the Gamma-driver.
+conformal metric along each axis reaches 5.8, 7.6, 11 at ``t`` = 60, 70, 80 M
+near ``r = 2.4 M`` while the ``Gammabar`` constraint stays small, and the run
+fails at 90 M. That mixes two published forms of the Gamma-driver.
 The original one advects neither -- ``d_t alpha = -2 alpha K``, ``d_t beta =
 3B/4``, ``d_t B = d_t Gammabar - eta B`` -- which a puncture that does not
 move loses nothing by, and in it the same run reads 1.38 for the conformal

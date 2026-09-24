@@ -96,7 +96,7 @@ class TwoLevelPuncture:
         upwind: bool = True,
         dissipation: float = bssn.DISSIPATION,
         buffer: int = 6,
-        advect: bool | str = "lapse",
+        advect: bool | str = False,
         backend: str = "jax",
     ) -> tuple[TwoLevelPuncture, dict[str, Any], dict[str, Any]]:
         """The setup and its initial coarse and fine states.
@@ -113,7 +113,9 @@ class TwoLevelPuncture:
         resolve the field there. Six keeps ``+-4.5 M`` at the same cost.
 
         ``advect`` is off by default: see the module docstring for what the
-        advected gauge does over a hundred ``M``.
+        advected gauge does over a hundred ``M``. Advecting the lapse alone
+        (``"lapse"``, Campanelli et al.'s combination) was measured too, and
+        lasted less long: the hole dissolved by 125 M against 150 M.
         """
         spacing = extent / n
         axis = np.arange(n) * spacing

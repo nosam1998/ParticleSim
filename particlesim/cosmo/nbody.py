@@ -338,6 +338,15 @@ class ParticleMesh:
     """
 
     mesh: Mesh
+    omega_m: float = 1.0
+
+    def __post_init__(self) -> None:
+        if not 0.0 < self.omega_m <= 1.0:
+            raise ValueError(f"Omega_m must lie in (0, 1], got {self.omega_m}")
+
+    def expansion(self, scale) -> np.ndarray:
+        """``E(a) = H/H_0 = sqrt(Omega_m a^-3 + 1 - Omega_m)``, flat."""
+        return expansion(scale, self.omega_m)
 
     def acceleration(self, positions) -> np.ndarray:
         """``-grad phi`` at the particles, as ``(3, N)``."""
@@ -366,14 +375,26 @@ class ParticleMesh:
         end = start + step
 
         momenta = state.momenta + 0.5 * step * force
-        positions = (state.positions + step * middle**-1.5 * momenta) % self.mesh.size
+        positions = (state.positions + step * self._drift(middle) * momenta) % self.mesh.size
         after = self._force(positions, end)
         momenta = momenta + 0.5 * step * after
         return State(positions=positions, momenta=momenta, scale=end), after
 
+    def _drift(self, scale: float) -> float:
+        """``dx/da = p / (a^3 E)``: ``a^(-3/2)`` in Einstein-de Sitter, to the bit."""
+        if self.omega_m == 1.0:
+            return scale**-1.5
+        return 1.0 / (scale**3 * float(self.expansion(scale)))
+
+    def _force_factor(self, scale: float) -> float:
+        """``dp/da = -(3/2) Omega_m grad phi / (a^2 E)``, ``(3/2) a^(-1/2)`` in EdS."""
+        if self.omega_m == 1.0:
+            return 1.5 * scale**-0.5
+        return 1.5 * self.omega_m / (scale**2 * float(self.expansion(scale)))
+
     def _force(self, positions, scale: float) -> np.ndarray:
-        """``dp/da = -(3/2) a^(-1/2) grad phi``."""
-        return 1.5 * scale**-0.5 * self.acceleration(positions)
+        """``dp/da``, with ``p = a^3 E dx/da`` the canonical momentum."""
+        return self._force_factor(scale) * self.acceleration(positions)
 
     def run(self, state: State, final: float, steps: int, sample=None):
         """Integrate to ``final``, optionally recording ``sample(state)``."""
@@ -514,6 +535,7 @@ class TreePM(ParticleMesh):
     softening: float = 0.0
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         if self.split <= 0.0:
             raise ValueError(f"the split must be a positive number of cells, got {self.split}")
         if self.softening < 0.0:
@@ -544,6 +566,52 @@ class TreePM(ParticleMesh):
             self.cutoff * self.radius,
             self.softening,
         )
+
+
+# --- the background -------------------------------------------------------
+
+
+def expansion(scale, omega_m: float = 1.0) -> np.ndarray:
+    """``E(a) = H/H_0`` for a flat universe of matter and a cosmological constant."""
+    scale = np.asarray(scale, dtype=float)
+    return np.sqrt(omega_m * scale**-3 + (1.0 - omega_m))
+
+
+def growth_factor(scale, omega_m: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
+    """The linear growing mode ``D(a)`` and ``dD/da``, normalised so ``D -> a`` early.
+
+    For flat LCDM the growing mode is a quadrature (Heath 1977):
+
+        D(a) = (5 Omega_m / 2) E(a) int_0^a da' / (a' E(a'))^3
+
+    which in Einstein-de Sitter is ``a`` exactly, and is returned as such.
+    The derivative follows by differentiating under the integral, so both
+    come from one quadrature and satisfy the growth equation together. For
+    ``Omega_m = 0.3`` today ``D = 0.7789``: structure is 22% behind where
+    matter alone would have taken it.
+    """
+    from scipy.integrate import quad
+
+    scale = np.asarray(scale, dtype=float)
+    if omega_m == 1.0:
+        return scale.copy(), np.ones_like(scale)
+
+    def integral(a: float) -> float:
+        # (a E)^-3 = a^(3/2) (Omega_m + Omega_L a^3)^(-3/2): integrable at zero.
+        return quad(
+            lambda x: x**1.5 * (omega_m + (1.0 - omega_m) * x**3) ** -1.5,
+            0.0,
+            a,
+            epsabs=0.0,
+            epsrel=1e-13,
+        )[0]
+
+    values = np.vectorize(integral)(scale)
+    rate = expansion(scale, omega_m)
+    growth = 2.5 * omega_m * rate * values
+    rate_derivative = -1.5 * omega_m * scale**-4 / rate
+    derivative = 2.5 * omega_m * (rate_derivative * values + rate / (scale * rate) ** 3)
+    return growth, derivative
 
 
 # --- initial conditions ---------------------------------------------------
@@ -645,7 +713,7 @@ def gaussian_field(mesh: Mesh, spectrum, seed: int = 0) -> np.ndarray:
     return np.fft.irfftn(field, s=mesh.shape, axes=(0, 1, 2))
 
 
-def zeldovich_from_field(mesh: Mesh, density, scale: float = 0.1) -> State:
+def zeldovich_from_field(mesh: Mesh, density, scale: float = 0.1, omega_m: float = 1.0) -> State:
     """Zel'dovich displacement from a linear density field.
 
     ``psi = -grad(lap^-1 delta)``, which is the same solve
@@ -669,17 +737,29 @@ def zeldovich_from_field(mesh: Mesh, density, scale: float = 0.1) -> State:
     times that, while the fundamental itself falls below the window. At any
     other phase, cell centres included, the harmonics are *exactly* zero
     and the fundamental is exactly ``sinc(k h / 2)``.
+
+    ``density`` is the linear field extrapolated to ``a = 1``. With
+    ``omega_m`` below one the displacement is scaled by the LCDM growing
+    mode, ``x = q + D(a) psi``, and the momentum is ``a^3 E D'(a) psi``; in
+    Einstein-de Sitter that is ``a psi`` and ``a^(3/2) psi``, as before.
     """
     displacement = [-component for component in potential_gradient(density, mesh, shift=0.5)]
     axes = [(np.arange(mesh.cells) + 0.5) * mesh.spacing for _ in range(3)]
     lagrangian = np.stack([value.ravel() for value in np.meshgrid(*axes, indexing="ij")])
 
+    if omega_m == 1.0:
+        growth, momentum = scale, scale**1.5
+    else:
+        value, rate = growth_factor(scale, omega_m)
+        growth = float(value)
+        momentum = scale**3 * float(expansion(scale, omega_m)) * float(rate)
+
     positions = np.empty_like(lagrangian)
     momenta = np.empty_like(lagrangian)
     for axis in range(3):
         sampled = displacement[axis].ravel()
-        positions[axis] = (lagrangian[axis] + scale * sampled) % mesh.size
-        momenta[axis] = scale**1.5 * sampled
+        positions[axis] = (lagrangian[axis] + growth * sampled) % mesh.size
+        momenta[axis] = momentum * sampled
     return State(positions=positions, momenta=momenta, scale=float(scale))
 
 
@@ -690,8 +770,10 @@ __all__ = [
     "TreePM",
     "caustic_scale_factor",
     "deposit",
+    "expansion",
     "gaussian_field",
     "growth_exponents",
+    "growth_factor",
     "interpolate",
     "long_range_gradient",
     "potential_gradient",

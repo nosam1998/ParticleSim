@@ -22,9 +22,19 @@ puncture the lapse collapses, ``K`` climbs and ``Abar_xx`` goes from 1.4 to
 3.4 in a quarter of ``M``, then ``NaN``. The same run at ``M/2`` survives to
 ``t = 20 M``, which is the signature of a grid-scale instability the finer grid
 resolves. Lopsided advection stencils (``Evolution(upwind=True)``) are the
-standard cure and this is where they earn it. Tripling the dissipation
-instead also gets past ``t = 10 M``; which one holds for a thousand is what the
-long run measures.
+standard cure: the same ``M/4`` run then passes ``t = 20 M``. Five times the
+dissipation also gets past ``t = 10 M``.
+
+**The gauge is not advected, and that is the difference between 90 M and
+the long run.** With the lapse and shift equations carrying their
+``beta^k d_k`` terms and the driver ``B^i`` not, the coordinates drift: the
+conformal metric along each axis grows 3.2, 5.8, 7.6, 11 at ``t`` = 40, 60,
+70, 80 M near ``r = 2.4 M`` while the ``Gammabar`` constraint stays small, and
+the run fails at 90 M. That mixes two published forms of the Gamma-driver.
+The original one advects neither -- ``d_t alpha = -2 alpha K``, ``d_t beta =
+3B/4``, ``d_t B = d_t Gammabar - eta B`` -- which a puncture that does not
+move loses nothing by, and in it the same run reads 1.38 for the conformal
+metric at 60 M, with ``B`` near ``2e-3`` instead of 0.2.
 """
 
 from __future__ import annotations
@@ -86,7 +96,7 @@ class TwoLevelPuncture:
         upwind: bool = True,
         dissipation: float = bssn.DISSIPATION,
         buffer: int = 6,
-        advect: bool = True,
+        advect: bool = False,
         backend: str = "jax",
     ) -> tuple[TwoLevelPuncture, dict[str, Any], dict[str, Any]]:
         """The setup and its initial coarse and fine states.
@@ -101,6 +111,9 @@ class TwoLevelPuncture:
         ``t = 40 M`` at the edge of that region -- the conformal metric
         reaching 5.7 at ``r = 2.4 M``, fed by a coarse level that cannot
         resolve the field there. Six keeps ``+-4.5 M`` at the same cost.
+
+        ``advect`` is off by default: see the module docstring for what the
+        advected gauge does over a hundred ``M``.
         """
         spacing = extent / n
         axis = np.arange(n) * spacing

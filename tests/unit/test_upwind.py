@@ -123,10 +123,10 @@ def test_upwinding_is_refused_at_other_orders():
 def test_the_gamma_driver_sees_the_upwinded_connection_rate():
     """``d_t B^i = d_t Gammabar^i - eta B^i``, so ``B^i`` gets exactly ``Gammabar^i``'s correction.
 
-    Without it a stationary ``Gammabar^i`` still drives ``B^i`` by minus the
-    correction, ``B`` settles away from zero and the shift grows without
-    bound. On a two-level puncture that took the conformal metric to 11 at
-    ``r = 2.4 M`` and ended the run at ``t = 90 M``.
+    The driver is fed the rate ``Gammabar^i`` actually has, which is what a
+    code that upwinds inside its kernel does automatically. Leaving ``B^i``
+    on the kernel's centred rate would drive it by minus the correction
+    whenever ``Gammabar^i`` is stationary.
     """
     state, spacing = _state(16)
     x = np.arange(16)[:, None, None] / 16

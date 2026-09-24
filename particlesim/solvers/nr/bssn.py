@@ -110,9 +110,6 @@ def _module(backend: str):
 #: time and spend more in XLA than in the run.
 _DISSIPATORS: dict[Any, Callable] = {}
 
-#: Whether the Gamma-driver's ``B^i`` also gets ``Gammabar^i``'s upwind correction.
-DRIVER_SEES_UPWIND = True
-
 #: Compiled upwinding corrections, keyed the same way.
 _UPWINDERS: dict[Any, Callable] = {}
 
@@ -658,18 +655,13 @@ class Evolution:
             for index, name in enumerate(advected):
                 rates[name] = rates[name] + corrections[index]
                 # The Gamma-driver's B^i is driven by d_t Gammabar^i itself, so
-                # it has to see the same upwinded rate Gammabar^i does. Leave it
-                # the kernel's centred one and a stationary Gammabar^i still
-                # drives d_t B^i = -(correction) - eta B^i: B settles away from
-                # zero, the shift grows without bound and drags the
-                # coordinates. Measured on a two-level puncture before this
-                # line: the conformal metric reached 11 at r = 2.4 M and the
-                # run failed at t = 90 M.
-                if (
-                    DRIVER_SEES_UPWIND
-                    and name.startswith("Gt")
-                    and self.shift_condition == "gamma_driver"
-                ):
+                # it is given the rate Gammabar^i actually has, upwinding and
+                # all -- which is also what codes that upwind inside the kernel
+                # do. With the gauge advected it made no difference to the
+                # outcome (a two-level puncture failed either way, at 50 M with
+                # it and 90 M without); with the gauge unadvected B stays near
+                # 2e-3 and the two agree to three figures.
+                if name.startswith("Gt") and self.shift_condition == "gamma_driver":
                     driver = f"B{name[2:]}"
                     if driver in rates:
                         rates[driver] = rates[driver] + corrections[index]

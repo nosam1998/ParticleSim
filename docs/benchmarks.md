@@ -5020,6 +5020,84 @@ Runge-Kutta's stability region, so there is no cancellation to amplify; outside
 it the guard fires first. The fluid's mass equation carries `sqrt(1 − 2m/r)`
 and is not linear, so it keeps the loop.
 
+## Regridding: two triggers, and a cascade that was the solver's
+
+Issue #111's hierarchy now grows and shrinks itself. Only depth is adaptive:
+the critical solution collapses onto the origin, so every level is a ball
+centred there, a new one covers the inner part of the finest at half its
+spacing, and only the finest is ever retired. `AdaptiveCollapse` puts it
+behind the uniform solver's interface, so `critical_collapse` runs on it
+unchanged except for one line: the mask of radii it looks for the peak in is
+recomputed every step, since the radii change as levels come and go.
+
+**Two triggers, as the issue asks.** The Richardson estimate compares a
+parent's own step over cells its child covers with the child's restriction;
+at fourth order the difference is fifteen times the child's local error per
+parent step. Away from the interface it converges as one step's error
+should, a factor of 30.5 and 31.6 per doubling against 32. At the origin it
+converges more slowly, because the innermost cells are locally second order
+since the `Pi` equation went conservative — real error, and where a collapse
+wants refinement anyway. The curvature trigger asks instead whether a level
+puts `cells_per_radius` cells across `1/√(8πρ)`, which needs no parent and
+follows the echoes by construction, since near threshold amplitude and size
+are tied together. Either may be set; a level is added when either asks and
+retired only when every trigger set is satisfied with a margin, for four
+consecutive checks.
+
+The thin shell 5.6% below threshold, n = 400 base, peak `|R|` against the
+uniform n = 3200 value of 147.91:
+
+| trigger | seed level | peak vs n = 3200 | deepest | regrid events | wall |
+|---|---|---|---|---|---|
+| curvature, 16 cells | none | +7.5e-4 | 3 | 4 | 9.5 s |
+| curvature, 16 cells | `[0, 2]` | −7e-6 | 3 | 2 | 17 s |
+| Richardson, 1e-6 | `[0, 2]` | +4.9e-4 | 5 | 6 | 29 s |
+| both | `[0, 2]` | +4.9e-4 | 5 | 6 | 29 s |
+| Richardson, 1e-7 | `[0, 2]` | +6.5e-4 | 6 | 12 | 61 s |
+
+The uniform grid at the base resolution overshoots by 3.6%. The difference
+between the triggers is where they refine: the Richardson estimate adds its
+first level at `t = 3.6`, while the shell is still falling in, and the
+curvature trigger at 4.4 to 4.9, a unit of time before the bounce, because an
+infalling shell is weak until it is nearly there. A level seeded over the
+trip in closes the gap from the other side. The first four configurations
+retire everything they created after the bounce, each level once; at 1e-7 a
+level also came and went twice during the infall.
+
+**The cascade that was not the estimate's fault.** The Richardson trigger was
+built first and abandoned: after the bounce it read grid-scale noise at the
+origin as error, created a level that inherited the noise by prolongation,
+and went twelve levels deep by `t = 7.7`, after the physics had ended; a run
+that takes half a minute took twenty-five. A running-maximum tolerance, hysteresis,
+patience and discarding a fresh level's first estimate each fixed something
+and none stopped it, and the curvature trigger was written as a way around
+it. The noise was the solver making energy at the origin (see "Critical
+collapse" above). On the fixed solver the same estimate runs through the
+bounce five levels deep in thirty seconds and unwinds cleanly; the cascade
+never happens. Those four fixes stay, each on its own argument, and the
+diagnosis is the lesson: an estimator that keeps asking for refinement
+somewhere quiet is more likely right than wrong about the field it sees.
+
+**The threshold.** Bisected on the adaptive solver — curvature trigger, 400
+cells at the base — `p* = 8.48187e-4`, bracketed to 8.6e-7. The uniform grid
+gives 8.48293e-4 at 800 cells and 8.48188e-4 at 1600, so the hierarchy
+reproduces the finest uniform threshold to 1e-6 from a base a quarter as
+fine. Along the way the subcritical side reached peak curvatures the uniform
+grid never could: 4.2e4 at `1 − p/p* = 3.7e-5`, 6.1e5 at 2.2e-6, 1.9e6 at 4e-7,
+against a uniform 400-cell 8.6e3 at 1e-4. Those are read at every step of the
+finest level: the peak lasts about one curvature time, which near threshold
+is shorter than a step of the base, and sampled only at the base's steps the
+same runs report 0.3% less at 2.2e-6 and 3.7% less at 4e-7.
+
+**Near threshold.** At `p = 8.483e-4` the hierarchy deepened from five
+levels to eight, finest spacing 1.95e-4, as the lapse fell from 0.10 to
+0.006 between `t = 6.3` and 6.8, with the peak curvature rising through an
+oscillation on the way — 1.1e4, down to 4.1e3, up to 6.9e4 — before the
+slicing refused to continue: a collapse. At 8.45e-4 it went five levels deep,
+retired them all by `t = 7.5`, and the curvature at the origin fell below
+1e-6 by `t = 11.5` and to 4e-8 by 15.5 — where the uniform grid at this
+amplitude, before the fix, had held 9e3.
+
 ## Not implemented yet
 
 Grouped by the milestone that will add them. Each is named in Section 10 of

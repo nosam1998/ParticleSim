@@ -159,15 +159,25 @@ def evolve_to_verdict(
             "(smaller width / r0), which reaches threshold while t = 0 is weak."
         )
 
-    inner = sim.r < inner_radius
     peak, peak_time = 0.0, 0.0
+    # A refined solver steps its finest level many times per step of its
+    # base, and near threshold the peak is shorter than a base step; one
+    # that can report what its finest level passed through is asked to.
+    watch = getattr(sim, "watch_ricci", None)
+    if watch is not None:
+        watch(inner_radius)
     peak_compactness = initial_compactness
     verdict, refused = SUBCRITICAL, False
     try:
         for _ in range(int(t_end / sim.dt)):
             state = sim.step(state, sim.dt)
             a, alpha = sim.solve_metric(state.Phi, state.Pi)
+            # Recomputed every step: an adaptive solver's radii change as its
+            # levels come and go.
+            inner = sim.r < inner_radius
             value = float(np.abs(ricci_scalar(a, state.Phi, state.Pi))[inner].max())
+            if watch is not None:
+                value = max(value, sim.ricci_between_steps())
             if value > peak:
                 peak, peak_time = value, state.t
             peak_compactness = max(peak_compactness, float((1.0 - 1.0 / a**2).max()))

@@ -2478,6 +2478,86 @@ variance is a field of constant power `P = V/N³`, the cell volume. Colouring it
 means multiplying by `sqrt(P(k) N³/V)`. Recovered `P(k)` agrees with the target
 within the sample scatter `sqrt(2/m)` of each shell.
 
+## f(R) gravity: the scalaron, solved nonlinearly on a multigrid
+
+Issue #79, first half: the multigrid solver for the scalar equation, and the
+screening it produces. The coupling to the N-body forces and the `P(k)`
+acceptance are the second half.
+
+In Hu–Sawicki `f(R)` (`n = 1`) the extra field is `f_R`, quasi-static on the
+scales of structure. With comoving `∇`,
+
+    ∇² δf_R = (a²/3) [δR(f_R) − 8πG δρ],    R(f_R) = R̄₀ √(f_R0 / |f_R|)
+
+and Newton's potential is shifted by `−δf_R/2`, so the fifth force is
+`+∇δf_R/2`. Where `δf_R ≪ f̄_R` this is a Yukawa equation, and gravity is
+enhanced by a third inside the Compton wavelength (7.6 Mpc/h for F5 today).
+Where the potential is deep, `R(f_R)` locks onto the local density, the source
+cancels and the fifth force switches off. That is the chameleon, and the
+reason the equation has to be solved as it is, not linearised.
+
+**The variable is `u = √(−f_R)`**, after Puchwein, Baldi and Springel (2013).
+`f_R` must stay negative, and in `u` that is automatic. On the 7-point
+Laplacian of `u²`, the equation at one cell, multiplied through by `u`, is a
+cubic `u³ + pu + q = 0` with `q < 0`. Its roots sum to zero and multiply to
+`−q > 0`, so exactly one is positive. Nonlinear Gauss–Seidel solves each cell
+*exactly*, and the full approximation scheme carries the nonlinearity through
+the coarse grids. Cardano's `t₁ + t₂` cancels when `p` is large and the root
+is `≈ −q/p`, so the root is taken as `−q/(t₁² + p/3 + t₂²)`, whose denominator
+is at least `|p|/3`.
+
+**Against the linear equation on the same stencil.** The FFT solution uses
+the 7-point Laplacian's own eigenvalues, so the multigrid must approach it
+with a difference that is the nonlinearity and nothing else. At `64³` in a
+256 Mpc/h box, maximum difference over the maximum of the linear solution:
+
+| rms `δ` | 1e−3 | 1e−4 | 1e−5 | 1e−6 |
+|---|---|---|---|---|
+| difference | 6.93e−05 | 6.93e−06 | 6.93e−07 | 7.07e−08 |
+
+That is ten per decade to three figures, until round-off at 1e−6.
+
+**A V-cycle cuts the residual by 0.04,** from `δ` of 1e−4 to three times the
+rms, where the field departs from the background by half.
+
+**Against an independent solution of the nonlinear equation.** A smooth
+overdense slab, `δ = 3.6` inside and `−0.9` outside, is plane-symmetric. The
+continuum equation is then a one-dimensional boundary-value problem, solved
+here by `scipy.integrate.solve_bvp` with its own adaptive mesh. The
+three-dimensional multigrid has to converge to it:
+
+| `n` | 16 | 32 | 64 | 128 |
+|---|---|---|---|---|
+| max error / `f_R0`, 128 Mpc/h box | 2.2e−02 | 4.7e−03 | 9.7e−04 | 2.5e−04 |
+
+The orders are 2.22, 2.28 and 1.96, and every plane agrees to 1e−12. The slab
+is 26 Mpc/h across and partly screened: its centre sits **8.5% above** the
+local minimum `R(f_R) = 8πGρ`. Linear theory puts the centre 14% *below* that
+minimum, which the nonlinear equation cannot reach.
+
+In a 512 Mpc/h box the same slab is 102 Mpc/h across and screened. The
+boundary-value solution sits on the local minimum to 2e−4 at the centre, and
+the multigrid to 1.1e−3 at `n = 32` and 3.8e−4 at `64`. There, `R(f_R)`
+tracks the density and the fifth force is off. Linear theory would put the
+field at 0.31 of its background value; the floor is 0.55.
+
+**The first versions of both slab tests were not densities.** A zero-mean slab
+of contrast 30 needs `δ = −12` outside, and one of contrast 5 in a narrow box
+needed `−1.5`. The second still "converged at second order" to its reference,
+because the equation is well posed as long as `R̄ + 8πGδρ > 0`. Only the first
+failed, and it failed by stalling the multigrid, which read as a solver
+problem until the density was checked. The solver now refuses `δ ≤ −1`. The
+first guess is the local minimum cell by cell, which is exact wherever the
+field is screened and the background wherever `δ` is small. On physical
+slabs that saves one cycle in five, against starting from the background;
+the stall was the density's.
+
+**The stopping rule was measuring the wrong thing.** Normalised by the
+background terms, which cancel, the residual let a perturbation of 1e−5 stop
+with the linear difference at 7e−5 instead of 7e−7. The residual is now
+measured against the density's own source, with a stop once a cycle no longer
+halves it below 1e−6, where round-off in the cancelling terms is the floor.
+
 ## Structure observables: an estimator held to an identity
 
 Issue #80, Level C3. A matter power spectrum estimator and a friends-of-friends
@@ -5769,6 +5849,9 @@ the design document.
   not exercised: no GPU on the machine this ran on.
 
 ### Milestones 8 and 9
+- `f(R)` power-spectrum enhancement, to 5% (issue #79) — the multigrid scalar
+  solver and its screening are in, held to an independent nonlinear solution at
+  second order; the N-body coupling is next.
 - Zel'dovich pancake caustic time, to 2% (issue #78) — **done** with TreePM:
   0.97% early at the true caustic, with sixteen slabs of 64 × 64 point masses.
   A cubic lattice is 15% early, correctly, because its sheets are not uniform;

@@ -12,9 +12,9 @@ from particlesim.theories.limits import check_all, check_gr_limit
 from particlesim.theories.lqg.lqc import RHO_CRITICAL_PLANCK, EffectiveLQC
 
 
-def test_both_plugins_are_registered_as_tier_b():
+def test_the_quantum_corrected_plugins_are_registered_as_tier_b():
     registry = list_theories()
-    for tid in ("lqg.lqc", "asafety.rg_improved"):
+    for tid in ("lqg.lqc", "lqg.polymer_bh", "asafety.rg_improved"):
         assert tid in registry
         assert registry[tid].tier == "B"
 
@@ -139,7 +139,7 @@ def test_horizon_disappears_below_a_critical_mass():
 
 def test_check_all_covers_every_registered_plugin_including_tier_b():
     reports = check_all(check_action=False)
-    assert {"gr", "gr.lambda", "lqg.lqc", "asafety.rg_improved"} <= set(reports)
+    assert {"gr", "gr.lambda", "lqg.lqc", "lqg.polymer_bh", "asafety.rg_improved"} <= set(reports)
     for tid, report in reports.items():
         assert report.checked, f"{tid} was not checked at all: {report.reasons}"
         assert report.passed, f"{tid} fails its declared GR limit: {report.reasons}"

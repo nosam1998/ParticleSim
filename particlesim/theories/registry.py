@@ -34,6 +34,7 @@ def _builtin() -> dict[str, type[Theory]]:
     from particlesim.theories.gr_lambda import GRWithLambda
     from particlesim.theories.kk import KaluzaKlein
     from particlesim.theories.lqg.lqc import EffectiveLQC
+    from particlesim.theories.lqg.polymer_bh import PolymerBlackHole
 
     return {
         cls.id: cls
@@ -41,6 +42,7 @@ def _builtin() -> dict[str, type[Theory]]:
             GeneralRelativity,
             GRWithLambda,
             EffectiveLQC,
+            PolymerBlackHole,
             RGImprovedSchwarzschild,
             KaluzaKlein,
             Dilaton,

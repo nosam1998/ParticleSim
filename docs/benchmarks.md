@@ -5358,8 +5358,7 @@ Issue #22, measured on the adaptive solver of #169 and #170: a 400-cell base
 grid, levels added wherever the grid puts fewer than sixteen cells across
 the curvature radius, the peak curvature read at every step of the finest
 level. Bisected on that solver, the threshold of the thin shell lies in
-`[8.4818720459e-4, 8.4818720581e-4]`, a relative width of 1.4e-9 and
-narrowing.
+`[8.4818720557332e-4, 8.4818720557392e-4]`, a relative width of 7.0e-13.
 
 **The exponent.** Peak `|R|` against `1 − p/p*`, from 1e-3 — where the
 uniform grid stops converging — to 1e-6:
@@ -5405,10 +5404,30 @@ The field changes sign every half period at nearly constant amplitude,
 extremum on — the first is still the approach — `Δ = 3.438`; with it, 3.339.
 The hierarchy was thirteen levels deep there, finest spacing 3.1e-6.
 
-That is two echoes, not the three the issue asks for. Each further half
-period needs `1 − p/p*` smaller by `exp(Δ/2γ) ≈ 100`, so a third echo sits
-near 3e-13 — within double precision of the amplitude, and a bisection of
-some fourteen more runs from the bracket above. It is running.
+That is two echoes. Each further half period needs `1 − p/p*` smaller by
+`exp(Δ/2γ) ≈ 100`, so a third sits near 3e-13.
+
+**The third echo.** At the bracket's lower end, at most 7.0e−13 below
+threshold, the same trace has seven alternating extrema instead of five:
+
+| `τ` | 4.23147 | 4.38153 | 4.41007 | 4.41517 | 4.41608 | 4.41625 | 4.41628 |
+|---|---|---|---|---|---|---|---|
+| `φ(0)` | −0.500 | +0.619 | −0.612 | +0.621 | −0.612 | +0.614 | −0.339 |
+| gap ratio → Δ | | | 3.319 | 3.4445 | 3.4439 | 3.4446 | 3.295 |
+
+That is three echoes. The five extrema between the approach and the
+departure sit at the critical solution's universal amplitude, 0.61 to
+0.62, and the three gaps between them each give `Δ = 3.444` to four
+figures: Choptuik measured 3.44, and Gundlach's (1997) construction of the
+critical solution gives 3.4453. Fitted from the second extremum on,
+`Δ = 3.4441`. The hierarchy went seventeen levels deep, finest spacing
+1.9e−7, and the first and last gaps are the approach and the departure, as
+at 3e−9.
+
+Getting there took eleven bisections below the 3e−9 bracket, each run 15 to
+140 minutes as the hierarchy deepened. The amplitude is in double precision
+to its sixteenth figure, so 7e−13 is about three thousand times the
+precision of `p` itself.
 
 ## Not implemented yet
 
@@ -5416,7 +5435,7 @@ Grouped by the milestone that will add them. Each is named in Section 10 of
 the design document.
 
 ### Milestone 1, spherical numerical relativity
-- Choptuik critical collapse (issue #22): γ = 0.3746 and Δ = 3.454 are measured on the refined grid above, and Δ = 3.438 from two echoes of the central field. What remains is a third echo, near `1 − p/p* = 3e-13`.
+- Choptuik critical collapse (issue #22): γ = 0.3746 and Δ = 3.454 are measured on the refined grid above, and Δ = 3.444 from three echoes of the central field — **done**. What #22 still lists is a nightly job at research resolution.
 - Oppenheimer-Snyder dust collapse against the closed form (issue #23)
 - Bianchi IX mixmaster Kasner map (issue #23)
 - Loop quantum cosmology bounce at ρ_c ≈ 0.41 ρ_Planck (issue #24)

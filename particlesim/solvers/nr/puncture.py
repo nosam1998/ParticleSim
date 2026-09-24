@@ -45,7 +45,7 @@ from typing import Any
 import numpy as np
 
 from particlesim.solvers.nr import bssn, mesh
-from particlesim.solvers.nr.boundary import Bounded, Radiative, interior
+from particlesim.solvers.nr.boundary import GAUGE_SPEEDS, Bounded, Radiative, interior
 from particlesim.solvers.nr.bssn import DIMENSION, INDICES, _module
 from particlesim.solvers.nr.refined import Hierarchy
 
@@ -138,6 +138,7 @@ class TwoLevelPuncture:
             axes=tuple(INDICES),
             width=width,
             backend=backend,
+            speeds=GAUGE_SPEEDS[evolution.slicing],
         )
         plain = Hierarchy.build(evolution, region, (n,) * DIMENSION, buffer=buffer)
         hierarchy = Hierarchy(

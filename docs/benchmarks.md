@@ -5922,6 +5922,11 @@ the design document.
   not exercised: no GPU on the machine this ran on.
 
 ### Milestones 8 and 9
+- One adapter round-trips a config and results (issue #81) — **done** for
+  GRChombo: its own example parameter files round-trip token for token through
+  a typed setup, the evolution translates exactly or is refused, and its plot
+  files read back through yt's Chombo reader cell for cell. See
+  `docs/adapters/grchombo.md`.
 - `f(R)` power-spectrum enhancement, to 5% (issue #79) — **done** against linear
   theory's scale-dependent growth: within 5% wherever `kh ≤ 0.6` at `64³`, under
   1% extrapolated. The nonlinear, screened enhancement is measured, not matched

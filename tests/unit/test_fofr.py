@@ -16,9 +16,25 @@ import numpy as np
 import pytest
 from scipy.integrate import solve_bvp
 
+from particlesim.analysis.structure import transfer_ratio
 from particlesim.cosmo import fofr
-from particlesim.cosmo.fofr import HUBBLE_LENGTH, HuSawicki, linear_scalaron, solve_scalaron
-from particlesim.cosmo.nbody import Mesh, gaussian_field
+from particlesim.cosmo.fofr import (
+    HUBBLE_LENGTH,
+    HuSawicki,
+    ModifiedGravityPM,
+    grow_linearly,
+    growth_ratio,
+    linear_scalaron,
+    solve_scalaron,
+)
+from particlesim.cosmo.nbody import (
+    Mesh,
+    ParticleMesh,
+    deposit,
+    gaussian_field,
+    zeldovich_from_field,
+    zeldovich_plane_wave,
+)
 
 F5 = HuSawicki(f_r0=1e-5, omega_m=0.3)
 
@@ -200,3 +216,102 @@ def test_a_wide_slab_is_screened_to_its_local_minimum():
 def test_the_solver_refuses_what_it_cannot_solve(density, message):
     with pytest.raises(ValueError, match=message):
         solve_scalaron(density, F5, 1.0, 100.0)
+
+
+# --- linear growth and the N-body force ----------------------------------------------
+
+
+def test_the_linear_enhancement_grows_with_k_and_with_f_r0():
+    k = np.array([1e-5, 0.03, 0.1, 0.3, 1.0])
+    ratio = growth_ratio(F5, k, 1.0)
+    assert ratio[0] == pytest.approx(1.0, abs=1e-6)
+    assert np.all(np.diff(ratio) > 0)
+    at_tenth = [growth_ratio(HuSawicki(f_r0=f), 0.1, 1.0)[0] for f in (1e-4, 1e-5, 1e-6)]
+    assert at_tenth[0] > at_tenth[1] > at_tenth[2] > 1.0
+
+
+def test_grow_linearly_multiplies_each_mode_by_its_own_ratio():
+    mesh = Mesh(size=128.0, cells=16)
+    x = np.arange(16) * mesh.spacing
+    for modes in (1, 3):
+        field = np.cos(2 * np.pi * modes * x / mesh.size)[:, None, None] * np.ones(mesh.shape)
+        grown = grow_linearly(field, mesh, F5, 1.0)
+        expected = growth_ratio(F5, 2 * np.pi * modes / mesh.size, 1.0)[0]
+        assert np.allclose(grown, expected * field, rtol=0, atol=1e-7)
+
+
+def test_the_n_body_solver_has_one_background():
+    with pytest.raises(ValueError, match="same background"):
+        ModifiedGravityPM(Mesh(size=128.0, cells=16), omega_m=0.25, model=F5)
+
+
+def test_a_frozen_mode_feels_the_seven_point_fifth_force():
+    """Fifth over Newton's force on one displaced mode: ``k^2 / (3 (k_hat^2 + a^2 m^2))``.
+
+    Both forces are deposited and read back the same way, so their ratio
+    carries neither window; what is left is the 7-point Laplacian in the
+    scalar equation, whose ``k_hat < k`` makes the fifth force slightly
+    stronger than the continuum's -- 3.6% at ``k h = 0.79``.
+    """
+    mesh = Mesh(size=128.0, cells=32)
+    solver = ModifiedGravityPM(mesh, omega_m=0.3, model=F5)
+    newtonian = ParticleMesh(mesh, omega_m=0.3)
+    h = mesh.spacing
+    for modes in (1, 2, 4):
+        state = zeldovich_plane_wave(mesh, 1e-4, scale=1.0, modes=modes)
+        fifth = solver.fifth_force(state.positions, 1.0)
+        newton = newtonian._force(state.positions, 1.0)
+        pattern = np.sin(2 * np.pi * modes * state.positions[0] / mesh.size)
+        ratio = np.sum(fifth[0] * pattern) / np.sum(newton[0] * pattern)
+        k = 2 * np.pi * modes / mesh.size
+        k_hat_squared = (4 / h**2) * np.sin(k * h / 2) ** 2
+        mass = 1.0 / F5.compton_wavelength(1.0) ** 2
+        assert ratio == pytest.approx(k**2 / (3 * (k_hat_squared + mass)), rel=1e-5)
+    assert ratio / (k**2 / (3 * (k**2 + mass))) - 1 == pytest.approx(0.036, abs=0.001)
+
+
+def _enhancement_errors(cells: int):
+    """F5 against LCDM from one set of linear initial conditions, 128 Mpc/h, to ``a = 1``."""
+    mesh = Mesh(size=128.0, cells=cells)
+    field = gaussian_field(
+        mesh,
+        lambda k: 1e-4 * (k / 0.02) / (1 + (k / 0.02) ** 2.8) * np.exp(-((k / 0.35) ** 4)),
+        seed=11,
+    )
+    initial = zeldovich_from_field(mesh, field, scale=0.05, omega_m=0.3)
+    lcdm, _ = ParticleMesh(mesh, omega_m=0.3).run(initial, 1.0, 60)
+    modified, _ = ModifiedGravityPM(mesh, omega_m=0.3, model=F5).run(initial, 1.0, 60)
+    reference = deposit(lcdm.positions, mesh)
+    edges = np.linspace(0.5, 6.5, 7) * 2 * np.pi / mesh.size
+    measured = transfer_ratio(deposit(modified.positions, mesh), reference, mesh, bins=edges)
+    linear = transfer_ratio(
+        grow_linearly(reference, mesh, F5, 1.0, start=0.05), reference, mesh, bins=edges
+    )
+    errors = (measured.power - 1) / (linear.power - 1) - 1
+    return measured.wavenumber, errors, linear.power
+
+
+@pytest.mark.slow
+@pytest.mark.benchmark
+def test_the_n_body_enhancement_is_linear_theorys_to_five_percent():
+    """Issue #79's acceptance, in the regime where the answer is known exactly.
+
+    F5 from ``a = 0.05`` to 1, one set of linear initial conditions evolved
+    with and without the fifth force, compared mode by mode with linear
+    theory's scale-dependent growth. The enhancement of ``D`` reaches 10.5%
+    at ``k = 0.3 h/Mpc`` (22% in ``P``). At ``64^3`` it is reproduced to
+    better than 5% wherever ``k h <= 0.6``; the error is the mesh's, falling
+    fourfold from ``32^3`` at every ``k``, and extrapolating the two
+    resolutions leaves under 1%.
+    """
+    k, coarse, _ = _enhancement_errors(32)
+    _, fine, linear = _enhancement_errors(64)
+    spacing = 128.0 / 64
+    resolved = k * spacing <= 0.61
+    assert resolved.sum() == 6
+    assert np.all(np.abs(fine[resolved]) < 0.05), fine
+    ratios = coarse / fine
+    assert np.all((ratios > 3.3) & (ratios < 4.7)), ratios
+    extrapolated = (4 * fine - coarse) / 3
+    assert np.all(np.abs(extrapolated) < 0.01), extrapolated
+    assert linear[-1] == pytest.approx(1.105, abs=0.002)

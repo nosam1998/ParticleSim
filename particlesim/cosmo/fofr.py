@@ -39,6 +39,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from particlesim.cosmo.nbody import ParticleMesh, deposit, interpolate
+
 #: The Hubble length ``c / H_0`` in ``Mpc/h``.
 HUBBLE_LENGTH = 2997.92458
 
@@ -332,10 +334,143 @@ def linear_scalaron(density, model: HuSawicki, scale: float, size: float) -> np.
     return np.fft.irfftn(response * np.fft.rfftn(delta), s=delta.shape, axes=(0, 1, 2))
 
 
+# --- linear growth ------------------------------------------------------------
+
+
+def growth_ratio(model: HuSawicki, wavenumber, scale: float, start: float = 0.02) -> np.ndarray:
+    """``D_f(R)(k, a) / D_LCDM(a)`` in linear theory, from the same early growing mode.
+
+    ``D'' + (3/a + E'/E) D' = (3/2) Omega_m a^-5 E^-2 mu(k, a) D`` with
+    ``mu = 1 + k^2 / (3 (k^2 + a^2 m^2))``, integrated for each ``k`` from
+    ``D = a`` at ``start``, where the Compton wavelength is far below any
+    scale of interest (0.004 Mpc/h for F5 at ``a = 0.02``). The ratio's
+    square is the linear ``P(k)`` enhancement.
+    """
+    from scipy.integrate import solve_ivp
+
+    omega_m = model.omega_m
+
+    def solve(mu):
+        def rhs(a, y):
+            rate_squared = omega_m * a**-3 + (1.0 - omega_m)
+            friction = 3.0 / a - 1.5 * omega_m * a**-4 / rate_squared
+            return [y[1], -friction * y[1] + 1.5 * omega_m * a**-5 / rate_squared * mu(a) * y[0]]
+
+        return solve_ivp(rhs, (start, scale), [start, 1.0], rtol=1e-11, atol=1e-14).y[0, -1]
+
+    reference = solve(lambda a: 1.0)
+    out = [
+        solve(lambda a, k=k: float(model.enhancement(k, a))) / reference
+        for k in np.atleast_1d(np.asarray(wavenumber, dtype=float))
+    ]
+    return np.asarray(out)
+
+
+def grow_linearly(density, mesh, model: HuSawicki, scale: float, start: float = 0.02):
+    """``density`` with every Fourier mode multiplied by its own ``growth_ratio``.
+
+    Apply it to an LCDM field and the result is what linear f(R) would have
+    made of the same modes. Comparing an f(R) run with this, through the
+    same estimator, rather than with ``growth_ratio`` at a bin's mean ``k``,
+    matters: the enhancement varies steeply across a bin, and an estimator
+    weights a bin's modes by *this* realisation's power. At ``32^3`` in a
+    128 Mpc/h box the bin-centre comparison read +4.5%, -12% and -6% in the
+    lowest three bins, which is the realisation. Mode by mode it reads
+    -1.1%, -2.6% and -5.1%, which is the mesh.
+
+    The ratio is tabulated on 400 wavenumbers up to the grid's corner and
+    interpolated with a cubic spline; it is smooth in ``k``.
+    """
+    from scipy.interpolate import CubicSpline
+
+    _, squared = mesh.wavenumbers()
+    magnitude = np.sqrt(squared)
+    magnitude[0, 0, 0] = 0.0
+    samples = np.linspace(0.0, 1.001 * float(magnitude.max()), 400)
+    table = growth_ratio(model, np.maximum(samples, 1e-8), scale, start=start)
+    factor = CubicSpline(samples, table)(magnitude)
+    field_ = np.fft.rfftn(np.asarray(density, dtype=float))
+    return np.fft.irfftn(field_ * factor, s=mesh.shape, axes=(0, 1, 2))
+
+
+# --- the N-body force -----------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ModifiedGravityPM(ParticleMesh):
+    """Particle-mesh on LCDM with the Hu-Sawicki fifth force added to Newton's.
+
+    ``mesh.size`` is in comoving ``Mpc/h`` here, because the scalar equation
+    has a scale of its own. With ``H_0 = 1`` and lengths in ``Mpc/h``, the
+    momentum equation is
+
+        dp/da = -(3/2) Omega_m grad phi / (a^2 E) + (c/H_0)^2 grad(delta f_R) / (2 a E)
+
+    with ``lap phi = delta``. Linearised, the second term is the first times
+    ``k^2 / (3 (k^2 + a^2 m^2))``, which is where ``mu`` comes from.
+
+    **The fifth force is differentiated spectrally, as Newton's is.** A
+    central difference carries ``sin(k h)/(k h)``, which is 0.9 at
+    ``k h = 0.8`` and 0.28 at 2.4; on an 8 Mpc/h mesh that took the measured
+    enhancement from 16% to 78% short of linear theory between ``k = 0.1``
+    and 0.3 h/Mpc. The scalar field itself comes from the 7-point multigrid,
+    which makes the fifth force slightly *stronger* than the continuum's at
+    high ``k`` -- ``(1/3) k^2 / (k_hat^2 + a^2 m^2)`` with ``k_hat < k`` --
+    and a frozen single mode reproduces exactly that.
+
+    Each solve starts from the previous step's field; ``tolerance`` is the
+    multigrid's, looser than its default because the force needs four
+    digits, not ten.
+    """
+
+    model: HuSawicki = field(default_factory=HuSawicki)
+    tolerance: float = 1e-7
+    _state: dict = field(default_factory=dict, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.omega_m != self.model.omega_m:
+            raise ValueError(
+                f"the solver's Omega_m {self.omega_m} and the model's "
+                f"{self.model.omega_m} must be the same background"
+            )
+
+    def scalaron(self, positions, scale: float) -> ScalarSolution:
+        """``f_R`` on the mesh for these particles, warm-started from the last call."""
+        density = np.maximum(deposit(positions, self.mesh), -0.999)
+        guess = self._state.get("field")
+        if guess is not None and guess.shape != density.shape:
+            guess = None
+        solution = solve_scalaron(
+            density, self.model, scale, self.mesh.size, guess=guess, tolerance=self.tolerance
+        )
+        self._state["field"] = solution.field
+        return solution
+
+    def fifth_force(self, positions, scale: float) -> np.ndarray:
+        """``(c/H_0)^2 grad(delta f_R) / (2 a E)`` at the particles: its share of ``dp/da``."""
+        perturbation = np.fft.rfftn(self.scalaron(positions, scale).perturbation)
+        grids, _ = self.mesh.wavenumbers()
+        gradient = [
+            np.fft.irfftn(1j * component * perturbation, s=self.mesh.shape, axes=(0, 1, 2))
+            for component in grids
+        ]
+        factor = 0.5 * HUBBLE_LENGTH**2 / (scale * float(self.expansion(scale)))
+        return factor * np.stack(
+            [interpolate(component, positions, self.mesh) for component in gradient]
+        )
+
+    def _force(self, positions, scale: float) -> np.ndarray:
+        return super()._force(positions, scale) + self.fifth_force(positions, scale)
+
+
 __all__ = [
     "HUBBLE_LENGTH",
     "HuSawicki",
+    "ModifiedGravityPM",
     "ScalarSolution",
+    "grow_linearly",
+    "growth_ratio",
     "linear_scalaron",
     "solve_scalaron",
 ]

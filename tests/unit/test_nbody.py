@@ -23,8 +23,10 @@ from particlesim.cosmo.nbody import (
     State,
     caustic_scale_factor,
     deposit,
+    expansion,
     gaussian_field,
     growth_exponents,
+    growth_factor,
     interpolate,
     potential_gradient,
     zeldovich_from_field,
@@ -458,3 +460,79 @@ def test_the_caustic_is_late_at_the_centre_and_a_false_one_forms_beside_it():
     assert centre / exact - 1.0 == pytest.approx(0.174, abs=0.02)
     assert anywhere / exact - 1.0 == pytest.approx(0.133, abs=0.02)
     assert anywhere < centre  # the false caustic always comes first
+
+
+# --- a flat LCDM background -------------------------------------------------
+
+
+def test_the_lcdm_growing_mode_solves_the_growth_equation():
+    """Heath's quadrature against the ODE, and ``D = a`` exactly in Einstein-de Sitter.
+
+    ``D(1) = 0.77898`` for ``Omega_m = 0.3``: structure 22% behind where
+    matter alone would have taken it.
+    """
+    from scipy.integrate import solve_ivp
+
+    omega_m = 0.3
+
+    def rhs(a, y):
+        rate_squared = expansion(a, omega_m) ** 2
+        friction = 3.0 / a - 1.5 * omega_m * a**-4 / rate_squared
+        return [y[1], -friction * y[1] + 1.5 * omega_m * a**-5 / rate_squared * y[0]]
+
+    scales = np.array([0.05, 0.3, 1.0])
+    reference = solve_ivp(rhs, (1e-3, 1.0), [1e-3, 1.0], rtol=1e-12, atol=1e-15, dense_output=True)
+    value, rate = growth_factor(scales, omega_m)
+    assert np.allclose(value, reference.sol(scales)[0], rtol=1e-8)
+    assert np.allclose(rate, reference.sol(scales)[1], rtol=1e-8)
+    assert value[-1] == pytest.approx(0.77898, abs=1e-5)
+    eds_value, eds_rate = growth_factor(scales, 1.0)
+    assert np.array_equal(eds_value, scales) and np.all(eds_rate == 1.0)
+
+
+def test_lcdm_particles_follow_the_growing_mode_the_mesh_allows():
+    """A long mode from ``a = 0.05`` to 1 with ``Omega_m = 0.3``, against the growth equation.
+
+    The mesh softens this mode's force by exactly ``sinc(k h)``, so the
+    reference is the growth equation with ``G`` multiplied by that and
+    nothing fitted, from the same initial growth rate. The particles follow
+    it to 3e-04 at 200 steps, and the difference is kick-drift-kick's own:
+    it falls fourfold per halving of the step (4.7e-03 at 50 steps, 7.6e-05
+    at 400). Unsoftened LCDM is 3.7% away, and Einstein-de Sitter 28%.
+    """
+    from scipy.integrate import solve_ivp
+
+    omega_m, start, cells = 0.3, 0.05, 16
+    mesh = Mesh(size=1.0, cells=cells)
+    x = np.arange(cells) * mesh.spacing
+    field = 1e-6 * np.cos(2 * np.pi * x)[:, None, None] * np.ones(mesh.shape)
+    initial = zeldovich_from_field(mesh, field, scale=start, omega_m=omega_m)
+
+    def amplitude(state):
+        return np.abs(np.fft.rfftn(deposit(state.positions, mesh))[1, 0, 0])
+
+    value, rate = growth_factor(start, omega_m)
+
+    def rhs(a, y):
+        rate_squared = expansion(a, omega_m) ** 2
+        friction = 3.0 / a - 1.5 * omega_m * a**-4 / rate_squared
+        softened = np.sinc(2.0 / cells)
+        return [y[1], -friction * y[1] + 1.5 * omega_m * a**-5 / rate_squared * softened * y[0]]
+
+    reference = solve_ivp(rhs, (start, 1.0), [float(value), float(rate)], rtol=1e-12, atol=1e-15)
+    expected = reference.y[0, -1] / float(value)
+
+    errors = []
+    for steps in (100, 200):
+        final, _ = ParticleMesh(mesh, omega_m=omega_m).run(initial, 1.0, steps)
+        errors.append(amplitude(final) / amplitude(initial) / expected - 1.0)
+    assert abs(errors[-1]) < 4e-4
+    assert errors[0] / errors[1] == pytest.approx(4.0, rel=0.05)
+    unsoftened = float(growth_factor(1.0, omega_m)[0] / value)
+    assert expected / unsoftened - 1 == pytest.approx(-0.036, abs=0.002)
+
+
+@pytest.mark.parametrize("omega_m", [0.0, -0.3, 1.2])
+def test_the_background_must_be_matter_and_lambda(omega_m):
+    with pytest.raises(ValueError, match="Omega_m"):
+        ParticleMesh(Mesh(cells=8), omega_m=omega_m)

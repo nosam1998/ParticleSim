@@ -4711,12 +4711,116 @@ limit. `particlesim check-limits` enforces this and runs in CI.
 | `gr` | passes both the stress-energy and action checks |
 | `gr.lambda` | passes both |
 | `lqg.lqc` | passes the reduced-dynamics check |
+| `lqg.polymer_bh` | passes the metric-family check, symbolically |
 | `asafety.rg_improved` | passes the metric-family check |
 
 The harness itself is tested against deliberately wrong plugins, because a
 check that cannot fail proves nothing: a wrong declared limit, a
 curvature-coupled term invisible on a flat metric, and a limit at infinity
 are all required to be caught or reported rather than passed.
+
+## A polymerised black-hole interior: a curvature bound that does not grow with the mass
+
+Issue #24's last plugin, `lqg.polymer_bh`, is Ashtekar, Olmedo and Singh's
+effective interior (2018). Inside the horizon Schwarzschild is a Kantowski–Sachs
+cosmology,
+
+    ds² = −N² dT² + (p_b²/(L_o² p_c)) dx² + p_c dΩ²
+
+and loop quantum gravity replaces the connection components `b` and `c` by
+`sin(δ_b b)/δ_b` and `sin(δ_c c)/δ_c`. With AOS's lapse the two pairs decouple,
+and the equations solve in closed form. `p_c` no longer reaches zero. It turns
+at a **transition surface**, where the black-hole interior becomes a white-hole
+interior, and a white-hole horizon follows at finite `T`.
+
+### Two routes to one solution
+
+The closed form is checked against Hamilton's equations integrated from the
+effective Hamiltonian, which never sees it. From just inside the horizon,
+through the transition surface, to nine-tenths of the way to the white-hole
+horizon, they agree to **3e−12** at `m = 10` and 9e−12 at `m = 10³`. AOS's two
+mass functions `O_b` and `O_c` stay at `m` to 1e−11 along the numerical
+solution.
+
+The closed form needed rewriting to survive large masses. The textbook
+`sin²(δ_b b)` contains `−2b_o − t(1 + b_o²)` with `t = tanh(b_o T/2)`, which
+near the white-hole horizon is the difference of two numbers near 2 whose
+difference is `(b_o − 1)² ≈ δ_b⁴`. Written as `(b_o − 1)² − (1 + t)(1 + b_o²)`
+it has no cancellation. Before the rewrite, the Kretschmann scalar at
+`m = 10¹²` was 1.4e−8 off a 40-digit evaluation, and the search for its
+maximum hit NaN near the horizon. After it, the two agree to every printed
+digit.
+
+### The prescription is a double root, and that has a consequence
+
+AOS fix `δ_b` and `δ_c` by requiring two plaquettes at the transition surface
+to have the area gap `Δ` as their area:
+
+    2π δ_c δ_b |p_b| = Δ   and   4π δ_b² p_c = Δ
+
+For a macroscopic mass the second gives `p_c = m γ L_o δ_c` there. With the
+solution above, the ratio of the two conditions is `(X² + 1)/(2X)`, where
+`X = 2K^{1/4}/(γ δ_b)`. That touches one only at `X = 1`, which gives
+
+    δ_b = (√Δ / (√(2π) γ² m))^{1/3},    L_o δ_c = ½ (γ Δ² / (4π² m))^{1/3}
+
+These are AOS's formulas, re-derived here rather than transcribed. But the two
+conditions are **tangent** there: the closed form is a double root of the
+leading-order problem. At finite mass the next order pushes the minimum of the
+mismatch just below zero (by 0.016, 0.004 and 0.001 at `m = 10²`, `10³` and
+`10⁴`), and the exact conditions have *two* solutions, one either side:
+
+| `m` | lower root, `δ_b` | upper root, `δ_b` |
+|---|---|---|
+| 10⁴ | −2.61e−02 | +2.62e−02 |
+| 10⁶ | −5.67e−03 | +5.64e−03 |
+| 10⁸ | −1.22e−03 | +1.22e−03 |
+| 10¹⁰ | −2.62e−04 | +2.62e−04 |
+
+Each is relative to the closed form. They close in by 4.64 per factor of a
+hundred, which is `100^{1/3}`: the square root of an `O(m^{−2/3})` splitting.
+The practical consequence is that a root-finder started at the closed form
+lands on either root. The first attempt here did exactly that: −11% at
+`m = 100` and +2.6% at `10⁴`, which read like convergence that could not
+decide its sign. `plaquette_polymerisation` now returns both.
+
+### The benchmark: curvature bounded independently of the mass
+
+The transition surface's radius is `√(m γ L_o δ_c)`, which the prescription
+makes exactly `0.254104 m^{1/3}` (to 1e−12 at every mass). The Kretschmann
+scalar there, of order `m²/r⁶`, therefore does not depend on `m`. It is also
+the maximum along the whole interior. From the phase-space variables, with
+every derivative from Hamilton's equations and nothing differenced:
+
+| `m` | `K` at the surface | max `K` | `T_max − T_T` | `m_WH/m − 1` | `ε(ln(ε/4) + 1)` |
+|---|---|---|---|---|---|
+| 10² | 82136.81 | 82138.83 | +1.3e−03 | −7.12e−02 | −7.47e−02 |
+| 10⁴ | 82188.035 | 82188.047 | +9.6e−05 | −5.82e−03 | −5.85e−03 |
+| 10⁶ | 82188.3627 | 82188.3628 | +6.2e−06 | −3.8156e−04 | −3.8164e−04 |
+| 10⁹ | 82188.3642 | 82188.3642 | +8.9e−08 | −5.4713e−06 | −5.4713e−06 |
+| 10¹² | 82188.3642 | 82188.3642 | +1.2e−09 | −7.1262e−08 | −7.1262e−08 |
+
+Everything is in Planck units. **The bound is 82188.36, the same to 2e−8 from
+`m = 10⁶` to `10¹²`**, and 0.06% lower at `m = 100`. Classically the same
+interior reaches any curvature. Near the horizon the correction is
+Planck-scale: at `m = 10⁶` the curvature is Schwarzschild's to 9e−06 at
+`T = −0.5`, 7e−05 at `T = −2` and 2.5e−03 at `T = −5`, against a transition
+surface at `T = −11.6`.
+
+**The white hole has the black hole's mass, less a logarithmically suppressed
+deficit.** Expanding `p_c` at the white-hole horizon, `cos(δ_b b) = −1`, with
+`K = γ⁴δ_b⁴/16` (which is what the prescription makes it) gives
+`m_WH/m − 1 = ε(ln(ε/4) + 1) + O(ε²)` with `ε = γ²δ_b²`. The deficit falls as
+`m^{−2/3} ln m`, and the last column is that expansion.
+
+**The GR limit is exact.** The coupling is the area gap, and at zero both
+polymerisation parameters vanish. The harness compares the metric family, in
+areal radius on the black-hole side, with Schwarzschild symbolically, and it
+matches. Numerically the interior is Schwarzschild's to 1e−14, curvature
+included. A plugin declaring a nonzero area gap as its limit is caught.
+
+This is the effective interior only: not the quantum theory, not perturbations
+of it, and not the exterior beyond what the same metric family continues to.
 
 ## Electromagnetics
 
@@ -5599,6 +5703,9 @@ the design document.
 - Oppenheimer-Snyder dust collapse against the closed form (issue #23)
 - Bianchi IX mixmaster Kasner map (issue #23)
 - Loop quantum cosmology bounce at ρ_c ≈ 0.41 ρ_Planck (issue #24)
+- Polymerised black-hole interior (issue #24) — **done**: the curvature bound at
+  the transition surface is 82188.36 Planck units, independent of the mass to
+  2e−8 from 10⁶ to 10¹²; see that section
 - Apparent horizon radius for Schwarzschild in the chosen slicing, to 1e-6 (issue #21)
 
 ### Milestone 2, particle-in-cell

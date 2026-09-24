@@ -187,23 +187,84 @@ class ScalarCollapse:
         matters because this solve was ninety per cent of every step, and a
         refinement hierarchy calls it on every level at every stage.
         """
+        r = self.r
+        density = Pi**2 + Phi**2
+        source = 2.0 * np.pi * r**2 * density
+        mass = solve_linear_mass(r, self.dr, source, midpoints(source))
+        log, node = self._log_lapse(r, mass, density, source, midpoints(density))
+        logarithm = 0.5 * r[0] * node[0] + log
+        free = 1.0 - 2.0 * mass / r
+        return 1.0 / np.sqrt(free), normalise_lapse(logarithm, float(mass[-1]), float(r[-1]))
+
+    def solve_anchored_metric(
+        self, Phi: np.ndarray, Pi: np.ndarray, index: int, mass: float
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """:meth:`solve_metric` with the mass at ``r[index]`` given rather than integrated.
+
+        For a level whose cells inside ``r[index]`` are covered by a finer
+        one. Its own copy of that region is under-resolved exactly when the
+        finer level is needed, and integrating through it gave a wrong ``m``
+        at every radius outside -- and near threshold, where the coarse copy
+        steps structure hundreds of times smaller than its spacing, a
+        ``2m/r >= 1`` that stopped a run which was in fact dispersing.
+
+        Outside ``r[index]`` the mass is integrated from the value given,
+        which the caller takes from the finer level, and so is the lapse, up
+        to the constant the outer edge fixes: nothing inside can reach either,
+        not even a ``nan``. Inside, the level's own integration is kept, since
+        that region is overwritten by restriction anyway, matched to the
+        outside at ``r[index]``; where it refuses or is not finite it is
+        replaced by a regular profile through the given mass.
+        """
         r, h = self.r, self.dr
         density = Pi**2 + Phi**2
         source = 2.0 * np.pi * r**2 * density
-        mass = solve_linear_mass(r, h, source, midpoints(source))
-        free = 1.0 - 2.0 * mass / r
+        source_mid, density_mid = midpoints(source), midpoints(density)
 
+        out = slice(index, None)
+        outside = solve_linear_mass(r[out], h, source[out], source_mid[out], first_value=mass)
+        log, _ = self._log_lapse(r[out], outside, density[out], source[out], density_mid[out])
+        a_out = 1.0 / np.sqrt(1.0 - 2.0 * outside / r[out])
+        alpha_out = normalise_lapse(log, float(outside[-1]), float(r[-1]))
+
+        inner = slice(0, index + 1)
+        with np.errstate(all="ignore"):
+            try:
+                inside = solve_linear_mass(r[inner], h, source[inner], source_mid[:index])
+                log, _ = self._log_lapse(
+                    r[inner], inside, density[inner], source[inner], density_mid[:index]
+                )
+                a_in = 1.0 / np.sqrt(1.0 - 2.0 * inside / r[inner])
+                alpha_in = alpha_out[0] * np.exp(log - log[-1])
+                regular = bool(np.isfinite(a_in).all() and np.isfinite(alpha_in).all())
+            except PolarSlicingBreakdown:
+                regular = False
+        if not regular:
+            profile = mass * (r[inner] / r[index]) ** 3
+            a_in = 1.0 / np.sqrt(1.0 - 2.0 * profile / r[inner])
+            alpha_in = np.full(index + 1, alpha_out[0])
+        return np.concatenate([a_in[:-1], a_out]), np.concatenate([alpha_in[:-1], alpha_out])
+
+    def _log_lapse(
+        self,
+        r: np.ndarray,
+        mass: np.ndarray,
+        density: np.ndarray,
+        source: np.ndarray,
+        density_mid: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Simpson's rule for ``ln alpha`` from ``r[0]``, and the integrand at the nodes."""
+        h = self.dr
+        free = 1.0 - 2.0 * mass / r
         middle = r[:-1] + 0.5 * h
         derivative = source * free
         mass_mid = 0.5 * (mass[:-1] + mass[1:]) + h / 8.0 * (derivative[:-1] - derivative[1:])
         node = mass / (r**2 * free) + 2.0 * np.pi * r * density
         mid = mass_mid / (middle**2 * (1.0 - 2.0 * mass_mid / middle)) + (
-            2.0 * np.pi * middle * midpoints(density)
+            2.0 * np.pi * middle * density_mid
         )
-        logarithm = 0.5 * r[0] * node[0] + np.concatenate(
-            [[0.0], np.cumsum(h / 6.0 * (node[:-1] + 4.0 * mid + node[1:]))]
-        )
-        return 1.0 / np.sqrt(free), normalise_lapse(logarithm, float(mass[-1]), float(r[-1]))
+        log = np.concatenate([[0.0], np.cumsum(h / 6.0 * (node[:-1] + 4.0 * mid + node[1:]))])
+        return log, node
 
     def mass_aspect(self, a: np.ndarray) -> np.ndarray:
         """Misner-Sharp mass ``m(r) = (r / 2) (1 - 1 / a^2)``."""

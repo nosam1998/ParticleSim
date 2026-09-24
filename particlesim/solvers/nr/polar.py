@@ -120,8 +120,12 @@ def solve_linear_mass(
     spacing: float,
     source: np.ndarray,
     source_mid: np.ndarray,
+    first_value: float | None = None,
 ) -> np.ndarray:
     """:func:`solve_mass` for ``dm/dr = sigma (1 - 2m/r)``, the same arithmetic, vectorised.
+
+    ``first_value`` is the mass at ``radii[0]`` when the integration starts
+    somewhere other than the origin, as :func:`solve_mass` takes it.
 
     A massless scalar's mass equation is *linear* in ``m``, with ``sigma``
     known at every node and midpoint before the integration starts. So each
@@ -170,7 +174,7 @@ def solve_linear_mass(
 
     # The source behaves as r^2 near the origin, whose integral from zero to
     # the first point is exactly that source times the radius over three.
-    first = source[0] * radii[0] / 3.0
+    first = source[0] * radii[0] / 3.0 if first_value is None else float(first_value)
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
         product = np.concatenate([[1.0], np.cumprod(A)])
         mass = product * (first + np.concatenate([[0.0], np.cumsum(B / product[1:])]))

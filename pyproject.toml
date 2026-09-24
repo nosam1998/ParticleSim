@@ -85,6 +85,7 @@ testpaths = ["tests"]
 markers = [
   "benchmark: reproduces a published or closed-form result (Section 10 of the design doc)",
   "slow: takes more than a few seconds",
+  "research: hours at research resolution; nightly only, never on a push",
 ]
 timeout = 600
 

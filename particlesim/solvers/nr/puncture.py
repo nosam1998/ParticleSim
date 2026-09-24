@@ -96,7 +96,7 @@ class TwoLevelPuncture:
         upwind: bool = True,
         dissipation: float = bssn.DISSIPATION,
         buffer: int = 6,
-        advect: bool = False,
+        advect: bool | str = "lapse",
         backend: str = "jax",
     ) -> tuple[TwoLevelPuncture, dict[str, Any], dict[str, Any]]:
         """The setup and its initial coarse and fine states.

@@ -1019,7 +1019,7 @@ def gauge_rhs(
     slicing: str = "one_plus_log",
     shift_condition: str = "gamma_driver",
     damping: float = 2.0,
-    advect: bool = True,
+    advect: bool | str = True,
 ):
     """``(d_t alpha, d_t beta^i, d_t B^i)`` for the gauge.
 
@@ -1034,8 +1034,17 @@ def gauge_rhs(
 
     ``advect`` adds the ``beta^j d_j`` terms. They belong in a run with a
     moving shift and vanish identically when the shift does, so the gauge
-    wave is unaffected either way.
+    wave is unaffected either way. ``"lapse"`` advects the lapse alone:
+    ``d_t alpha = beta^j d_j alpha - 2 alpha K`` with the shift and its
+    driver unadvected, the combination of Campanelli et al. (2006). The
+    lapse needs its advection term for 1+log to have a stationary trumpet
+    at all -- without it ``d_t alpha = -2 alpha K`` keeps collapsing
+    wherever ``K`` is not zero.
     """
+    if advect not in (True, False, "lapse"):
+        raise ValueError(f"advect must be True, False or 'lapse', not {advect!r}")
+    advect_lapse = advect is True or advect == "lapse"
+    advect_shift = advect is True
     if slicing not in SLICINGS:
         raise ValueError(f"unknown slicing {slicing!r}; known: {sorted(SLICINGS)}")
     if shift_condition not in ("gamma_driver", "frozen"):
@@ -1045,7 +1054,7 @@ def gauge_rhs(
     shift = variables.shift
     physical = variables.physical
     dt_lapse = SLICINGS[slicing](lapse, variables.mean_curvature)
-    if advect:
+    if advect_lapse:
         for k in INDICES:
             dt_lapse = dt_lapse + shift[k] * physical.d_lapse[k]
 
@@ -1059,7 +1068,7 @@ def gauge_rhs(
     for i in INDICES:
         velocity = 3 * driver[i] / 4
         rate = connection_rhs[i] - damping * driver[i]
-        if advect:
+        if advect_shift:
             for k in INDICES:
                 velocity = velocity + shift[k] * physical.d_shift[k][i]
         dt_shift.append(velocity)

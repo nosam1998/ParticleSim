@@ -1382,9 +1382,46 @@ By 165 M the black hole is gone. The lapse is above 0.82 everywhere on the
 fine level, and above 0.96 by 170 M. `φ` is at most 0.11 anywhere, where a
 puncture has `φ = ln ψ ≫ 1`. **Nothing went non-finite**, so a run that
 checks only for `NaN` reports this as healthy. The diagnostics now include
-the largest `φ` for that reason. Where on the coarse level the growth
-starts, whether at the radiative zone or at the box, is the next
-measurement. #48 stays open.
+the largest `φ` for that reason.
+
+### Where it starts, and two fixes that were not
+
+**It starts at the outer boundary.** Binned by distance from the edge, the
+first thing to move is the lapse in the radiative zone. Its largest
+departure from one grows steadily from the start:
+
+| t / M | 10 | 40 | 80 | 100 | 120 | 150 |
+|---|---|---|---|---|---|---|
+| `max \|α − 1\|` in the zone | 0.10 | 0.19 | 0.28 | 0.38 | 0.55 | 0.84 |
+
+The constraint beside the zone takes off from 110 M, and the hole goes with
+it.
+
+**Gauge speeds did nothing.** With 1+log slicing the lapse and `K` carry
+pulses at `√(2α)`, which is `√2` far out, so the condition now takes a speed
+per variable (`Radiative(speeds=…)`, `GAUGE_SPEEDS`). It is the right value
+and it changed nothing measurable: the zone's lapse drifted by 0.256 at 70 M
+with it and 0.253 without.
+
+**Advecting the lapse alone did worse.** Without an advection term,
+`∂_t α = −2αK` has no stationary trumpet, which suggested the drift was the
+interior's lapse still collapsing. Campanelli et al.'s combination advects
+the lapse and not the shift (`advect="lapse"`). With it the zone's lapse
+drifted faster, 0.31, 0.59 and 0.89 at 60, 90 and 120 M, and the hole
+dissolved by 125 M.
+
+**A single level says it is the box.** The same puncture on one level at
+`M/2`, boundary at `9 M`, behaves the same in all three gauges. The lapse at
+`r = 2 M` sloshes, 0.88, 0.64, 0.89, 1.06, 0.97 and 0.99 at t = 10 to 60 M,
+and then sits at one: the hole no longer shapes the slice, where a trumpet
+holds it near 0.5. The sloshing has a period of about 20 M, a gauge pulse at
+`√2` crossing a box of `±9 M` and back, and at `M/2` the puncture is two
+cells across. Two levels of 36 points put the outer boundary at `9 M`,
+inside the region where the gauge is still settling. Production codes put it
+at 100 M or more, with as many levels as that takes. With two levels that
+means either grids several times larger on every side or a boundary
+condition that absorbs the 1+log gauge pulses. Neither is done here.
+**#48 stays open.**
 
 
 ## A radiative outer boundary: letting a pulse leave

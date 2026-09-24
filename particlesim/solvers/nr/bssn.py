@@ -146,7 +146,7 @@ def rhs_expressions(
     slicing: str = "one_plus_log",
     shift_condition: str = "gamma_driver",
     damping: float = 2.0,
-    advect: bool = True,
+    advect: bool | str = True,
 ):
     """The twenty-four right-hand sides, symbolically, keyed by state name.
 
@@ -191,7 +191,7 @@ def rhs_kernel(
     slicing: str = "one_plus_log",
     shift_condition: str = "gamma_driver",
     damping: float = 2.0,
-    advect: bool = True,
+    advect: bool | str = True,
     jit: bool = True,
     use_cache: bool = True,
 ) -> codegen.Kernel:
@@ -517,7 +517,7 @@ class Evolution:
     damping: float = 2.0
     enforce: bool = True
     upwind: bool = False
-    advect: bool = True
+    advect: bool | str = True
 
     @classmethod
     def build(
@@ -533,7 +533,7 @@ class Evolution:
         jit: bool = True,
         enforce: bool = True,
         upwind: bool = False,
-        advect: bool = True,
+        advect: bool | str = True,
     ) -> Evolution:
         kernel = rhs_kernel(
             order=order,
@@ -648,7 +648,13 @@ class Evolution:
             damped = self._dissipator()(module.stack([state[name] for name in names]))
             rates = {name: rates[name] + damped[index] for index, name in enumerate(names)}
         if self.upwind:
-            gauge = set() if self.advect else {"alpha", *(f"beta{i}" for i in INDICES)}
+            shift_names = {f"beta{i}" for i in INDICES}
+            if self.advect is True:
+                gauge = set()
+            elif self.advect == "lapse":
+                gauge = shift_names
+            else:
+                gauge = {"alpha", *shift_names}
             advected = [name for name in state if name not in UNADVECTED | gauge]
             shift = module.stack([state[f"beta{i}"] for i in INDICES])
             corrections = self._upwinder()(module.stack([state[name] for name in advected]), shift)

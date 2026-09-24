@@ -101,6 +101,29 @@ def test_the_condition_leaves_minkowski_alone():
         assert float(np.max(np.abs(np.asarray(value)))) < 1e-12, name
 
 
+def test_a_variable_can_leave_at_its_own_speed():
+    """``speeds`` scales one variable's condition and leaves the rest at ``speed``.
+
+    Given the same departure from its background, the lapse's rate is the
+    other fields' times its speed exactly: the condition is linear in the
+    speed. 1+log slicing needs ``sqrt(2)`` for the lapse and ``K``, and
+    ``GAUGE_SPEEDS`` says so.
+    """
+    _, spacing, mesh = _pulse(16)
+    bump = 0.01 * np.exp(-sum(value**2 for value in mesh))
+    state = {"alpha": 1.0 + bump, "phi": bump}
+    plain = boundary.Radiative(coords=mesh, spacing=spacing, axes=AXES, width=3, backend="numpy")
+    faster = boundary.Radiative(
+        coords=mesh, spacing=spacing, axes=AXES, width=3, backend="numpy", speeds={"alpha": 2.0}
+    )
+    base, scaled = plain.rates(state), faster.rates(state)
+    assert np.max(np.abs(base["alpha"])) > 0.0
+    assert np.allclose(scaled["alpha"], 2.0 * base["alpha"], rtol=0, atol=1e-15)
+    assert np.array_equal(scaled["phi"], base["phi"])
+    assert boundary.GAUGE_SPEEDS["one_plus_log"]["alpha"] == pytest.approx(np.sqrt(2.0))
+    assert boundary.GAUGE_SPEEDS["harmonic"]["trK"] == 1.0
+
+
 def test_every_evolved_variable_has_a_background():
     """A variable missing from ASYMPTOTIC would be pulled towards zero.
 

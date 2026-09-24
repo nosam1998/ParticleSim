@@ -82,6 +82,7 @@ which is seventy-two array passes a stage for BSSN and dominates the run at
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -142,6 +143,19 @@ def edge_derivative(field, axis: int, step: float, order: int = 4) -> np.ndarray
     return out
 
 
+#: Asymptotic speeds of the gauge variables, by slicing condition.
+#:
+#: The lapse and the trace of the extrinsic curvature form the slicing's
+#: own subsystem, whose speed is ``sqrt(f(alpha) alpha)`` for
+#: ``d_t alpha = -alpha^2 f(alpha) K``: ``sqrt(2)`` far out for 1+log
+#: (``f = 2/alpha``), one for harmonic slicing (``f = 1``). Everything else
+#: leaves at the speed of light.
+GAUGE_SPEEDS: dict[str, dict[str, float]] = {
+    "one_plus_log": {"alpha": float(np.sqrt(2.0)), "trK": float(np.sqrt(2.0))},
+    "harmonic": {"alpha": 1.0, "trK": 1.0},
+}
+
+
 @dataclass(frozen=True, eq=False)
 class Radiative:
     """The Sommerfeld condition on a slab at the outer edge of the grid.
@@ -150,6 +164,15 @@ class Radiative:
     periodic, which is what makes a one-dimensional test possible. ``width``
     is the zone in points, and has to be at least the stencil radius so the
     wrapped rates the kernel produces there are all discarded.
+
+    ``speeds`` overrides ``speed`` variable by variable. Not every field
+    leaves at the speed of light: with 1+log slicing the lapse and ``K``
+    carry gauge pulses at ``sqrt(2 alpha)``, which is ``sqrt(2)`` far out,
+    and a condition that waits for them at speed one lets them pile up. On a
+    two-level puncture the lapse in the zone drifted from its background by
+    0.10, 0.19, 0.38, 0.84 at ``t`` = 10, 40, 100, 150 M, and by 165 M the
+    hole had dissolved from the outside in. :data:`GAUGE_SPEEDS` has the
+    values for each slicing.
 
     ``eq=False`` so that instances hash by identity. The class holds
     coordinate arrays, which are not hashable, and the evolutions it is
@@ -163,6 +186,7 @@ class Radiative:
     speed: float = 1.0
     order: int = 4
     backend: str = "jax"
+    speeds: Mapping[str, float] | None = None
 
     def __post_init__(self) -> None:
         radius = self.order // 2
@@ -220,7 +244,8 @@ class Radiative:
                 * edge_derivative(field, axis, self.spacing[axis], order=self.order)
                 for axis in range(DIMENSION)
             )
-            out[name] = -self.speed * (gradient + (field - background) / radius)
+            speed = self.speed if self.speeds is None else self.speeds.get(name, self.speed)
+            out[name] = -speed * (gradient + (field - background) / radius)
         return out
 
     def apply(self, rates, state) -> dict[str, Any]:
@@ -322,4 +347,4 @@ def interior(array, width: int, axes) -> np.ndarray:
     return out[tuple(slices)]
 
 
-__all__ = ["ASYMPTOTIC", "Bounded", "Radiative", "edge_derivative", "interior"]
+__all__ = ["ASYMPTOTIC", "GAUGE_SPEEDS", "Bounded", "Radiative", "edge_derivative", "interior"]

@@ -267,6 +267,42 @@ def test_the_echo_period_is_read_from_the_central_field():
         echo_period(tau[:1000], phi[:1000], floor=0.3)
 
 
+#: Alternating extrema of the central field, measured on the refined solver
+#: at the lowest subcritical amplitude of the bisection, 8.4818720557332e-4,
+#: at most 7.0e-13 below threshold. ``(tau, phi)`` at each; the hierarchy
+#: went seventeen levels deep, finest spacing 1.9e-7.
+THIRD_ECHO_EXTREMA = (
+    (4.2314728519, -0.500),
+    (4.3815319923, 0.619),
+    (4.4100721100, -0.612),
+    (4.4151712246, 0.621),
+    (4.4160825194, -0.612),
+    (4.4162453303, 0.614),
+    (4.4162766712, -0.339),
+)
+
+
+def test_the_refined_solver_resolves_three_echoes():
+    """Issue #111's last acceptance item, on the measured extrema.
+
+    Seven alternating extrema, so three full periods of the critical
+    solution. The middle five sit at its universal amplitude, 0.61 to 0.62,
+    and the gaps between them shrink by the same factor to three figures:
+    ``Delta`` = 3.4445, 3.4439, 3.4446 from successive pairs. The
+    first extremum is still the approach and the last is the departure, so
+    the fit starts at the second: ``Delta = 3.444`` against Choptuik's 3.44.
+    """
+    tau = np.array([point[0] for point in THIRD_ECHO_EXTREMA])
+    phi = np.array([point[1] for point in THIRD_ECHO_EXTREMA])
+    fit = echo_period(tau, phi, floor=0.25)
+    assert fit.echoes == 3.0
+    critical = echo_period(tau[1:], phi[1:], floor=0.25)
+    assert critical.delta == pytest.approx(ScalingFit.CHOPTUIK_DELTA, abs=0.05)
+    gaps = np.diff(tau[1:-1])
+    per_gap = 2 * np.log(gaps[:-1] / gaps[1:])
+    assert np.all(np.abs(per_gap - 3.444) < 0.002), per_gap
+
+
 def test_central_field_and_proper_time_integrate_what_they_say():
     t = np.linspace(0.0, 1.0, 1001)
     alpha, a, Pi = 0.5 + 0 * t, 2.0 + 0 * t, np.cos(t)

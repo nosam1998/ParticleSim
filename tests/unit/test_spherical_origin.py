@@ -21,6 +21,59 @@ def _radii(n: int, r_max: float) -> np.ndarray:
     return SphericalGrid(r_max=r_max, n=n).radii()
 
 
+class ExpandedFlux(ScalarCollapse):
+    """The ``Pi`` equation as it was first written, for contrast.
+
+    ``d(f Phi)/dr + 2 f Phi / r`` is the conservative ``(1/r^2) d(r^2 f
+    Phi)/dr`` expanded by the product rule -- equal in the continuum, and
+    not in the discrete system, where only the conservative form is the
+    adjoint of the ``Phi`` equation's derivative.
+    """
+
+    def rhs(self, state, metric=None):
+        a, alpha = self.solve_metric(state.Phi, state.Pi) if metric is None else metric
+        f, r = alpha / a, self.r
+        dPhi, dPi = super().rhs(state, (a, alpha))
+        conservative = _d_dr(r**2 * f * state.Phi, r, parity=-1) / r**2
+        expanded = _d_dr(f * state.Phi, r, parity=-1) + 2.0 * f * state.Phi / r
+        dPi[:-2] += expanded[:-2] - conservative[:-2]
+        return dPhi, dPi
+
+
+def test_the_flux_pair_conserves_the_discrete_energy_exactly():
+    """The root cause of every origin instability this solver has had.
+
+    With ``f = 1`` the principal part is ``dPhi/dt = D Pi`` and ``dPi/dt =
+    (1/r^2) D(r^2 Phi)``, and ``sum r^2 (Phi^2 + Pi^2)`` is conserved when
+    the second operator is minus the adjoint of the first in that weighted
+    sum. With the reflection ghosts of a cell-centred grid, the odd-parity
+    stencil is exactly minus the transpose of the even-parity one, so the
+    conservative form is that adjoint and the rate is zero to round-off, for
+    any data at all. Expanded by the product rule it is not, and the
+    difference sits at the origin, where ``2 Phi / r`` divides by ``dr / 2``:
+    a growth rate proportional to ``1 / dr`` that dissipation, also
+    ``epsilon / dr``, could only ever hold at a fixed ratio.
+    """
+    rates = {}
+    for n in (64, 128):
+        r = _radii(n, 4.0)
+        rng = np.random.default_rng(3)
+        Phi, Pi = np.zeros(n), np.zeros(n)
+        Phi[:8], Pi[:8] = rng.normal(size=8), rng.normal(size=8)  # at the origin
+        dPhi = _d_dr(Pi, r, parity=1)
+        energy = float(np.sum(r**2 * (Phi**2 + Pi**2)))
+
+        def rate(dPi, r=r, Phi=Phi, Pi=Pi, dPhi=dPhi, energy=energy):
+            return float(np.sum(r**2 * (Phi * dPhi + Pi * dPi))) / energy
+
+        assert abs(rate(_d_dr(r**2 * Phi, r, parity=-1) / r**2)) < 1e-13
+        rates[n] = rate(_d_dr(Phi, r, parity=-1) + 2.0 * Phi / r)
+    # Bilinear in Phi and Pi, so flipping the sign of Pi turns this loss
+    # into growth; either way it doubles when dr halves.
+    assert abs(rates[64]) > 1.0
+    assert rates[128] / rates[64] == pytest.approx(2.0, rel=1e-9)
+
+
 @pytest.mark.parametrize("parity", (1, -1))
 def test_parity_stencils_are_fourth_order_at_the_innermost_cells(parity):
     """The two cells nearest the origin must carry the interior's accuracy.
@@ -146,43 +199,32 @@ def test_time_symmetric_data_has_no_initial_flux():
 
 
 @pytest.mark.slow
-def test_the_origin_stays_quiet_long_after_the_pulse_has_left():
+@pytest.mark.parametrize("dissipation", (None, 0.0))
+def test_the_origin_stays_quiet_long_after_the_pulse_has_left(dissipation):
     """Regression: an origin instability that only shows up late.
 
-    With one-sided stencils at the two innermost cells and no dissipation
-    on the innermost three, a weak pulse would pass through the origin,
-    disperse, and then leave behind a mode that grew without bound. It took
-    roughly two light-crossing times to become visible, so every short test
-    passed while any long run -- which is what a threshold search needs --
-    was destroyed.
+    A weak pulse passes through the origin and disperses through the outer
+    boundary, and must leave essentially nothing behind. Three versions of
+    this solver did not. With one-sided stencils at the two innermost cells a
+    mode grew without bound after about two light-crossing times. With the
+    stencils fixed, it still grew below a dissipation coefficient of about
+    0.1, and at 0.02 the run ended with three times the ADM mass it began
+    with. At 0.1 a residue of the pulse was left at the origin that fell with
+    resolution, 1.6e-2 of the peak at 200 cells.
 
-    The sharpest symptom is the ADM mass. This pulse disperses through the
-    outer boundary and must leave essentially nothing behind, so a run that
-    ends heavier than it started has manufactured mass out of grid noise.
-    At the old default coefficient of 0.02 it ended with three times the
-    mass it began with.
-
-    **The criterion is convergence, not a threshold at one resolution, and
-    that distinction was bought the hard way.** An earlier version of this
-    test ran only at 200 cells and required the late origin activity to sit
-    below a hundredth of the peak. It did, by a factor of four and a half --
-    but a residue of the pulse grows there at that resolution whatever the
-    metric solve does, so the margin was measuring how large the transient
-    happened to be seeded, not whether anything was unstable. Correcting an
-    unrelated second-order error in the lapse's midpoint mass moved the seed
-    by a factor of ten and the test failed, with nothing wrong.
-
-    What separates a transient from an instability is refinement. At 400
-    cells the late activity is eight orders below the peak and still falling,
-    and the two metric solves agree to three figures. An instability does not
-    do that: the original one grew without bound and refining did not touch
-    it. So the run is done twice and the assertion is that the activity
-    collapses when the grid is refined.
+    All three were one defect, the ``Pi`` equation written as ``d(f Phi)/dr +
+    2 f Phi / r`` rather than as ``(1/r^2) d(r^2 f Phi)/dr``; see
+    :func:`test_the_flux_pair_conserves_the_discrete_energy_exactly`. In the
+    conservative form nothing here depends on the dissipation: without any,
+    the late activity is 3.9e-7 of the peak at 200 cells and at 400, the
+    same to three figures, which is what says it is the solution's own tail
+    rather than error. So the assertion is that it is small, that it is
+    converged, and that no mass is made.
     """
     from particlesim.analysis.spherical_diagnostics import ricci_scalar
 
     def run(n: int):
-        sim = ScalarCollapse(SphericalGrid(r_max=12.0, n=n), courant=0.25)
+        sim = ScalarCollapse(SphericalGrid(r_max=12.0, n=n), courant=0.25, dissipation=dissipation)
         st = gaussian_pulse(sim.grid, amplitude=6e-4, r0=5.0, width=1.0, ingoing=True)
         inner = sim.r < 1.0
         a0, _ = sim.solve_metric(st.Phi, st.Pi)
@@ -201,17 +243,43 @@ def test_the_origin_stays_quiet_long_after_the_pulse_has_left():
         late = [v for t, v in central if t > 12.0]
         assert late, f"no late samples at n = {n}"
         a, _ = sim.solve_metric(st.Phi, st.Pi)
-        return max(late) / peak, m0, sim.adm_mass(a)
+        final = sim.adm_mass(a)
+        assert final < 0.05 * m0, f"mass was manufactured: {m0:.4f} -> {final:.4f}"
+        return max(late) / peak
 
-    coarse, m0, final = run(200)
-    assert final < 0.05 * m0, f"mass was manufactured: {m0:.4f} -> {final:.4f}"
-    # Bounded at the coarse resolution: the instability this guards against
-    # reached three times the initial mass, not a few percent of the peak.
-    assert coarse < 0.1, f"origin reawakened at 200 cells: {coarse:.3e} of peak"
-
-    fine, m0, final = run(400)
-    assert final < 0.05 * m0, f"mass was manufactured: {m0:.4f} -> {final:.4f}"
-    assert fine < coarse / 20.0, (
-        f"the late origin activity did not converge away: {coarse:.3e} of peak at 200 "
-        f"cells, {fine:.3e} at 400. A transient falls steeply here; an instability does not"
+    coarse, fine = run(200), run(400)
+    assert coarse < 1e-5, f"origin reawakened at 200 cells: {coarse:.3e} of peak"
+    assert fine == pytest.approx(coarse, rel=0.05), (
+        f"late activity {coarse:.3e} of peak at 200 cells, {fine:.3e} at 400: the "
+        "solution's own tail converges, and anything else is error"
     )
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    ("solver", "conservative"), ((ScalarCollapse, True), (ExpandedFlux, False))
+)
+def test_a_near_critical_bounce_does_not_manufacture_mass(solver, conservative):
+    """The same defect where it did the most damage: just below threshold.
+
+    The thin shell of the collapse search, at 400 cells and 0.4% below its
+    threshold, bounces through the origin on structure the grid barely
+    resolves. Written expanded, the ``Pi`` equation then turned the
+    grid-scale remains into a sawtooth across the forty innermost cells,
+    holding a curvature near 9e3 and a lapse near 0.12 until the run ended,
+    and finished with 75% more mass than it started with -- 43% with twice
+    the dissipation. That is what the uniform-grid peaks near threshold had
+    been measuring. In conservative form the mass can only leave, and does.
+    """
+    sim = solver(SphericalGrid(r_max=10.0, n=400), courant=0.25)
+    st = gaussian_pulse(sim.grid, amplitude=8.45e-4, r0=4.0, width=0.5, ingoing=True)
+    a0, _ = sim.solve_metric(st.Phi, st.Pi)
+    m0 = sim.adm_mass(a0)
+    for _ in range(int(12.0 / sim.dt)):
+        st = sim.step(st, sim.dt)
+    a, _ = sim.solve_metric(st.Phi, st.Pi)
+    ratio = sim.adm_mass(a) / m0
+    if conservative:
+        assert ratio < 1.0, f"mass made: {ratio:.4f} of the initial"
+    else:
+        assert ratio > 1.2, f"the contrast should create mass, got {ratio:.4f}"

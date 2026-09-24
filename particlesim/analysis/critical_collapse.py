@@ -10,9 +10,10 @@ with the same exponent for every family. Measuring ``gamma`` is a strong
 test of a spherical evolution code, because the exponent comes from a
 self-similar solution nobody puts into the initial data.
 
-This module runs the search. It will not, on its own, measure ``gamma``:
-see :class:`ScalingFit` and ``docs/benchmarks.md`` for why a uniform grid
-cannot, and what it takes instead.
+This module runs the search and fits the law, and :class:`ScalingFit`
+refuses an exponent when the peaks have plateaued. ``docs/benchmarks.md``
+has the measurements, and the story of a plateau that was not what it
+seemed.
 
 Two guards here exist because both failures are easy to walk into and
 neither announces itself.
@@ -93,8 +94,7 @@ class Threshold:
 class ScalingFit:
     """A fit of ``ln max|R|`` against ``ln(1 - p/p*)``.
 
-    ``gamma`` is ``None`` whenever the peaks saturated, which is the normal
-    outcome on a uniform grid and not a failure of the search. The critical
+    ``gamma`` is ``None`` whenever the peaks saturated. The critical
     solution is discretely self-similar with echoing period ``Delta = 3.44``
     in the logarithm of scale, so each successive echo lives on a region
     ``exp(3.44) = 31`` times smaller than the last. A uniform grid spanning
@@ -103,6 +103,19 @@ class ScalingFit:
     tracking the solution and reports what the grid can represent instead.
     Reporting an exponent fitted through that plateau would be reporting the
     grid spacing.
+
+    A plateau is also what an instability looks like. Every uniform-grid
+    measurement here once saturated near ``9e3`` at 400 cells, and it was
+    not the dynamic range: the solver was making energy at the origin and
+    holding a grid-scale curvature there. Fixed, the peaks grow toward
+    threshold as the law says. The guard cannot tell the two apart, and
+    does not need to: either way there is no exponent in the data.
+
+    What it cannot catch is the opposite failure, peaks that still grow but
+    are not converged. On the same grid they converge with resolution only
+    down to ``1 - p/p* = 3e-3``; closer, they grow with refinement, and a
+    line through them returns a number that is not the exponent. Only a
+    comparison across resolutions shows that.
     """
 
     epsilons: tuple[float, ...]

@@ -119,9 +119,16 @@ def test_state_is_immutable_and_replaces_cleanly():
 def test_fourth_order_convergence():
     """The scheme claims fourth order in space and time; measured through the
     ADM mass drift, which is a physical error rather than a norm of an
-    arbitrary residual. Dissipation is off so only the scheme is measured."""
+    arbitrary residual. Dissipation is off so only the scheme is measured.
+
+    Measured from 400 cells up. With the ``Pi`` equation in conservative
+    form the drift is ten thousand times smaller than it was expanded --
+    6.5e-9 against 6.4e-5 at 200 cells -- and a term that was invisible
+    beside the old error delays the asymptotic regime: the orders are 3.48,
+    3.80 and 3.95 from 200 cells, against a flat 4.00 for the expanded form.
+    """
     drifts = []
-    for n in (200, 400, 800):
+    for n in (400, 800, 1600):
         sim = sim_at(n, courant=0.25, dissipation=0.0)
         st = gaussian_pulse(sim.grid, amplitude=1e-4, r0=8.0, width=1.5, ingoing=True)
         a0, _ = sim.solve_metric(st.Phi, st.Pi)

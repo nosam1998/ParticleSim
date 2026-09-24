@@ -4515,79 +4515,105 @@ round-off, so the tolerance measures the implementation and not the
 discretization — which is why 1e-12 is reasonable where a sampled continuum
 wave would need 1e-3.
 
-## Critical collapse: what is measured, and what a uniform grid cannot reach
+## Critical collapse: the threshold, the law, and a plateau that was not the grid
 
 The threshold and the exponent are separate claims and only one of them is
-within reach here.
+within reach of a uniform grid. What that reach is was misjudged here for a
+while, and the correction is the more useful half of this section.
 
 **The threshold is measured.** Bisecting a thin ingoing shell
-(`r0 = 4`, `width = 0.5`, `r_max = 10`) on whether the lapse collapses gives
+(`r0 = 4`, `width = 0.5`, `r_max = 10`) on whether the lapse collapses, each
+bracket to a relative width of 4.5e-7:
 
-| Resolution | `dr` | `p*` |
-|---|---|---|
-| n = 150 | 0.0667 | 8.41535e-4 |
-| n = 300 | 0.0333 | 8.44955e-4 |
-| n = 400 | 0.0250 | 8.47042e-4 |
-| n = 600 | 0.0167 | 8.47705e-4 |
+| Resolution | `dr` | `p*` | before the origin fix |
+|---|---|---|---|
+| n = 150 | 0.0667 | 8.57183e-4 | 8.41535e-4 |
+| n = 300 | 0.0333 | 8.48217e-4 | 8.44955e-4 |
+| n = 400 | 0.0250 | 8.48353e-4 | 8.47042e-4 |
+| n = 600 | 0.0167 | 8.48373e-4 | 8.47705e-4 |
+| n = 800 | 0.0125 | 8.48293e-4 | |
+| n = 1600 | 0.00625 | 8.48188e-4 | |
 
-bracketed at n = 400 to a relative width of 6e-7, and shifting by 0.73% over
-a factor of 4 in `dr`. Successive differences are 3.42e-6 and 2.75e-6, a
-ratio of 1.24 rather than the 4 a second-order scheme would give, so the
-threshold is sharp at each resolution but its converged value is only known
-to about half a per cent. That is the same limitation as below, seen from
-the other side: the critical solution is not resolved, so nothing that
-depends on it converges cleanly. Below it the field disperses and `2m/r` peaks near
-0.51; above it `2m/r` runs up to one and the slicing refuses to continue.
+From 300 cells to 1600 the threshold holds to 2.2e-4, without a clean order
+at that level. The old column drifted by 0.73% over a factor of 4 in `dr`
+with successive differences in the ratio 1.24, and was read as a threshold
+known only to half a per cent because the critical solution was not
+resolved. It was not converging because the solver was unstable, below.
+Below threshold the field disperses and `2m/r` peaks near 0.5; above it
+`2m/r` runs up to one and the slicing refuses to continue.
 `particlesim.analysis.critical_collapse` runs this search.
 
-**The exponent is not.** Choptuik's subcritical law
-`max|R| ~ (p* − p)^(−2γ)` predicts a factor of 5.6 per decade in `1 − p/p*`.
-Measured at n = 400:
+**The law is seen, and converges only so far.** Choptuik's subcritical law
+`max|R| ~ (p* − p)^(−2γ)` predicts a factor of 5.6 per decade in
+`1 − p/p*`. Each resolution measured against its own threshold:
 
-| `1 − p/p*` | peak `|R|` |
-|---|---|
-| 1e-1 | 9.117e3 |
-| 3e-2 | 9.092e3 |
-| 1e-2 | 9.169e3 |
-| 3e-3 | 9.046e3 |
-| 1e-3 | 9.109e3 |
-| 3e-4 | 9.599e3 |
-| 1e-4 | 9.597e3 |
-
-Three decades in `1 − p/p*`, six per cent in the peak. The fitted exponent
-is γ = 0.004 against Choptuik's 0.374: not a poor measurement of the
-exponent but the absence of one.
-
-The plateau is the grid, and that is measurable rather than inferred. Held
-at a fixed distance from each resolution's own threshold, the peak grows by
-a factor of four for every halving of `dr`:
-
-| `1 − p/p*` | n = 150 | n = 300 | n = 600 | growth per halving |
+| `1 − p/p*` | n = 400 | n = 800 | n = 1600 | n = 400, before the fix |
 |---|---|---|---|---|
-| 1e-2 | 1.340e3 | 5.122e3 | 2.049e4 | ×3.82, ×4.00 |
-| 1e-3 | 1.350e3 | 5.121e3 | 2.045e4 | ×3.79, ×3.99 |
+| 1e-1 | 65.28 | 65.24 | 65.21 | 9.117e3 |
+| 3e-2 | 319.2 | 299.0 | 298.3 | 9.092e3 |
+| 1e-2 | 730.4 | 638.8 | 638.6 | 9.169e3 |
+| 3e-3 | 1470 | 1535 | 1481 | 9.046e3 |
+| 1e-3 | 3022 | 3395 | 5119 | 9.109e3 |
+| 3e-4 | 6249 | 9205 | 1.636e4 | 9.599e3 |
+| 1e-4 | 8640 | 1.882e4 | 3.028e4 | 9.597e3 |
 
-`|R| = 8π(Φ² − Π²)/a²` and the steepest `Φ` a grid can carry goes as `1/dr`,
-so a peak set by the grid grows as `1/dr²`, which is exactly ×4 per halving.
-A physical peak would converge instead. (At `1 − p/p* = 1e-1` the n = 600 run
-breaks the pattern and drops to 6.5e1, having got far enough from threshold
-that the focus is weak and resolved. That is the behaviour the other rows
-would show too, at resolutions out of reach here.)
+Down to `3e-3` the peaks converge, and between `3e-2` and `3e-3` they give
+γ ≈ 0.35 — one decade, with the echo's periodic wiggle still in it, so a
+consistency check rather than a measurement. Closer to threshold they grow
+with every refinement: the self-similar structure has shrunk to a few cells
+(at `1e-3` the curvature radius `1/√(8πρ)` is at most 0.02, three cells at
+n = 1600) and
+the peak reports how much of it the grid can see. Fitting a line through all
+seven points returns γ = 0.34, 0.40 and 0.44 at the three resolutions, which
+is three different numbers and none of them the exponent. `fit_scaling`
+refuses a plateau; it cannot refuse this, and only the comparison across
+resolutions shows it.
 
-The reason is not the run length or the closeness of the bisection. The
-critical solution is discretely self-similar with echoing period Δ = 3.44 in
-the logarithm of scale, so each successive echo lives on a region
-`exp(3.44) ≈ 31` times smaller than the last. A uniform grid from `r_max` in
-steps of `dr` carries a fixed dynamic range — here 10/0.025 = 400, about
-1.9 echoes if every cell counted and rather fewer in practice. Once the
-structure falls below `dr` the peak curvature reports what the grid can
-represent instead of what the solution does, which is the plateau above.
-Reaching even three echoes needs `dr ≈ 5e-4` near the origin; uniformly
-that is n ≈ 20000, and at cost ∝ n² roughly 2500 times the n = 400 run.
+So the dynamic-range argument holds, much later than it was thought to.
+Each echo lives on a region `exp(3.44) ≈ 31` times smaller than the last,
+and three echoes need `dr ≈ 5e-4` near the origin — n ≈ 20000 uniformly.
+Adaptive refinement (issue #111) is still what closes this.
 
-Choptuik used adaptive mesh refinement for exactly this reason. Until the
-solver has it, `fit_scaling` detects the plateau and returns no exponent
-rather than a number fitted through it. Issue #22 stays open on that basis.
+**The plateau was an instability.** The last column is what was measured
+before, and it was taken as the grid running out: six per cent over three
+decades, and at fixed `1 − p/p*` a peak that grew four times per halving of
+`dr` — 1.34e3, 5.12e3, 2.05e4 at 150, 300 and 600 cells — which is how a
+peak set by the grid scales, since `|R| = 8π(Φ² − Π²)/a²` and the steepest
+`Φ` a grid carries goes as `1/dr`. That reasoning was right about the
+scaling and wrong about the cause. Tracing one run 0.4% below threshold at
+400 cells: after the bounce, `Φ` across the forty innermost cells turned
+into a sawtooth, the curvature at the first cell held near 9e3 and the lapse
+near 0.12 until the run ended, and the ADM mass finished 43% above where it
+started — at ε = 0.2; at the default 0.1, 75%. At 800 cells the same run held
+3.5e4. The peaks near threshold were
+all this state, reached from every amplitude.
+
+**The cause was one line.** The `Pi` equation is
+`(1/r²) ∂_r(r² f Φ)` and was written expanded, `∂_r(f Φ) + 2 f Φ/r`. Equal in
+the continuum, not on the grid. With the parity-reflected ghosts of a
+cell-centred grid the odd-parity centred stencil is exactly minus the
+transpose of the even-parity one, so the conservative form is minus the
+adjoint of the `Phi` equation's derivative in the `r²`-weighted sum, and with
+`f = 1` the pair conserves `Σ r² (Φ² + Π²)` exactly. The expanded form
+leaves a defect at the origin, where `2Φ/r` divides by `dr/2`, whose rate
+doubles every time `dr` halves (`test_the_flux_pair_conserves_the_discrete_
+energy_exactly`). Kreiss-Oliger damps at `ε/dr` and could hold it only at a
+fixed ratio — which is why the dissipation coefficient had a floor that "did
+not shrink with the grid": 0.02 tripled a weak pulse's mass, 0.1 was marginal
+after a strong bounce, and 0.2 was not enough near threshold. All one defect.
+
+| | expanded | conservative |
+|---|---|---|
+| weak pulse, late origin activity / peak, 200 and 400 cells | grows at ε < 0.1; 1.6e-2 at 200 cells, ε = 0.1 | 3.9e-7 and 3.9e-7, with **no** dissipation |
+| 0.4% below threshold, 400 cells: final ADM mass / initial | 1.75 (ε = 0.1), 1.43 (ε = 0.2) | 0.991 (mass leaves through the boundary) |
+| same run at ε = 0.2, peak `\|R\|` at 400, 800, 1600 cells | 8.8e3, 3.5e4, 1.24e3 | 1213, 1245, 1240 |
+| ADM-mass drift, fourth-order test, 200 cells | 6.4e-5 | 6.5e-9 |
+| its convergence order from 200 cells | 3.99, 4.00, 4.00 | 3.48, 3.80, 3.95 |
+
+The price is the last row. At the innermost cells the stencil's error on an
+`r⁵` term is divided by `r² ≈ dr²/4`, so they are locally second order, and
+the asymptotic fourth order arrives later — but on an error ten thousand
+times smaller. The fourth-order test now starts at 400 cells.
 
 ## Half of a fourth-order metric solve was second order
 
@@ -4709,6 +4735,13 @@ mass. So the test now runs at both resolutions and asserts that the activity
 collapses when the grid is refined, which is the property that distinguishes
 a transient from an instability — and which no threshold at a single
 resolution can express.
+
+*Postscript.* It was an instability after all, held off at 400 cells by the
+dissipation's margin rather than absent. The `Pi` equation was written in a
+form that makes energy at the origin (see "Critical collapse" above); in
+conservative form the late activity is 3.9e-7 of the peak at 200 cells and
+at 400 alike, with no dissipation, and the test now asserts that it is small
+and converged rather than that it falls.
 
 ## The same second-order midpoint, in a solver with nothing to do with gravity
 
@@ -4993,7 +5026,7 @@ Grouped by the milestone that will add them. Each is named in Section 10 of
 the design document.
 
 ### Milestone 1, spherical numerical relativity
-- Choptuik critical collapse: mass-scaling exponent γ ≈ 0.374 and echoing period Δ ≈ 3.44 (issue #22). The threshold itself is measured and benchmarked above; the exponent is out of reach on a uniform grid, for the reason set out below.
+- Choptuik critical collapse: mass-scaling exponent γ ≈ 0.374 and echoing period Δ ≈ 3.44 (issue #22). The threshold is measured and converged above, and the scaling law is visible on a uniform grid; the exponent needs peaks converged closer to threshold than 3e-3, which is what the refinement of issue #111 is for.
 - Oppenheimer-Snyder dust collapse against the closed form (issue #23)
 - Bianchi IX mixmaster Kasner map (issue #23)
 - Loop quantum cosmology bounce at ρ_c ≈ 0.41 ρ_Planck (issue #24)

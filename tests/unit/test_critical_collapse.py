@@ -8,7 +8,11 @@ from particlesim.analysis.critical_collapse import (
     ScalingFit,
     Threshold,
     bisect_threshold,
+    central_field,
+    central_proper_time,
+    echo_period,
     evolve_to_verdict,
+    fit_fine_structure,
     fit_scaling,
     run_amplitude,
     subcritical_scaling,
@@ -186,3 +190,85 @@ def test_scaling_fit_is_printable_either_way():
     assert "0.374" in str(good)
     bad = ScalingFit((1e-1,), (1.0,), -0.01, None, True, "plateau")
     assert "plateau" in str(bad)
+
+
+# --- the echoes ---------------------------------------------------------
+
+#: Peak ``|R|`` of subcritical runs on the refined solver (400-cell base, 16
+#: cells per curvature radius), each against its own threshold 8.481872e-4.
+#: The critical regime: from ``1 - p/p* = 1e-3``, where the uniform grid
+#: stops converging, to 1e-6.
+REFINED_EPSILONS = (1e-3, 5e-4, 3e-4, 2e-4, 1e-4, 5e-5, 3e-5, 2e-5, 1e-5, 5e-6, 2e-6, 1e-6)
+REFINED_PEAKS = (
+    4.87279e3,
+    1.03271e4,
+    1.52424e4,
+    1.91022e4,
+    2.47591e4,
+    3.34734e4,
+    4.87263e4,
+    6.65971e4,
+    1.54506e5,
+    3.27489e5,
+    6.03174e5,
+    7.79678e5,
+)
+
+
+def test_the_echo_ripple_is_fitted_not_averaged():
+    """The peak carries a periodic ripple of period ``Delta / (2 gamma)`` in
+    ``ln(1 - p/p*)``; a line through it is biased by wherever the data begin
+    and end. Fitted with the ripple, the law and the period both come back."""
+    eps = np.logspace(-2, -7, 12)
+    period = 3.44 / (2 * 0.374)
+    ripple = 0.3 * np.sin(2 * np.pi * np.log(eps) / period + 1.0)
+    peaks = np.exp(1.0 - 2 * 0.374 * np.log(eps) + ripple)
+    line = -np.polyfit(np.log(eps), np.log(peaks), 1)[0] / 2
+    assert abs(line - 0.374) > 0.004, "the ripple should bias a line visibly"
+    fit = fit_scaling(tuple(eps), tuple(peaks))
+    assert fit.gamma == pytest.approx(0.374, abs=1e-3)
+    assert fit.delta == pytest.approx(3.44, abs=1e-2)
+    assert "Delta" in str(fit)
+
+
+def test_a_ripple_is_not_fitted_to_too_little_data():
+    """Under a period, or under six points, a sine can fit the noise."""
+    eps = np.logspace(-2, -3.5, 8)
+    assert fit_fine_structure(tuple(eps), tuple(eps**-0.748)) is None
+    eps = np.logspace(-2, -6, 5)
+    assert fit_fine_structure(tuple(eps), tuple(eps**-0.748)) is None
+
+
+def test_the_refined_solver_measures_choptuiks_exponent_and_period():
+    """Issue #111's acceptance, on the measured peaks: ``gamma = 0.374 +-
+    0.008`` and ``Delta = 3.44 +- 0.05``, both from ``fit_scaling``.
+
+    A line through the same twelve points reads 0.367; the ripple is 0.3 in
+    ``ln max|R|``, large enough that where three decades begin decides the
+    slope to 0.02. Fitted, it gives 0.3746 and 3.454.
+    """
+    fit = fit_scaling(REFINED_EPSILONS, REFINED_PEAKS)
+    assert not fit.saturated
+    assert fit.gamma == pytest.approx(ScalingFit.CHOPTUIK_GAMMA, abs=0.008)
+    assert fit.delta == pytest.approx(ScalingFit.CHOPTUIK_DELTA, abs=0.05)
+
+
+def test_the_echo_period_is_read_from_the_central_field():
+    """``phi`` at the centre changes sign every half period of
+    ``-ln(tau* - tau)``; its extrema fix ``Delta`` without the exponent."""
+    tau = np.linspace(0.0, 2.0 - 1e-7, 400_001)
+    x = -np.log(2.0 - tau)
+    phi = 0.6 * np.sin(2 * np.pi * x / 3.44 + 0.3) * np.clip(2 * tau - 1, 0, 1)
+    fit = echo_period(tau, phi, floor=0.3)
+    assert fit.delta == pytest.approx(3.44, abs=1e-3)
+    assert fit.accumulation == pytest.approx(2.0, abs=1e-5)
+    assert fit.echoes >= 3
+    with pytest.raises(ValueError, match="three alternating extrema"):
+        echo_period(tau[:1000], phi[:1000], floor=0.3)
+
+
+def test_central_field_and_proper_time_integrate_what_they_say():
+    t = np.linspace(0.0, 1.0, 1001)
+    alpha, a, Pi = 0.5 + 0 * t, 2.0 + 0 * t, np.cos(t)
+    np.testing.assert_allclose(central_proper_time(t, alpha)[-1], 0.5)
+    np.testing.assert_allclose(central_field(t, alpha, a, Pi)[-1], 0.25 * np.sin(1.0), rtol=1e-6)

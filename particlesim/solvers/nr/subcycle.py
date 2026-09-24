@@ -383,10 +383,12 @@ class Subcycler:
         level_cells: int | None = None,
         max_depth: int = 24,
         patience: int = 4,
-        on_step: Callable[[int, ScalarCollapse, SphericalState], None] | None = None,
+        on_step: Callable[[int, ScalarCollapse, SphericalState, Callable[[], Metric]], None]
+        | None = None,
     ):
         self.courant, self.dissipation = courant, dissipation
-        #: Called with ``(level, sim, state)`` after every step of every level.
+        #: Called with ``(level, sim, state, metric)`` after every step of every
+        #: level; ``metric()`` solves for that level's normalised metric then.
         self.on_step = on_step
         self.tolerance, self.cells_per_radius = tolerance, cells_per_radius
         self.max_depth, self.patience = max_depth, patience
@@ -506,7 +508,11 @@ class Subcycler:
 
         self.states[index] = after
         if self.on_step is not None:
-            self.on_step(index, sim, after)
+            end = offset + (dt / interface.step if interface is not None else 1.0)
+            pinned = None if anchor is None else (anchor[0], after_mass)
+            self.on_step(
+                index, sim, after, lambda: normalised_metric(sim, after, interface, end, pinned)
+            )
         regridding = self.tolerance is not None or self.cells_per_radius is not None
         if regridding and index == max(self.depth - 2, 0):
             self._regrid()

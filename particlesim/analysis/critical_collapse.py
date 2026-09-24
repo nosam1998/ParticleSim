@@ -38,6 +38,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.optimize import least_squares
 
 from particlesim.analysis.spherical_diagnostics import ricci_scalar
 from particlesim.solvers.nr.spherical import (
@@ -116,6 +117,16 @@ class ScalingFit:
     down to ``1 - p/p* = 3e-3``; closer, they grow with refinement, and a
     line through them returns a number that is not the exponent. Only a
     comparison across resolutions shows that.
+
+    **The law is not a straight line.** Because the critical solution echoes,
+    the peak a subcritical run reaches depends on where in the echo it
+    leaves, so ``ln max|R|`` carries a periodic ripple on top of the power
+    law, of period ``Delta / (2 gamma)`` in ``ln(1 - p/p*)`` -- two decades --
+    and here of amplitude 0.3 (Hod and Piran 1997, PRD 55, 440). A line
+    through three decades of refined data read 0.367 to 0.391 depending on
+    where the decades began. When the data span more than a period, the
+    ripple is fitted along with the line, and ``delta`` is the echoing period
+    it implies.
     """
 
     epsilons: tuple[float, ...]
@@ -124,13 +135,18 @@ class ScalingFit:
     gamma: float | None
     saturated: bool
     note: str
+    delta: float | None = None
 
     CHOPTUIK_GAMMA = 0.374
+    CHOPTUIK_DELTA = 3.44
 
     def __str__(self) -> str:
         if self.gamma is None:
             return f"no exponent: {self.note}"
-        return f"gamma = {self.gamma:.4f} (Choptuik {self.CHOPTUIK_GAMMA})"
+        out = f"gamma = {self.gamma:.4f} (Choptuik {self.CHOPTUIK_GAMMA})"
+        if self.delta is not None:
+            out += f", Delta = {self.delta:.3f} (Choptuik {self.CHOPTUIK_DELTA})"
+        return out
 
 
 def evolve_to_verdict(
@@ -331,6 +347,19 @@ def fit_scaling(
             "than the solution. Adaptive mesh refinement is what closes this, "
             "not a longer run or a smaller epsilon",
         )
+    periodic = fit_fine_structure(epsilons, peaks)
+    if periodic is not None:
+        gamma, delta = periodic
+        return ScalingFit(
+            epsilons,
+            peaks,
+            slope,
+            gamma,
+            False,
+            f"power law and echo ripple fitted over {span:.0f}x in 1 - p/p*, peaks "
+            f"spanning {swing:.1f}x",
+            delta,
+        )
     return ScalingFit(
         epsilons,
         peaks,
@@ -338,4 +367,116 @@ def fit_scaling(
         -slope / 2.0,
         False,
         f"fitted over {span:.0f}x in 1 - p/p*, peaks spanning {swing:.1f}x",
+    )
+
+
+def fit_fine_structure(
+    epsilons: tuple[float, ...], peaks: tuple[float, ...], minimum_points: int = 6
+) -> tuple[float, float] | None:
+    """``(gamma, Delta)`` from ``ln max|R| = c - 2 gamma x + A sin(2 pi x / T + phi)``.
+
+    ``x = ln(1 - p/p*)``. The ripple's period is ``T = Delta / (2 gamma)``,
+    so fitting it gives the echoing period as well as a slope the ripple no
+    longer biases. ``None`` unless the data span more than one period at the
+    expected ``Delta`` and hold at least ``minimum_points``: fewer, and a
+    sine has the freedom to fit the noise.
+    """
+    x, y = np.log(np.asarray(epsilons, float)), np.log(np.asarray(peaks, float))
+    expected = ScalingFit.CHOPTUIK_DELTA / (2.0 * ScalingFit.CHOPTUIK_GAMMA)
+    if len(x) < minimum_points or np.ptp(x) < expected:
+        return None
+    slope, intercept = np.polyfit(x, y, 1)
+
+    def residual(q):
+        c, gamma, amplitude, period, phase = q
+        return y - (c - 2.0 * gamma * x + amplitude * np.sin(2.0 * np.pi * x / period + phase))
+
+    best = None
+    for period in np.linspace(0.6, 1.6, 11) * expected:
+        for phase in np.linspace(0.0, 2.0 * np.pi, 4, endpoint=False):
+            start = [intercept, -slope / 2.0, 0.1, period, phase]
+            bounds = (
+                [-np.inf, 0.0, 0.0, 0.4 * expected, -np.inf],
+                [np.inf, 2.0, 2.0, 2.5 * expected, np.inf],
+            )
+            trial = least_squares(residual, start, bounds=bounds)
+            if best is None or trial.cost < best.cost:
+                best = trial
+    _, gamma, _, period, _ = best.x
+    return float(gamma), float(2.0 * gamma * period)
+
+
+@dataclass(frozen=True)
+class EchoFit:
+    """The echoing of the central field, read against central proper time.
+
+    ``extrema`` are the proper times of the alternating extrema of ``phi`` at
+    the centre, ``values`` the field there. Discrete self-similarity puts them
+    at ``tau_k = tau* - C exp(-k Delta / 2)``: the field changes sign every
+    half period. ``ratios`` are successive gaps divided, ``exp(Delta / 2)``
+    each in the limit.
+    """
+
+    delta: float
+    accumulation: float
+    extrema: tuple[float, ...]
+    values: tuple[float, ...]
+    ratios: tuple[float, ...]
+
+    @property
+    def echoes(self) -> float:
+        """Full periods spanned: two extrema per echo."""
+        return (len(self.extrema) - 1) / 2.0
+
+
+def central_proper_time(t: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+    """``tau = integral alpha dt`` at the centre, by the trapezoid rule."""
+    t, alpha = np.asarray(t, float), np.asarray(alpha, float)
+    return np.concatenate([[0.0], np.cumsum(0.5 * (alpha[1:] + alpha[:-1]) * np.diff(t))])
+
+
+def central_field(t: np.ndarray, alpha: np.ndarray, a: np.ndarray, Pi: np.ndarray) -> np.ndarray:
+    """``phi`` at the centre from ``d(phi)/dt = alpha Pi / a``, starting from zero."""
+    rate = np.asarray(alpha, float) * np.asarray(Pi, float) / np.asarray(a, float)
+    t = np.asarray(t, float)
+    return np.concatenate([[0.0], np.cumsum(0.5 * (rate[1:] + rate[:-1]) * np.diff(t))])
+
+
+def echo_period(tau: np.ndarray, phi: np.ndarray, floor: float = 0.25) -> EchoFit:
+    """Fit ``Delta`` to the alternating extrema of ``phi(tau)`` above ``floor``.
+
+    ``floor`` keeps the fit to the critical regime: the approach and the
+    departure hold smaller extrema that do not echo. At least three are
+    needed; the fit is least squares on all of them.
+    """
+    tau, phi = np.asarray(tau, float), np.asarray(phi, float)
+    picked: list[int] = []
+    sign = 0
+    for k, value in enumerate(phi):
+        s = int(np.sign(value)) if abs(value) > floor else 0
+        if s == 0:
+            continue
+        if s != sign:
+            picked.append(k)
+            sign = s
+        elif abs(value) > abs(phi[picked[-1]]):
+            picked[-1] = k
+    if len(picked) < 3:
+        raise ValueError(f"need three alternating extrema above {floor}, found {len(picked)}")
+    taus = tau[picked]
+    gaps = np.diff(taus)
+    ratios = gaps[:-1] / gaps[1:]
+    k = np.arange(len(taus))
+    guess = 2.0 * np.log(max(ratios[-1], 1.0 + 1e-9))
+    start = taus[-1] + gaps[-1] / (np.exp(guess / 2.0) - 1.0)
+
+    def residual(q):
+        accumulation, log_scale, delta = q
+        return taus - (accumulation - np.exp(log_scale - k * delta / 2.0))
+
+    accumulation, _, delta = least_squares(
+        residual, [start, np.log(max(start - taus[0], 1e-300)), guess]
+    ).x
+    return EchoFit(
+        float(delta), float(accumulation), tuple(taus), tuple(phi[picked]), tuple(ratios)
     )

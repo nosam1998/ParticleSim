@@ -110,6 +110,34 @@ def _module(backend: str):
 #: time and spend more in XLA than in the run.
 _DISSIPATORS: dict[Any, Callable] = {}
 
+#: Compiled upwinding corrections, keyed the same way.
+_UPWINDERS: dict[Any, Callable] = {}
+
+#: The variables with an advection term ``beta^k d_k f`` in their equation.
+#:
+#: Everything but the Gamma-driver's ``B^i``, whose equation here has none.
+#: Theta is CCZ4's and is advected there; a state without it simply does not
+#: carry it.
+UNADVECTED = frozenset(f"B{i}" for i in INDICES)
+
+#: The fourth-order lopsided first derivative minus the centred one, for a
+#: shift pointing along ``+k``: offsets ``-2 .. 3``.
+#:
+#: The lopsided stencil ``(-3, -10, 18, -6, 1) / 12`` on offsets ``-1 .. 3``
+#: less the centred ``(1, -8, 0, 8, -1) / 12`` on ``-2 .. 2`` is a single
+#: fifth difference, ``(-1, 5, -10, 10, -5, 1) / 12``. So upwinding the
+#: advection terms *is* the centred scheme plus an ``h^4`` dissipation aimed
+#: along the shift, which is why it can be added outside the kernel exactly
+#: as Kreiss-Oliger is. For a shift along ``-k`` the stencil is mirrored.
+UPWIND_CORRECTION = (
+    (-2, -1 / 12),
+    (-1, 5 / 12),
+    (0, -10 / 12),
+    (1, 10 / 12),
+    (2, -5 / 12),
+    (3, 1 / 12),
+)
+
 _RHS_CACHE: dict[tuple, codegen.Kernel] = {}
 _CONSTRAINT_CACHE: dict[tuple, codegen.Kernel] = {}
 
@@ -488,6 +516,7 @@ class Evolution:
     shift_condition: str = "gamma_driver"
     damping: float = 2.0
     enforce: bool = True
+    upwind: bool = False
 
     @classmethod
     def build(
@@ -502,6 +531,7 @@ class Evolution:
         courant: float = COURANT,
         jit: bool = True,
         enforce: bool = True,
+        upwind: bool = False,
     ) -> Evolution:
         kernel = rhs_kernel(
             order=order,
@@ -523,6 +553,7 @@ class Evolution:
             shift_condition=shift_condition,
             damping=damping,
             enforce=enforce,
+            upwind=upwind,
         )
 
     @property
@@ -563,15 +594,62 @@ class Evolution:
         _DISSIPATORS[self] = apply
         return apply
 
-    def right_hand_side(self, state: Mapping[str, Any]) -> dict[str, Any]:
-        """The kernel's output plus dissipation, one entry per variable."""
-        rates = dict(self.kernel(dict(state), self.spacing))
-        if self.dissipation <= 0.0:
-            return rates
+    def _upwinder(self):
+        """The upwinding correction, compiled once per evolution.
+
+        ``sum_k beta^k (D_k^lopsided f - D_k^centred f)`` for every advected
+        variable, with the lopsided stencil leaning the way the shift points.
+        The kernel's advection terms are ``beta^k`` times a centred
+        derivative, and linear in it, so adding this turns each of them into
+        ``beta^k`` times the lopsided one and changes nothing else.
+        """
+        cached = _UPWINDERS.get(self)
+        if cached is not None:
+            return cached
+        if self.order != 4:
+            raise ValueError("upwinded advection is implemented for order 4 only")
         module = _module(self.backend)
-        names = list(state)
-        damped = self._dissipator()(module.stack([state[name] for name in names]))
-        return {name: rates[name] + damped[index] for index, name in enumerate(names)}
+        spacing = self.spacing
+
+        def apply(stacked, shift):
+            total = None
+            for axis, step in enumerate(spacing):
+                ahead = None
+                behind = None
+                for offset, weight in UPWIND_CORRECTION:
+                    term = weight * module.roll(stacked, -offset, axis=axis + 1)
+                    ahead = term if ahead is None else ahead + term
+                    # The mirror image: offset -> -offset, weight -> -weight.
+                    term = -weight * module.roll(stacked, offset, axis=axis + 1)
+                    behind = term if behind is None else behind + term
+                velocity = shift[axis]
+                chosen = module.where(velocity > 0, ahead, behind)
+                contribution = velocity * chosen / step
+                total = contribution if total is None else total + contribution
+            return total
+
+        if self.backend == "jax":
+            import jax
+
+            apply = jax.jit(apply)
+        _UPWINDERS[self] = apply
+        return apply
+
+    def right_hand_side(self, state: Mapping[str, Any]) -> dict[str, Any]:
+        """The kernel's output plus dissipation and upwinding, one entry per variable."""
+        rates = dict(self.kernel(dict(state), self.spacing))
+        module = _module(self.backend)
+        if self.dissipation > 0.0:
+            names = list(state)
+            damped = self._dissipator()(module.stack([state[name] for name in names]))
+            rates = {name: rates[name] + damped[index] for index, name in enumerate(names)}
+        if self.upwind:
+            advected = [name for name in state if name not in UNADVECTED]
+            shift = module.stack([state[f"beta{i}"] for i in INDICES])
+            corrections = self._upwinder()(module.stack([state[name] for name in advected]), shift)
+            for index, name in enumerate(advected):
+                rates[name] = rates[name] + corrections[index]
+        return rates
 
     def _raw_step(self, state, step):
         names = list(state)
@@ -713,6 +791,8 @@ __all__ = [
     "COURANT",
     "DISSIPATION",
     "KERNEL_VERSION",
+    "UNADVECTED",
+    "UPWIND_CORRECTION",
     "Constraints",
     "Evolution",
     "History",

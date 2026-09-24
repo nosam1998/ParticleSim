@@ -87,6 +87,25 @@ resolution. **Issue #78's 2% is not reachable this way**, which is exactly
 what the short-range half of TreePM is for, and why the issue asks for
 both.
 
+**The caustic tests the pair force and nothing else.** The pancake is
+symmetric about ``q = 0``, and in one dimension a uniform sheet pulls with
+``sigma/2`` at any distance, so everything outside the central pair pulls
+its two members equally and oppositely and cancels. What is left is their
+mutual attraction against the background's push, at separations falling to
+zero. That is exactly where a mesh has nothing, and where :class:`TreePM`
+adds each pair's force back directly.
+
+**It is also where particles stop looking like a sheet.** Two aligned
+square lattices of pitch ``b`` at separation ``D`` pull with
+``sigma/2 [1 + sum_{G != 0} exp(-|G| D)]``, not ``sigma/2``, and at a fifth
+of a slab spacing a cubic lattice triples the central pair's pull. So
+point masses on a cubic lattice form the caustic 15% *early*, and that is
+the right answer to the discrete problem: a model of sixteen lattice
+sheets, integrated with the same steps, predicts it to half a point.
+Refining the lattice *across* removes it -- 4.6% early at twice as fine,
+0.97% at four times, which is issue #78's 2% at the true caustic. See
+``docs/benchmarks.md`` for the tables.
+
 **What the mesh costs is exactly ``sinc(k h)``.** Not to four digits: to
 1.5e-13, over every mode of the box at three resolutions. The textbook
 answer would be ``sinc^4(k h / 2)`` -- cloud-in-cell applies
@@ -141,6 +160,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.spatial import cKDTree
+from scipy.special import erfc
 
 
 def growth_exponents() -> tuple[float, float]:
@@ -326,16 +347,29 @@ class ParticleMesh:
 
     def step(self, state: State, step: float) -> State:
         """One kick-drift-kick step of size ``step`` in the scale factor."""
+        advanced, _ = self._advance(state, step, self._force(state.positions, state.scale))
+        return advanced
+
+    def _advance(self, state: State, step: float, force: np.ndarray) -> tuple[State, np.ndarray]:
+        """Kick-drift-kick from a force already known at ``state``; returns the force at the end.
+
+        The closing kick's force is the next step's opening one -- same
+        positions, same scale factor -- so :meth:`run` hands it on instead
+        of computing it twice. The result is bit-for-bit what repeated
+        :meth:`step` calls give, at half the force evaluations, which is
+        what makes the short-range force affordable.
+        """
         if step <= 0.0:
             raise ValueError(f"the step in the scale factor must be positive, got {step}")
         start = state.scale
         middle = start + 0.5 * step
         end = start + step
 
-        momenta = state.momenta + 0.5 * step * self._force(state.positions, start)
+        momenta = state.momenta + 0.5 * step * force
         positions = (state.positions + step * middle**-1.5 * momenta) % self.mesh.size
-        momenta = momenta + 0.5 * step * self._force(positions, end)
-        return State(positions=positions, momenta=momenta, scale=end)
+        after = self._force(positions, end)
+        momenta = momenta + 0.5 * step * after
+        return State(positions=positions, momenta=momenta, scale=end), after
 
     def _force(self, positions, scale: float) -> np.ndarray:
         """``dp/da = -(3/2) a^(-1/2) grad phi``."""
@@ -350,11 +384,166 @@ class ParticleMesh:
         step = (final - state.scale) / int(steps)
         current = state
         history = [] if sample is None else [sample(current)]
+        force = self._force(current.positions, current.scale)
         for _ in range(int(steps)):
-            current = self.step(current, step)
+            current, force = self._advance(current, step, force)
             if sample is not None:
                 history.append(sample(current))
         return current, history
+
+
+# --- TreePM: the mesh for the long range, pairs for the short -------------
+
+
+def long_range_gradient(density, mesh: Mesh, split: float) -> list[np.ndarray]:
+    """``grad phi`` of the Gaussian-smoothed long-range potential, on the mesh.
+
+    ``phi_k exp(-k^2 r_s^2)`` with ``r_s = split``, a comoving length -- the
+    long-range half of Hernquist and Bode's split, as in GADGET-2. What is
+    taken off here is exactly what :func:`short_range_acceleration` puts
+    back pair by pair, so the sum is Newton's force wherever both are exact.
+
+    **Here the cloud-in-cell window is divided out, unlike in the plain
+    solve.** Deconvolving the whole field amplifies the aliased power the
+    window was holding down (see :func:`potential_gradient` and the module
+    notes). Behind the Gaussian there is almost none left to amplify: the
+    division is at most ``1/sinc^4(pi/2) = 6.1`` per axis at the Nyquist
+    frequency, where the filter at ``r_s = 2h`` is ``exp(-4 pi^2) = 7e-18``.
+    Measured on the frozen pancake against the exact plane-sheet force,
+    dividing takes the worst per-slab error at ``a = 1.9`` from 2.5e-03 to
+    5.0e-04 of the peak force on a ``128^3`` mesh.
+    """
+    if split <= 0.0:
+        raise ValueError(f"the split radius must be positive, got {split}")
+    field = np.fft.rfftn(np.asarray(density, dtype=float))
+    grids, squared = mesh.wavenumbers()
+    window = np.ones_like(squared)
+    for component in grids:
+        # np.sinc(x) is sin(pi x)/(pi x), so this is sinc^2(k h / 2) per axis.
+        window = window * np.sinc(component * mesh.spacing / (2.0 * np.pi)) ** 2
+    potential = -field / squared * np.exp(-squared * split**2) / window**2
+    potential[0, 0, 0] = 0.0
+    return [
+        np.fft.irfftn(1j * component * potential, s=mesh.shape, axes=(0, 1, 2))
+        for component in grids
+    ]
+
+
+def short_range_acceleration(
+    positions, size: float, split: float, cutoff: float, softening: float = 0.0
+) -> np.ndarray:
+    """The pair force the Gaussian filter took off the mesh, summed over neighbours.
+
+    Each particle has mass ``m = size^3 / N`` in the units where
+    ``lap phi = delta``, so a point mass pulls with ``m / (4 pi r^2)``, and
+    the short-range part of that is
+
+        m / (4 pi r^2) [erfc(r / 2 r_s) + (r / (r_s sqrt(pi))) exp(-r^2 / 4 r_s^2)]
+
+    with ``r_s = split``. It stops at ``cutoff``, a comoving length; at
+    ``4.5 r_s`` it has fallen to 1.75% of Newton's there. ``softening`` is a
+    Plummer length on the Newtonian factor; zero is point masses.
+
+    Neighbours come from a periodic k-d tree (``scipy.spatial.cKDTree`` with
+    ``boxsize``), and within the cutoff the sum is **direct**, not a multipole
+    walk. That is the short-range half of P3M behind TreePM's Gaussian split,
+    and at the densities measured here -- about 200 neighbours per particle
+    -- a walk would have little to group. Separations are minimum-image,
+    which is why the cutoff must stay under half the box.
+    """
+    array = np.asarray(positions, dtype=float)
+    if array.ndim != 2 or array.shape[0] != 3:
+        raise ValueError(f"positions must have shape (3, N), got {array.shape}")
+    if not 0.0 < cutoff < 0.5 * size:
+        raise ValueError(
+            f"the cutoff {cutoff} must be positive and under half the box {size}: "
+            f"separations are minimum-image, so a longer one would count a pair twice"
+        )
+    count = array.shape[1]
+    mass = size**3 / count
+    # ``x % size`` can round to exactly ``size`` for a tiny negative x, and
+    # the periodic tree refuses anything outside [0, size).
+    wrapped = np.mod(array, size)
+    wrapped = np.where(wrapped >= size, wrapped - size, wrapped)
+    tree = cKDTree(wrapped.T, boxsize=size)
+    first, second = tree.query_pairs(cutoff, output_type="ndarray").T
+
+    separation = wrapped[:, second] - wrapped[:, first]
+    separation -= size * np.round(separation / size)
+    squared = np.sum(separation**2, axis=0)
+    distance = np.sqrt(squared)
+    newton = mass / (4.0 * np.pi) / (squared + softening**2) ** 1.5
+    screen = erfc(distance / (2.0 * split)) + distance / (split * np.sqrt(np.pi)) * np.exp(
+        -squared / (4.0 * split**2)
+    )
+    strength = newton * screen
+
+    out = np.empty_like(array)
+    for axis in range(3):
+        pull = strength * separation[axis]
+        out[axis] = np.bincount(first, weights=pull, minlength=count) - np.bincount(
+            second, weights=pull, minlength=count
+        )
+    return out
+
+
+@dataclass(frozen=True)
+class TreePM(ParticleMesh):
+    """Particle-mesh for the long range, particle pairs for the short.
+
+    ``split`` is the Gaussian radius ``r_s`` in mesh cells, ``cutoff`` the
+    short-range reach in units of ``r_s``, and ``softening`` a comoving
+    Plummer length. Kick-drift-kick and everything else are
+    :class:`ParticleMesh`'s; only the force differs.
+
+    **``r_s = 2`` cells rather than GADGET-2's 1.25.** On the frozen pancake
+    near collapse, against the exact force between plane lattice sheets,
+    1.25 cells leaves 2.7% of the peak force wrong at ``a = 0.5`` on a
+    ``16^3`` mesh, and 2 cells on ``64^3`` leaves 0.5%. The central pair's
+    relative pull is a small difference, and a 3% error in it moved the
+    caustic by four points.
+
+    **The mesh need not match the particles,** and for the caustic it should
+    not: what sets the short-range cost is ``r_s`` in comoving units, so a
+    finer mesh buys a shorter reach. Sixteen slabs on a ``128^3`` mesh at
+    two cells is 200 neighbours a particle.
+    """
+
+    split: float = 2.0
+    cutoff: float = 4.5
+    softening: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.split <= 0.0:
+            raise ValueError(f"the split must be a positive number of cells, got {self.split}")
+        if self.softening < 0.0:
+            raise ValueError(f"the softening must be non-negative, got {self.softening}")
+        reach = self.cutoff * self.radius
+        if not 0.0 < reach < 0.5 * self.mesh.size:
+            raise ValueError(
+                f"the short-range reach {self.cutoff} x {self.radius:.4g} = {reach:.4g} "
+                f"must be positive and under half the box {self.mesh.size}"
+            )
+
+    @property
+    def radius(self) -> float:
+        """``r_s`` as a comoving length."""
+        return self.split * self.mesh.spacing
+
+    def acceleration(self, positions) -> np.ndarray:
+        """``-grad phi`` at the particles: the smoothed mesh force plus the pairs."""
+        density = deposit(positions, self.mesh)
+        gradient = long_range_gradient(density, self.mesh, self.radius)
+        long_range = -np.stack(
+            [interpolate(component, positions, self.mesh) for component in gradient]
+        )
+        return long_range + short_range_acceleration(
+            positions,
+            self.mesh.size,
+            self.radius,
+            self.cutoff * self.radius,
+            self.softening,
+        )
 
 
 # --- initial conditions ---------------------------------------------------
@@ -498,12 +687,15 @@ __all__ = [
     "Mesh",
     "ParticleMesh",
     "State",
+    "TreePM",
     "caustic_scale_factor",
     "deposit",
     "gaussian_field",
     "growth_exponents",
     "interpolate",
+    "long_range_gradient",
     "potential_gradient",
+    "short_range_acceleration",
     "zeldovich_from_field",
     "zeldovich_plane_wave",
 ]

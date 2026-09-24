@@ -207,6 +207,9 @@ class TwoLevelPuncture:
         finite = finite and all(np.all(np.isfinite(np.asarray(v))) for v in coarse.values())
         return {
             "lapse_min": float(lapse.min()),
+            # A puncture has phi = ln psi >> 1 beside it. A run whose hole has
+            # dissolved stays finite -- this is the number that says so.
+            "phi_max": float(np.max(np.asarray(fine["phi"]))),
             "hamiltonian_fine": float(np.sqrt(np.mean(fine_h[outside] ** 2))),
             "hamiltonian_coarse": float(np.sqrt(np.mean(coarse_h[~covered] ** 2))),
             "shift_max": float(max(np.max(np.abs(np.asarray(fine[f"beta{i}"]))) for i in INDICES)),

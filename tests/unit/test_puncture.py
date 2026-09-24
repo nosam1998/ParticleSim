@@ -67,3 +67,5 @@ def test_two_levels_carry_a_puncture_through_the_collapse_of_the_lapse():
     assert rows[-1]["lapse_min"] < 0.5 * start["lapse_min"], (start, rows)
     assert max(row["hamiltonian_fine"] for row in rows) < 0.1, rows
     assert 0.0 < rows[-1]["shift_max"] < 1.0, rows
+    # And the hole is still there: a run that dissolves it stays finite.
+    assert rows[-1]["phi_max"] > 0.5, rows

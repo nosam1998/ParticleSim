@@ -1366,11 +1366,25 @@ advected gauge failed at 50 M instead of 90. In the unadvected gauge the two
 agree to three figures. The driver keeps the correction, since it is the rate
 `Γ̃` actually has.
 
-**Where the long run stands.** The unadvected gauge is still settling at
-`t = 60 M`. The lapse at the sample nearest the puncture is 0.017 and
-falling, and the constraint outside `2 M` is creeping, from 0.016 at 25 M to
-0.041 at 60 M. Whether that saturates is what the rest of the thousand `M`
-says, and it is measured, not asserted here.
+**Where the long run stands: it fails at 150 M, from the coarse level.**
+The unadvected run settles near the hole. The constraint outside `2 M` on the
+fine level peaks at 0.050 at 85 M and falls back to 0.038 by 125 M. The lapse
+at the nearest sample holds between 0.012 and 0.027. The conformal metric
+still creeps, 1.38 at 60 M, 2.45 at 120 M and 2.76 at 130 M. Meanwhile the
+constraint on the coarse level, outside the box, starts growing at about
+110 M by roughly ×1.4 every 5 M:
+
+| t / M | 100 | 110 | 120 | 130 | 140 | 150 |
+|---|---|---|---|---|---|---|
+| coarse `‖H‖`, outside the box | 0.013 | 0.015 | 0.025 | 0.047 | 0.10 | 0.38 |
+
+By 165 M the black hole is gone. The lapse is above 0.82 everywhere on the
+fine level, and above 0.96 by 170 M. `φ` is at most 0.11 anywhere, where a
+puncture has `φ = ln ψ ≫ 1`. **Nothing went non-finite**, so a run that
+checks only for `NaN` reports this as healthy. The diagnostics now include
+the largest `φ` for that reason. Where on the coarse level the growth
+starts, whether at the radiative zone or at the box, is the next
+measurement. #48 stays open.
 
 
 ## A radiative outer boundary: letting a pulse leave

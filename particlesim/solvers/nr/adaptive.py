@@ -82,6 +82,7 @@ class AdaptiveCollapse:
         level_cells: int = 160,
         max_depth: int = 24,
         seed_extent: float | None = None,
+        record_centre: bool = False,
     ):
         self.grid = grid
         self.base = ScalarCollapse(grid, courant=courant, dissipation=dissipation)
@@ -94,6 +95,11 @@ class AdaptiveCollapse:
         self._latest: tuple[SphericalState, np.ndarray, np.ndarray] | None = None
         self._watch_radius: float | None = None
         self._between = 0.0
+        #: ``(t, r, alpha, a, Pi)`` at the finest level's innermost cell after
+        #: every one of its steps, when ``record_centre``: what the echoing is
+        #: read from, see :func:`~particlesim.analysis.critical_collapse.echo_period`.
+        self.record_centre = record_centre
+        self.centre: list[tuple[float, float, float, float, float]] = []
 
     @property
     def dt(self) -> float:
@@ -141,16 +147,20 @@ class AdaptiveCollapse:
         :meth:`step`, inside the watched radius; zero when not watching."""
         return self._between
 
-    def _observe(self, index: int, sim: ScalarCollapse, state: SphericalState) -> None:
-        if self._watch_radius is None or index != self.subcycler.depth - 1:
+    def _observe(self, index: int, sim: ScalarCollapse, state: SphericalState, metric) -> None:
+        watching = self._watch_radius is not None
+        if index != self.subcycler.depth - 1 or not (watching or self.record_centre):
             return
-        inside = sim.r < self._watch_radius
-        if not inside.any():
-            return
-        # The mass, and so ``a``, is local: a level's own solve has it right.
-        a, _ = sim.solve_metric(state.Phi, state.Pi)
-        ricci = np.abs(ricci_scalar(a[inside], state.Phi[inside], state.Pi[inside]))
-        self._between = max(self._between, float(ricci.max()))
+        a, alpha = metric()
+        if self.record_centre:
+            self.centre.append(
+                (state.t, float(sim.r[0]), float(alpha[0]), float(a[0]), float(state.Pi[0]))
+            )
+        if watching:
+            inside = sim.r < self._watch_radius
+            if inside.any():
+                ricci = np.abs(ricci_scalar(a[inside], state.Phi[inside], state.Pi[inside]))
+                self._between = max(self._between, float(ricci.max()))
 
     def solve_metric(self, Phi: np.ndarray, Pi: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if self._latest is None:

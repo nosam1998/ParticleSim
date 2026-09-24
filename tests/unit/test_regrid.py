@@ -261,6 +261,23 @@ def test_the_finest_level_reports_the_curvature_it_passes_through():
         assert sim.ricci_between_steps() >= at_the_end > 0.0
 
 
+def test_the_centre_is_recorded_at_every_step_of_the_finest_level():
+    """What the echoing is read from: the field, lapse and ``a`` at the finest
+    level's innermost cell, every time that level steps."""
+    grid = SphericalGrid(r_max=R_MAX, n=400)
+    sim = AdaptiveCollapse(grid, cells_per_radius=1e6, max_depth=3, record_centre=True)
+    state = near_the_origin(sim)
+    for _ in range(3):
+        state = sim.step(state, sim.dt)
+    assert len(sim.centre) == 1 + 2 + 4
+    t, r, alpha, a, Pi = sim.centre[-1]
+    finest = sim.subcycler.sims[-1]
+    assert t == pytest.approx(sim.subcycler.t)
+    assert r == finest.r[0]
+    assert 0.0 < alpha < 1.0 and a >= 1.0
+    assert Pi == sim.subcycler.states[-1].Pi[0]
+
+
 @pytest.mark.slow
 def test_the_collapse_search_runs_on_the_adaptive_solver():
     """``evolve_to_verdict`` takes it as it takes the uniform solver, and 2%

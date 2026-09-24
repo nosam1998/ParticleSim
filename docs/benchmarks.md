@@ -5148,13 +5148,71 @@ comes out of a step identical to one from clean data. The fourth-order and
 ADM-conservation tests through a refinement boundary pass unchanged, and a
 single level's metric solve is bit-for-bit what it was.
 
+## Choptuik's exponent and echoing period, on the refined grid
+
+Issue #22, measured on the adaptive solver of #169 and #170: a 400-cell base
+grid, levels added wherever the grid puts fewer than sixteen cells across
+the curvature radius, the peak curvature read at every step of the finest
+level. Bisected on that solver, the threshold of the thin shell lies in
+`[8.4818720459e-4, 8.4818720581e-4]`, a relative width of 1.4e-9 and
+narrowing.
+
+**The exponent.** Peak `|R|` against `1 − p/p*`, from 1e-3 — where the
+uniform grid stops converging — to 1e-6:
+
+| `1 − p/p*` | peak `\|R\|` | `1 − p/p*` | peak `\|R\|` |
+|---|---|---|---|
+| 1e-3 | 4.873e3 | 3e-5 | 4.873e4 |
+| 5e-4 | 1.033e4 | 2e-5 | 6.660e4 |
+| 3e-4 | 1.524e4 | 1e-5 | 1.545e5 |
+| 2e-4 | 1.910e4 | 5e-6 | 3.275e5 |
+| 1e-4 | 2.476e4 | 2e-6 | 6.032e5 |
+| 5e-5 | 3.347e4 | 1e-6 | 7.797e5 |
+
+The law is not a straight line. The critical solution echoes, so the peak a
+subcritical run reaches depends on where in the echo it leaves: `ln max|R|`
+carries a periodic ripple of period `Δ/(2γ)`, two decades, on top of the
+power law (Hod and Piran 1997). Here its amplitude is 0.3, and it decides a
+line's slope to 0.02:
+
+| fitted over | line γ | line + ripple γ | Δ = 2γ × period |
+|---|---|---|---|
+| 1e-3 to 1e-6 | 0.367 | **0.3746** | **3.454** |
+| 3e-3 to 1e-6 | 0.384 | 0.3761 | 3.436 |
+| 1e-2 to 1e-6 | 0.391 | 0.3791 | 3.558 |
+
+Choptuik's values are γ = 0.374 and Δ = 3.44. From 1e-3, inside the
+critical regime, the ripple fit gives both within the issue's tolerances of
+0.008 and 0.05; reaching back to 1e-2 folds in the approach to the critical
+solution and biases both. `fit_scaling` now fits the ripple whenever the data
+span more than one period and hold at least six points.
+
+**The echoes, directly.** Integrating `dφ/dt = αΠ/a` at the finest level's
+innermost cell, 3e-9 below threshold, the central field against central
+proper time:
+
+| `τ` | 4.23147 | 4.38153 | 4.41007 | 4.41517 | 4.41611 |
+|---|---|---|---|---|---|
+| `φ(0)` | −0.500 | +0.619 | −0.612 | +0.619 | −0.467 |
+| gap ratio → Δ | | | 3.319 | 3.444 | 3.388 |
+
+The field changes sign every half period at nearly constant amplitude,
+0.61, and each gap is `exp(Δ/2)` times the next. Fitted from the second
+extremum on — the first is still the approach — `Δ = 3.438`; with it, 3.339.
+The hierarchy was thirteen levels deep there, finest spacing 3.1e-6.
+
+That is two echoes, not the three the issue asks for. Each further half
+period needs `1 − p/p*` smaller by `exp(Δ/2γ) ≈ 100`, so a third echo sits
+near 3e-13 — within double precision of the amplitude, and a bisection of
+some fourteen more runs from the bracket above. It is running.
+
 ## Not implemented yet
 
 Grouped by the milestone that will add them. Each is named in Section 10 of
 the design document.
 
 ### Milestone 1, spherical numerical relativity
-- Choptuik critical collapse: mass-scaling exponent γ ≈ 0.374 and echoing period Δ ≈ 3.44 (issue #22). The threshold is measured and converged above, and the scaling law is visible on a uniform grid; the exponent needs peaks converged closer to threshold than 3e-3, which is what the refinement of issue #111 is for.
+- Choptuik critical collapse (issue #22): γ = 0.3746 and Δ = 3.454 are measured on the refined grid above, and Δ = 3.438 from two echoes of the central field. What remains is a third echo, near `1 − p/p* = 3e-13`.
 - Oppenheimer-Snyder dust collapse against the closed form (issue #23)
 - Bianchi IX mixmaster Kasner map (issue #23)
 - Loop quantum cosmology bounce at ρ_c ≈ 0.41 ρ_Planck (issue #24)

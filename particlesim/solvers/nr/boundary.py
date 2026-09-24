@@ -61,14 +61,18 @@ the pulse's constraint above to 9.9e-06, 5.4e-06 and 4.4e-06. That is four
 times lower at 32 points, and what remains is the bump's own violation
 parked at the centre by the frozen shift, not anything the boundary does.
 
-**A Teukolsky wave leaves, and what comes back is truncation error.**
+**A Teukolsky wave leaves, and Sommerfeld's floor shows at 96 points.**
 Measured against the closed form in a cube inside a box of 12, with the
-zone from ``r = 5``, the error after the reflection is no larger than the
-error the interior made while the wave was inside. It converges at order
-3.2, from 5.7e-02 at 48 points to 1.5e-02 at 72, so it is discretisation
-and not Sommerfeld's own reflection at this radius. The constraints
-converge at order 2.3 for ``H`` and 3.3 for ``M``. See
-:mod:`particlesim.solvers.nr.teukolsky` and ``docs/benchmarks.md``.
+zone from ``r = 5``, what is left after the wave has gone is 1/1750 of its
+start at 96 points. The error that comes back is at the truncation error
+through 72 points: 0.81 and 1.02 times it. At 96 points it is 2.3 times,
+because it stops converging near 1e-02 -- what the condition's own
+reflection should look like, since it is exact only for the ``1/r`` part
+and a quadrupole wave at this radius still has ``1/r^2`` and ``1/r^3``
+parts. ``|H|`` after the reflection is 3.3e-02 at 72 points
+and 3.0e-02 at 96, the continuum cost of a condition that is not
+constraint-preserving. See :mod:`particlesim.solvers.nr.teukolsky` and
+``docs/benchmarks.md``.
 
 **The cost that is real is arithmetic.** :meth:`Radiative.rates` takes three
 bounded-domain derivatives per variable per stage over the *whole* array,

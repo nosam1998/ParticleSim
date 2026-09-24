@@ -338,9 +338,11 @@ def test_a_teukolsky_wave_leaves_without_a_reflection_above_truncation():
     twice that -- which is why the bound below is 1.5 and not 1, and why it
     is a bound on this boundary's stencil and not a formality.
 
-    Whether that reflection is discretisation or a property of Sommerfeld
-    itself is not something one resolution can say; a box of 12 at 48 and
-    72 points can, and it converges at order 3.2 (``docs/benchmarks.md``).
+    That is a statement about this resolution, and a guard on the stencil,
+    not a claim that the reflection is zero. On a box of 12 it stays at the
+    truncation error through 72 points and then stops converging near
+    1e-02, so at 96 points it is 2.3 times the truncation error. That floor
+    is Sommerfeld's own, and ``docs/benchmarks.md`` has the table.
     """
     samples = _teukolsky_measure(40, 10.0)
     assert all(np.isfinite(value) for _, amp, err in samples for value in (amp, err))

@@ -1391,7 +1391,7 @@ constraints on purpose, and with a frozen shift part of that violation has
 no speed and never leaves. The table above measured the edge stencil's
 error shrinking on top of that residue.
 
-### A Teukolsky wave, and a stencil that was half the reflection
+### A Teukolsky wave: it leaves, and Sommerfeld's floor shows at 96 points
 
 `particlesim.solvers.nr.teukolsky` builds Teukolsky's (1982) even-parity
 `l = 2, m = 0` wave as BSSN data. It uses `g(x) = a x exp(−x²/λ²)` and an
@@ -1439,26 +1439,48 @@ cube `|x| ≤ 2.5`, as multiples of `a`:
 
 | | n = 48 | n = 72 | n = 96 |
 |---|---|---|---|
-| truncation error while the wave is inside (`t ≤ 3`, max) | 7.1e−02 | 1.48e−02 | N96_TRUNC |
-| error after the reflection (`t = 8`–`10.5`, max) | 5.7e−02 | 1.52e−02 | N96_REFL |
-| largest `\|h\|` after the wave has left (`t ≥ 8`) | 0.19 | 0.049 | N96_AMP |
-| `‖H‖` after the reflection (`t = 8`–`10.5`, max) | 8.3e−02 | 3.3e−02 | N96_H |
-| `‖M‖` after the reflection (`t = 8`–`10.5`, max) | 1.33e−01 | 3.5e−02 | N96_M |
+| truncation error while the wave is inside (`t ≤ 3`, max) | 7.1e−02 | 1.48e−02 | 4.8e−03 |
+| error after the reflection (`t = 8`–`10.5`, max) | 5.7e−02 | 1.52e−02 | 1.09e−02 |
+| the two, as a ratio | 0.81 | 1.02 | **2.27** |
+| largest `\|h\|` after the wave has left (`t ≥ 8`) | 0.19 | 0.049 | 0.027 |
+| `‖H‖` after the reflection (`t = 8`–`10.5`, max) | 8.3e−02 | 3.3e−02 | 3.0e−02 |
+| `‖M‖` after the reflection (`t = 8`–`10.5`, max) | 1.33e−01 | 3.5e−02 | 2.3e−02 |
 
-The wave starts at 48 and crosses the cube's edge at about 5. **After the
-reflection the error is the truncation error.** At each resolution it is no
-larger than the error the interior made while the wave was still inside,
-and it converges at order 3.2. So it is discretisation, not a property of
-Sommerfeld at this radius. N96_SENTENCE
+**The wave leaves.** It starts at 48 and crosses the cube's edge at about
+5.6. After it has gone, 0.027 is left at 96 points. That is 1750 times less
+than the start and 205 times less than the outgoing shell, so two orders of
+magnitude either way. At 48 points it is only 29 times the shell.
 
-**Half of it was the stencil.** The same run at 48 points with the old
-second-order edge gives 0.12 after the reflection against 0.057, and
-`‖M‖` 0.25 against 0.13. The constraints now converge at about order 2.3
-for `H` and 3.3 for `M`. A second-order edge capped them at 1.6: from 32 to
-48 points on a box of 8, `‖H‖` went from 0.71 to 0.37 while the wave was
-leaving.
+**What comes back has a floor, and at 96 points the truncation error is
+below it.** From 48 to 72
+points the error after the reflection converges at order 3.2 and stays at
+the truncation error, which read as discretisation. From 72 to 96 it
+converges at 1.2, while the truncation error keeps its order 3.9. So at 96
+points the reflection is visible, at 2.3 times the truncation error. The
+floor is near 1e−02 in the RMS error, or about 0.5% of the outgoing shell in
+`|h|`. That is what Sommerfeld's own reflection of a quadrupole wave at
+`r = 5` should look like: the condition is exact only for the `1/r` part,
+and the field there still has `1/r²` and `1/r³` parts. The constraint says
+the same, more plainly: `‖H‖` in the cube after the
+reflection is 3.3e−02 at 72 points and 3.0e−02 at 96. It does not
+converge. The condition is not constraint-preserving, and this is the
+continuum violation that implies.
 
-**Two corrections that did not help.** The Einstein Toolkit's NewRad adds
+**So #132's acceptance is met on two counts and not on the third.** The
+wave leaves by more than two orders of magnitude. There is no reflection
+above the truncation error up to 72 points. The constraints do not keep
+converging past that, and neither does the reflection. Both want a better
+condition: constraint-preserving, or a higher-order absorbing one that
+also annihilates the `1/r²` part. A boundary farther out should lower the
+floor, which ought to fall roughly as `1/(kR)²`, but it would not remove it;
+that scaling is expected, not measured here.
+
+**Half of the reflection at modest resolution was the stencil.** The same
+run at 48 points with the old second-order edge gives 0.12 after the
+reflection against 0.057, and `‖M‖` 0.25 against 0.13. The floor above is
+what remains once the stencil is out of the way.
+
+**A correction that did not help.** The Einstein Toolkit's NewRad adds
 the Sommerfeld residual measured at the nearest interior point, scaled by
 `(r_in/r)^p`, to cover a field's non-radiative falloff. It made the
 reflection *twice* as large for both `p = 2` and `p = 3`. NewRad is written
@@ -1467,13 +1489,17 @@ a residual that is a wave rather than a slowly varying term does not
 extrapolate that way. It is not in the code.
 
 The test in `tests/unit/test_outer_boundary.py` runs a box of 10 at 40
-points. There the error after the reflection is 0.071 against 0.071 of
-truncation with the fourth-order edge, and 0.139 with the second-order one.
-The test bounds it at 1.5×, which the old stencil fails.
+points, where the floor is still below the truncation error. There the error
+after the reflection is 0.071 against 0.071 of truncation with the
+fourth-order edge, and 0.139 with the second-order one. The test bounds it at
+1.5×, which the old stencil fails, so it guards the stencil rather than
+claiming more than that resolution can show.
 
 ### What is not done
 
-- **Not constraint-preserving**, as above.
+- **Not constraint-preserving**, as above. The Teukolsky wave shows what
+  that costs: a constraint violation after the reflection that no longer
+  converges past 72 points, and a reflection floor that 96 points can see.
 - **Not slab-restricted.** `Radiative.rates` takes three bounded-domain
   derivatives per variable per stage over the *whole* array — seventy-two
   array passes a stage for BSSN — and it dominates the run at 64³. The

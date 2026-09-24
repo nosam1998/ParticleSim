@@ -2480,9 +2480,9 @@ within the sample scatter `sqrt(2/m)` of each shell.
 
 ## f(R) gravity: the scalaron, solved nonlinearly on a multigrid
 
-Issue #79, first half: the multigrid solver for the scalar equation, and the
-screening it produces. The coupling to the N-body forces and the `P(k)`
-acceptance are the second half.
+Issue #79. The multigrid solver for the scalar equation and the screening it
+produces come first. The coupling to the N-body forces and the `P(k)`
+acceptance follow, in the subsection after them.
 
 In Hu–Sawicki `f(R)` (`n = 1`) the extra field is `f_R`, quasi-static on the
 scales of structure. With comoving `∇`,
@@ -2557,6 +2557,79 @@ background terms, which cancel, the residual let a perturbation of 1e−5 stop
 with the linear difference at 7e−5 instead of 7e−7. The residual is now
 measured against the density's own source, with a stop once a cycle no longer
 halves it below 1e−6, where round-off in the cancelling terms is the floor.
+
+### The fifth force in the N-body, and the enhancement it makes
+
+The second half of #79 couples the scalar to the particles, on a flat ΛCDM
+background. `ParticleMesh` takes `omega_m`, and in Einstein–de Sitter keeps
+its arithmetic to the bit. With `p = a³E dx/da`, `H₀ = 1` and lengths in
+Mpc/h:
+
+    dp/da = −(3/2) Ω_m ∇φ / (a²E)  +  (c/H₀)² ∇δf_R / (2aE),     ∇²φ = δ
+
+Linearised, the second term is the first times `k²/(3(k² + a²m²))`.
+
+**The background first.** `growth_factor` is Heath's quadrature
+`D = (5Ω_m/2) E ∫ da/(aE)³`. It matches the growth ODE to 1e−8 and gives
+`D(1) = 0.77898` for `Ω_m = 0.3`. A long mode, followed by the particles from
+`a = 0.05`, grows as the growth equation says once `G` is multiplied by the
+mesh's `sinc(kh)`. The agreement is 3e−4 at 200 steps, and the difference falls
+fourfold per halving of the step, from 4.7e−3 at 50 steps to 7.6e−5 at 400.
+
+**A frozen mode feels exactly the 7-point fifth force.** Both forces are
+deposited and read back the same way, so their ratio carries no window. The
+ratio is `k²/(3(k̂² + a²m²))` to 1e−5, with `k̂` the 7-point Laplacian's
+wavenumber. That makes the discrete fifth force slightly *stronger* than the
+continuum's, by 3.6% at `kh = 0.79`.
+
+**The gradient has to be spectral, like Newton's.** A central difference of
+`δf_R` carries `sin(kh)/(kh)`, which is 0.9 at `kh = 0.8` and 0.28 at 2.4. On an
+8 Mpc/h mesh that left the measured enhancement 16% short of linear theory at
+`k = 0.1 h/Mpc`, and 78% short at 0.3.
+
+**The acceptance, in the regime where the answer is exact.** F5, one set of
+linear initial conditions evolved from `a = 0.05` to 1 with and without the
+fifth force, in a 128 Mpc/h box. Measured through `transfer_ratio`, a
+mode-by-mode regression with no sample variance, against linear theory's
+scale-dependent growth applied mode by mode (`grow_linearly`). The table gives
+the error in the enhancement of `D`, `(D_f(R)/D_ΛCDM − 1)`:
+
+| `k` (h/Mpc) | 0.063 | 0.110 | 0.154 | 0.199 | 0.250 | 0.300 |
+|---|---|---|---|---|---|---|
+| linear `D_f(R)/D_ΛCDM` | 1.0150 | 1.0370 | 1.0569 | 1.0751 | 1.0918 | 1.1054 |
+| error at `32³` | −1.1% | −2.6% | −5.1% | −7.6% | −11.7% | −16.1% |
+| error at `64³` | −0.27% | −0.68% | −1.2% | −2.0% | −3.0% | −4.25% |
+
+**Within 5% wherever `kh ≤ 0.6`.** The error falls 3.8–4.2 times from `32³` to
+`64³` at every `k`, which is second order and the mesh's. Richardson
+extrapolation of the two resolutions leaves under 1%. At `k = 0.3` the
+enhancement in `P` is 22%.
+
+**The first comparison measured the realisation, not the solver.** Linear
+theory evaluated at each bin's mean `k` read +4.5%, −12% and −6% in the lowest
+three bins at `32³`. That is not noise in the N-body, which is linear to
+1e−5 there. The enhancement varies steeply across a bin, and `transfer_ratio`
+weights a bin's modes by *this* realisation's power. The first bin mixes
+`|n| = 1` and `√2`, whose linear ratios are 1.0105 and 1.0191. Applying linear
+theory to the same modes turned the scatter into −1.1%, −2.6% and −5.1%, which
+is monotonic in `k`, about `0.12 (kh)²`, and the mesh.
+
+**And screening, which linear theory cannot see.** The same box starts from a
+BBKS spectrum at `σ₈ = 0.8`, with `ΔP/P` at `a = 1`:
+
+| `k` (h/Mpc) | 0.049 | 0.113 | 0.206 | 0.285 | 0.537 | 1.007 |
+|---|---|---|---|---|---|---|
+| F5 N-body | 1.8% | 6.4% | 11.9% | 16.2% | 25.5% | 39% |
+| F5 linear | 2.1% | 7.9% | 16.0% | 21.3% | 31.7% | 42% |
+| F6 N-body | 0.15% | 0.67% | 1.8% | 3.0% | 5.7% | 8.6% |
+| F6 linear | 0.23% | 1.13% | 3.4% | 5.8% | 13.2% | 22.8% |
+
+F6 keeps about half of its linear enhancement at every scale, and F5 three
+quarters or more. Even the largest scales fall short, because the mass that
+drives their growth sits in screened haloes. These are measurements at
+2 Mpc/h resolution, and the last column is past `kh = 2`. They are not a
+reproduction of any published nonlinear run, which would need that run's
+cosmology, box and resolution.
 
 ## Structure observables: an estimator held to an identity
 
@@ -5849,9 +5922,10 @@ the design document.
   not exercised: no GPU on the machine this ran on.
 
 ### Milestones 8 and 9
-- `f(R)` power-spectrum enhancement, to 5% (issue #79) — the multigrid scalar
-  solver and its screening are in, held to an independent nonlinear solution at
-  second order; the N-body coupling is next.
+- `f(R)` power-spectrum enhancement, to 5% (issue #79) — **done** against linear
+  theory's scale-dependent growth: within 5% wherever `kh ≤ 0.6` at `64³`, under
+  1% extrapolated. The nonlinear, screened enhancement is measured, not matched
+  to a published run.
 - Zel'dovich pancake caustic time, to 2% (issue #78) — **done** with TreePM:
   0.97% early at the true caustic, with sixteen slabs of 64 × 64 point masses.
   A cubic lattice is 15% early, correctly, because its sheets are not uniform;

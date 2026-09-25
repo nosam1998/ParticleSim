@@ -45,7 +45,7 @@ from typing import Any
 import numpy as np
 
 from particlesim.solvers.nr import bssn, mesh
-from particlesim.solvers.nr.boundary import GAUGE_SPEEDS, Bounded, Radiative, interior
+from particlesim.solvers.nr.boundary import GAUGE_SPEEDS, Bounded, Radiative, SecondOrder, interior
 from particlesim.solvers.nr.bssn import DIMENSION, INDICES, _module
 from particlesim.solvers.nr.refined import Hierarchy
 
@@ -98,6 +98,7 @@ class TwoLevelPuncture:
         buffer: int = 6,
         advect: bool | str = False,
         backend: str = "jax",
+        second_order: bool = False,
     ) -> tuple[TwoLevelPuncture, dict[str, Any], dict[str, Any]]:
         """The setup and its initial coarse and fine states.
 
@@ -116,6 +117,14 @@ class TwoLevelPuncture:
         advected gauge does over a hundred ``M``. Advecting the lapse alone
         (``"lapse"``, Campanelli et al.'s combination) was measured too, and
         lasted less long: the hole dissolved by 125 M against 150 M.
+
+        ``second_order`` puts Bayliss and Turkel's condition on the coarse
+        edge in place of Sommerfeld's
+        (:class:`~particlesim.solvers.nr.boundary.SecondOrder`), and the
+        coarse state then carries its auxiliary fields. With ``n = 36`` over
+        18 M it keeps the coarse constraint two to thirty times lower
+        and the hole to about 187 M instead of 160 M. The lapse in the zone
+        still drifts, so it delays the failure rather than removing it.
         """
         spacing = extent / n
         axis = np.arange(n) * spacing
@@ -143,8 +152,9 @@ class TwoLevelPuncture:
             speeds=GAUGE_SPEEDS[evolution.slicing],
         )
         plain = Hierarchy.build(evolution, region, (n,) * DIMENSION, buffer=buffer)
+        edge = (SecondOrder if second_order else Bounded)(evolution, boundary)
         hierarchy = Hierarchy(
-            coarse=Bounded(evolution, boundary),
+            coarse=edge,
             fine=plain.fine,
             box=region,
             parent_shape=(n,) * DIMENSION,
@@ -160,6 +170,8 @@ class TwoLevelPuncture:
             mass=mass,
         )
         coarse = puncture_state(coarse_mesh, position, mass, backend)
+        if second_order:
+            coarse = edge.start(coarse)
         fine_mesh = np.meshgrid(fine_axis, fine_axis, fine_axis, indexing="ij")
         fine = puncture_state(fine_mesh, position, mass, backend)
         return setup, coarse, fine

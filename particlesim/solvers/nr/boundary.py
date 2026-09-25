@@ -332,8 +332,9 @@ class Bounded:
         return current, history
 
 
-#: The prefix of the auxiliary fields :class:`SecondOrder` carries in the state.
-AUXILIARY = "B2:"
+#: The prefix of the auxiliary fields :class:`SecondOrder` carries in the state. Not
+#: ``B2``, which would read as the Gamma-driver field of the same name.
+AUXILIARY = "aux:"
 
 
 @dataclass(frozen=True, eq=False)

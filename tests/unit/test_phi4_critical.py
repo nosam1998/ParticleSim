@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 
 import numpy as np
+import pytest
 
 from particlesim.solvers.lattice.critical import (
     ISING_BINDER,
@@ -120,3 +121,24 @@ def test_the_continuum_fit_recovers_a_lambda_log_lambda_term():
     coefficients, errors = continuum_fit(couplings, ratios, np.full(5, 0.01))
     assert np.allclose(coefficients, truth, atol=1e-10)
     assert errors[0] < 0.05
+
+
+@pytest.mark.slow
+@pytest.mark.benchmark
+def test_the_crossing_at_lambda_one_reproduces_the_production_run():
+    """``lambda = 1`` and ``L = 32``: the repository's sampler against the production table.
+
+    The production run, with the same updates jitted, put the crossing at
+    ``m_0^2 = -1.27616 +- 0.00055``, which is ``f = 10.38``. This run of
+    40 000 sweeps gave -1.27715 +- 0.00083, one standard deviation away,
+    in 90 seconds.
+    """
+    run_mass = -1.2766
+    sampler = ClusterHybrid(32, run_mass, 1.0, rng=np.random.default_rng(2))
+    magnetisation, square_sum, acceptance, _ = sampler.run(40000, 500)
+    crossing, error = jackknife_crossing(
+        magnetisation, square_sum, run_mass, 3.0 / np.std(square_sum)
+    )
+    assert acceptance > 0.6
+    assert abs(crossing + 1.27616) < 4 * np.hypot(error, 0.00055)
+    assert 10.2 < critical_ratio(crossing, 1.0) < 10.6

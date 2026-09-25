@@ -4330,7 +4330,7 @@ size at each `λ` (`L√λ` fixed), 60 000 to 100 000 sweeps each:
 | 1/8 | 11.32 | 10.72 | 10.50 | 10.54 | 10.538 ± 0.042 |
 | 1/16 | 11.30 | 10.87 | 10.73 | 10.69 | 10.691 ± 0.037 |
 | 1/32 | 11.74 | 11.08 | 10.84 | 10.86 (at 91) | 10.856 ± 0.026 |
-@@SIXTEENTH@@
+| 1/64 | 11.41 | 11.09 | pending | | not used |
 
 **The infinite-volume value is the largest lattice's, and the last step is
 its error.** The steps fall from `L√λ = 16` to 64 in every row. After that

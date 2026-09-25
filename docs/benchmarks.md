@@ -2032,7 +2032,7 @@ together — is a substantially larger piece and is not attempted here, so the
 issue stays open for it.
 
 Light rays are covered only as far as the characteristic cross-check above
-goes. Rendering them, which is issue #55, is a separate matter.
+goes. Rendering them, issue #55, has its own section below.
 
 
 ## A warp bubble under a modified theory, live
@@ -2086,6 +2086,60 @@ wherever `T` is, so GR's counts are unchanged.
   usually lack. A contour of `r²` at 0.5 comes out at radius 0.7061 against
   `√0.5 = 0.7071`.
 - **A `.vti` writer that needs no VTK**, which PyVista reads back exactly.
+
+## Light rays through a warp bubble: an exact frequency shift, and a GPU that agrees
+
+Issue #55's light-ray renders. `particlesim.analysis.raytrace` traces null
+geodesics back from a passenger at an Alcubierre bubble's centre to the sky,
+and `particlesim.viz.warp_render` paints what the passenger sees. The
+integration is Hamiltonian, since `H = ½[−(p_t + v f p_x)² + |p|²]` needs
+only `f` and `f′`, and uses fourth-order Runge–Kutta.
+
+**The check that does not depend on the integrator.** The metric depends on
+`t` and `x` only through `x − v t`, so `p_t + v p_x` is conserved. At the
+centre `f = 1`, and far away `f = 0`, so every ray arrives shifted by
+exactly `E_camera / E_sky = 1 − v cos α`, for any `v`:
+
+| | measured |
+|---|---|
+| `1 − v cos α`, rays with a shift above 1e−3, `v` = 0.5, 0.99, 1.5 | to `1e−9` |
+| the one ray at `v = 1.5` redshifted 500,000× | `1.3e−5`, then `8e−7` at half the step |
+| straight ahead, `1 + v`, `v = 2` | `3e−8`, `1.6e−9`, `9e−11` at steps 0.01, 0.005, 0.0025 |
+| `p_t + v p_x` and `y p_z − z p_y` | to round-off, `1e−15` |
+| `H`, `v = 0.5` | `1.6e−6`, `2.2e−8`, `1.0e−9` at steps 0.04, 0.02, 0.01 |
+
+**Against an independent integrator.** `GeodesicIntegrator` integrates the
+geodesic equation from the symbolic metric's Christoffel symbols with DOP853.
+Its asymptotic directions agree with the tracer's to **1.4e−12** at worst,
+over sixteen rays at `v` = 0.5 and 1.5.
+
+**Two things that looked like physics and were not:**
+- **An affine step jumps the wall.** At `v = 2` a ray crosses coordinates at
+  three times the speed of light, and the first version's step, sized in the
+  affine parameter, carried it over the whole wall. `H` drifted to `3e8`. A
+  step now limits how far the ray moves relative to the bubble, growing as
+  `exp(0.4 σ |r − R|)` away from the wall, where `f`'s derivatives fall as
+  `exp(−2σ |r − R|)`.
+- **A sampled integrator's last sample.** `GeodesicIntegrator` returns its path
+  at evenly spaced samples, and the last one before the stop event can still
+  be in the wall. One ray disagreed with the tracer by 0.43 for that reason
+  alone. The test samples densely enough to land past the wall.
+
+**Above the speed of light, no light arrives from behind.** A ray traced
+back from those directions piles up at the rear horizon with its energy
+growing without bound. Those pixels are marked trapped and painted black.
+
+**The browser demo.** `demos/warp-raytracer/` runs the same algorithm in the
+page. `raytracer.js` is double-precision JavaScript, with a WebGPU compute
+shader in single precision. The tests hold both to this module:
+- **Node, ray for ray:** the same numbers to `1e−12`, and the CPU image within
+  one level of 255.
+- **WebGPU in headless Chromium on SwiftShader:** 32,768 rays in 0.58 s.
+  **99.2% of pixels are identical** to the double-precision render, and none
+  is more than one level of 255 apart, the trapped ones included. That test
+  runs where Playwright and a Chromium build are installed.
+
+The served app's warp tab has the same view, with a slider for the speed.
 
 ## Warp design search: an objective with a closed-form optimum
 

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import shutil
 import struct
+import subprocess
 import zlib
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -164,3 +168,94 @@ def test_the_render_paints_the_sky_and_blacks_out_the_trapped():
     np.testing.assert_array_equal(rows[:, 1:].reshape(16, 32, 3), fast)
     with pytest.raises(ValueError, match="view"):
         render(Bubble(), 4, 4, view="fisheye")
+
+
+# --- the browser demo, against this module ------------------------------------------
+
+DEMO = Path(__file__).resolve().parents[2] / "demos" / "warp-raytracer"
+needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+
+
+def _node(script: str) -> object:
+    out = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, check=True, cwd=DEMO
+    )
+    return json.loads(out.stdout)
+
+
+@needs_node
+@pytest.mark.parametrize("v", [0.0, 0.8, 1.6])
+def test_the_demos_rays_are_this_modules_rays(v):
+    """``demos/warp-raytracer/raytracer.js``, run in Node, ray for ray: the same
+    algorithm in the same order, so the same numbers to rounding."""
+    d = _directions(25, seed=7)
+    rays = _node(
+        "const R = require('./raytracer.js');"
+        f"const b = {{v: {v}, R: 5, sigma: 2}};"
+        f"const d = {json.dumps(d.T.tolist())};"
+        "console.log(JSON.stringify(d.map(x => R.traceRay(b, x, 0.01))));"
+    )
+    ours = trace(Bubble(v=v), d, step=0.01)
+    for i, ray in enumerate(rays):
+        assert ray["trapped"] == bool(ours.trapped[i])
+        if not ray["trapped"]:
+            np.testing.assert_allclose(ray["sky"], ours.sky[:, i], atol=1e-12)
+            assert ray["doppler"] == pytest.approx(ours.doppler[i], rel=1e-12)
+
+
+@needs_node
+def test_the_demos_picture_is_this_modules_picture():
+    """The page's CPU rendering, byte for byte (to one level of 255), against :func:`render`."""
+    width, height = 48, 24
+    pixels = _node(
+        "const R = require('./raytracer.js');"
+        f"const img = R.renderCPU({{v: 1.5, R: 5, sigma: 2}}, {width}, {height}, 0.02);"
+        "console.log(JSON.stringify(Array.from(img)));"
+    )
+    theirs = np.array(pixels, dtype=int).reshape(height, width, 4)
+    assert np.all(theirs[:, :, 3] == 255)
+    ours, _ = render(Bubble(v=1.5), width, height, step=0.02)
+    assert np.abs(theirs[:, :, :3] - ours.astype(int)).max() <= 1
+
+
+def _chromium() -> str | None:
+    for path in ("/opt/pw-browsers/chromium-1194/chrome-linux/chrome",):
+        if Path(path).is_file():
+            return path
+    return None
+
+
+def test_the_gpu_shader_draws_the_same_picture():
+    """The page's WebGPU path, in headless Chromium on SwiftShader, against :func:`render`.
+
+    The shader is single precision; this module is double. Measured: 99% of
+    pixels identical and none more than one level of 255 apart, the trapped
+    ones included. Runs only where Playwright and a Chromium build are
+    installed.
+    """
+    playwright = pytest.importorskip("playwright.sync_api")
+    executable = _chromium()
+    if executable is None:
+        pytest.skip("no Chromium build for Playwright")
+    flags = [
+        "--enable-unsafe-webgpu",
+        "--enable-features=Vulkan",
+        "--use-vulkan=swiftshader",
+        "--use-webgpu-adapter=swiftshader",
+        "--disable-vulkan-surface",
+    ]
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=executable, args=flags)
+        page = browser.new_page()
+        page.goto((DEMO / "index.html").as_uri())
+        page.wait_for_function("window.lastRender !== undefined", timeout=120000)
+        backend = page.evaluate("window.lastRender.backend")
+        if not backend.startswith("WebGPU"):
+            browser.close()
+            pytest.skip(f"WebGPU unavailable here; the page drew with {backend}")
+        pixels = page.evaluate("Array.from(window.lastRender.pixels)")
+        browser.close()
+    theirs = np.array(pixels, dtype=int).reshape(128, 256, 4)[:, :, :3]
+    ours, _ = render(Bubble(v=1.5), 256, 128, step=0.02)
+    difference = np.abs(theirs - ours.astype(int)).max(axis=2)
+    assert difference.max() <= 1 and np.mean(difference == 0) > 0.97

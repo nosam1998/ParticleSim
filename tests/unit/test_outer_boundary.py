@@ -261,7 +261,7 @@ TEUKOLSKY_ZONE = 1.0
 TEUKOLSKY_CUBE = 2.5
 
 
-def _teukolsky_measure(n: int, final: float, every: float = 0.5):
+def _teukolsky_measure(n: int, final: float, every: float = 0.5, condition=boundary.Bounded):
     """Evolve a linear Teukolsky wave through the radiative boundary.
 
     Returns ``(t, amplitude, error)`` samples over the cube ``|x| <= 2.5``,
@@ -271,6 +271,10 @@ def _teukolsky_measure(n: int, final: float, every: float = 0.5):
     pulse did not have -- it says what the interior *should* hold at every
     moment, including after the wave has gone, so a reflection is measured
     as error rather than inferred from a norm that failed to fall.
+
+    ``condition`` wraps the evolution and the zone: :class:`~boundary.Bounded`
+    for Sommerfeld's condition, :class:`~boundary.SecondOrder` for Bayliss
+    and Turkel's.
     """
     from particlesim.solvers.nr import teukolsky
 
@@ -283,7 +287,7 @@ def _teukolsky_measure(n: int, final: float, every: float = 0.5):
     mesh = tuple(np.meshgrid(axis, axis, axis, indexing="ij"))
     evolution = bssn.Evolution.build(spacing, slicing="harmonic", shift_condition="frozen")
     width = int(round(TEUKOLSKY_ZONE / spacing[0]))
-    bounded = boundary.Bounded(
+    bounded = condition(
         evolution, boundary.Radiative(coords=mesh, spacing=spacing, axes=AXES, width=width)
     )
     inside = np.abs(axis) <= TEUKOLSKY_CUBE + 1e-9
@@ -316,6 +320,8 @@ def _teukolsky_measure(n: int, final: float, every: float = 0.5):
     stride = max(1, int(round(every / step)))
     current = dict(state)
     samples = [sample(0.0, current)]
+    if isinstance(bounded, boundary.SecondOrder):
+        current = bounded.start(current)
     for index in range(1, steps + 1):
         current = bounded.step(current, step)
         if index % stride == 0:
@@ -376,3 +382,142 @@ def test_a_teukolsky_wave_leaves_without_a_reflection_above_truncation():
     assert max(err for _, err in after) < 1.5 * truncation, samples
     # Two orders of magnitude, from 48 to at most 0.24 at this resolution.
     assert max(amp for amp, _ in after) < initial / 100.0, samples
+
+
+# --- Bayliss and Turkel's second condition ---------------------------------
+
+
+class _Exact:
+    """A stand-in evolution whose rates are those of an exact outgoing field.
+
+    ``f = a(t - r)/r + b(t - r)/r^2`` with Gaussian profiles, evaluated at
+    ``t = 0``. Its rate is known everywhere, so the zone's rate can be held
+    to it.
+    """
+
+    enforce = False
+    backend = "numpy"
+
+    def __init__(self, mesh, amplitude=1.0, quadrupole=10.0, centre=8.0, width=2.0):
+        self.radius = np.sqrt(sum(np.asarray(m) ** 2 for m in mesh))
+        self.a, self.b, self.centre, self.width = amplitude, quadrupole, centre, width
+
+    def profile(self, time=0.0):
+        r = self.radius
+        phase = (time - r + self.centre) / self.width
+        g = np.exp(-(phase**2))
+        dg = -2 * phase * g / self.width
+        field = self.a * g / r + self.b * g / r**2
+        rate = self.a * dg / r + self.b * dg / r**2
+        # B1 f = (d_t + d_r + 1/r) f leaves -b g / r^3 of the second term.
+        carried = -self.b * g / r**3
+        return field, rate, carried
+
+    def right_hand_side(self, state):
+        return {"phi": self.profile()[1]}
+
+
+def _second_order_setup(n=64, extent=16.0, width=4):
+    axis = np.linspace(0.0, extent, n, endpoint=False) - extent / 2 + extent / (2 * n)
+    mesh = tuple(np.meshgrid(axis, axis, axis, indexing="ij"))
+    spacing = (extent / n,) * 3
+    radiative = boundary.Radiative(
+        coords=mesh, spacing=spacing, axes=AXES, width=width, backend="numpy"
+    )
+    return mesh, radiative
+
+
+def test_the_second_condition_is_exact_where_sommerfeld_leaves_b_over_r_cubed():
+    """In the zone, B2's rate is the field's own to the stencil's error; Sommerfeld's is not.
+
+    For a ``b(t - r)/r^2`` term Sommerfeld's rate is off by exactly ``b/r^3``.
+    Bayliss and Turkel carry that as ``v`` and are off only by the finite
+    difference.
+    """
+    mesh, radiative = _second_order_setup()
+    exact = _Exact(mesh)
+    field, rate, carried = exact.profile()
+    zone = radiative.mask()
+
+    sommerfeld = boundary.Bounded(exact, radiative).boundary.apply(
+        exact.right_hand_side(None), {"phi": field}
+    )["phi"]
+    second = boundary.SecondOrder(exact, radiative)
+    state = second.start({"phi": field})
+    state[boundary.AUXILIARY + "phi"] = np.where(zone, carried, 0.0)
+    rates = second.right_hand_side(state)
+
+    sommerfeld_error = np.abs(np.asarray(sommerfeld) - rate)[zone].max()
+    second_error = np.abs(rates["phi"] - rate)[zone].max()
+    assert second_error < sommerfeld_error / 20
+    # And the carried field moves as B2 says, d_t v = -b g'(t - r) / r^3.
+    phase = (exact.centre - exact.radius) / exact.width
+    expected = -exact.b * (-2 * phase / exact.width) * np.exp(-(phase**2)) / exact.radius**3
+    moved = np.abs(rates[boundary.AUXILIARY + "phi"] - expected)[zone].max()
+    assert moved < 0.05 * np.abs(expected[zone]).max()
+
+
+def test_the_second_condition_adds_its_fields_and_does_not_project_them():
+    """A state without the auxiliary fields steps; projecting leaves them untouched."""
+    mesh, radiative = _second_order_setup(n=16, extent=16.0, width=3)
+    exact = _Exact(mesh)
+    field, _, _ = exact.profile()
+    second = boundary.SecondOrder(exact, radiative)
+    stepped = second.step({"phi": field}, 0.1)
+    assert set(stepped) == {"phi", boundary.AUXILIARY + "phi"}
+    assert np.all(np.isfinite(stepped[boundary.AUXILIARY + "phi"]))
+
+    class _Projecting(_Exact):
+        def project(self, state):
+            return {name: 2.0 * value for name, value in state.items()}
+
+    projected = boundary.SecondOrder(_Projecting(mesh), radiative).project(stepped)
+    assert np.allclose(projected["phi"], 2.0 * stepped["phi"])
+    assert np.array_equal(
+        projected[boundary.AUXILIARY + "phi"], stepped[boundary.AUXILIARY + "phi"]
+    )
+
+
+def test_the_second_condition_leaves_minkowski_alone():
+    state, spacing = bssn.gauge_wave(shape=(16, 16, 16), amplitude=0.0, extent=EXTENT)
+    axis = np.linspace(0.0, EXTENT, 16, endpoint=False) - EXTENT / 2
+
+    class _Still:
+        enforce = False
+
+        def right_hand_side(self, s):
+            return {name: np.zeros_like(np.asarray(v)) for name, v in s.items()}
+
+    mesh = tuple(np.meshgrid(axis, axis, axis, indexing="ij"))
+    radiative = boundary.Radiative(
+        coords=mesh, spacing=spacing, axes=AXES, width=3, backend="numpy"
+    )
+    second = boundary.SecondOrder(_Still(), radiative)
+    rates = second.right_hand_side(second.start({k: np.asarray(v) for k, v in state.items()}))
+    assert max(float(np.abs(v).max()) for v in rates.values()) < 1e-13
+
+
+@pytest.mark.slow
+@pytest.mark.benchmark
+def test_the_second_condition_halves_what_the_teukolsky_wave_leaves_behind():
+    """The acceptance run above, with Bayliss and Turkel's condition in the zone.
+
+    Same wave, box, zone and cube. As multiples of the amplitude:
+
+        t                     2.5    6.5    8.0    8.5    9.0    10
+        error, Sommerfeld     0.071  0.062  0.071  0.064  --     0.056
+        error, second order   0.071  0.032  0.036  0.032  0.038  0.033
+        largest |h|, second   5.47   0.142  0.090  0.089  0.115  0.076
+
+    The truncation error while the wave is inside is unchanged, as it
+    should be. What comes back after it has gone is 0.54 of it, where
+    Sommerfeld's is 1.0. The bound is 0.7, which Sommerfeld fails.
+    """
+    samples = _teukolsky_measure(40, 10.0, condition=boundary.SecondOrder)
+    assert all(np.isfinite(value) for _, amp, err in samples for value in (amp, err))
+    initial = samples[0][1]
+    truncation = max(err for time, _, err in samples if time <= 3.5)
+    after = [(amp, err) for time, amp, err in samples if time >= 7.5]
+
+    assert max(err for _, err in after) < 0.7 * truncation, samples
+    assert max(amp for amp, _ in after) < initial / 200.0, samples

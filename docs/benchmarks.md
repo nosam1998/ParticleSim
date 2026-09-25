@@ -1608,7 +1608,9 @@ converging past that, and neither does the reflection. Both want a better
 condition: constraint-preserving, or a higher-order absorbing one that
 also annihilates the `1/r²` part. A boundary farther out should lower the
 floor, which ought to fall roughly as `1/(kR)²`, but it would not remove it;
-that scaling is expected, not measured here.
+that scaling is expected, not measured here. The higher-order condition is
+now in, and the next section measures it: with it, both the reflection and
+the constraints converge again at 96 points.
 
 **Half of the reflection at modest resolution was the stencil.** The same
 run at 48 points with the old second-order edge gives 0.12 after the
@@ -1630,11 +1632,69 @@ fourth-order edge, and 0.139 with the second-order one. The test bounds it at
 1.5×, which the old stencil fails, so it guards the stencil rather than
 claiming more than that resolution can show.
 
+### Bayliss and Turkel's second condition: the floor was the `1/r²` part
+
+Sommerfeld's condition is `B₁u = 0` with `B₁ = ∂_t + c∂_r + c/r`. It
+annihilates an outgoing `a(t − r)/r` exactly and leaves `−c b(t − r)/r³`
+of a `b(t − r)/r²` term. Bayliss and Turkel (1980) apply a second factor,
+
+    (∂_t + c∂_r + 3c/r)(∂_t + c∂_r + c/r) u = 0
+
+which annihilates both. `boundary.SecondOrder` carries it as Sommerfeld
+plus an auxiliary field `v = B₁u`, evolved in the zone by
+`∂_t v = −c(∂_r v + 3v/r)` and read from the interior's own rates outside
+it. On an exact `a/r + b/r²` field its rate in the zone is off by 9.3e−05,
+the stencil's error, where Sommerfeld's is off by 2.3e−02, the `b/r³` it
+leaves.
+
+The same Teukolsky wave, box and zone as the table above, with the second
+condition in place of Sommerfeld's:
+
+| | n = 48 | n = 72 | n = 96 | order, 72→96 |
+|---|---|---|---|---|
+| truncation error (`t ≤ 3`, max) | 7.1e−02 | 1.48e−02 | 4.8e−03 | 3.9 |
+| error after the reflection, Sommerfeld | 5.7e−02 | 1.52e−02 | 1.09e−02 | 1.2 |
+| error after the reflection, second order | 3.2e−02 | 1.35e−02 | **6.0e−03** | **2.8** |
+| the ratio to truncation, Sommerfeld | 0.81 | 1.02 | 2.27 | |
+| the ratio to truncation, second order | 0.45 | 0.91 | 1.26 | |
+| `‖H‖` after, Sommerfeld | 8.3e−02 | 3.3e−02 | 3.0e−02 | 0.3 |
+| `‖H‖` after, second order | 3.4e−02 | 1.6e−02 | **7.4e−03** | **2.6** |
+| `‖M‖` after, Sommerfeld | 1.33e−01 | 3.5e−02 | 2.3e−02 | 1.5 |
+| `‖M‖` after, second order | 5.7e−02 | 2.8e−02 | 1.3e−02 | 2.6 |
+| largest `\|h\|` after, second order | 0.081 | 0.033 | 0.014 | |
+
+**The floor goes.** Sommerfeld's reflection stopped converging near 1e−02
+between 72 and 96 points, and its `‖H‖` stopped at 3e−02. With the second
+condition the reflection falls at order 2.8 and `‖H‖` at 2.6 over the same
+step, and at 96 points the Hamiltonian constraint after the reflection is
+four times smaller. So the floor was what the section above guessed: the
+`1/r²` part of a quadrupole wave at `r = 5`, which Sommerfeld cannot absorb.
+What the wave leaves behind at 96 points is 0.014 of its start of 48, or
+3300 times less.
+
+**It still converges below the interior's order.** Both the reflection and
+the constraints converge at about 2.6 to 2.8, where the truncation error
+converges at 3.9. So the ratio to truncation still grows with resolution,
+from 0.91 at 72 points to 1.26 at 96, only more slowly than Sommerfeld's
+0.81 → 1.02 → 2.27. Resolving to the interior's order would need either the
+next factor, `B₃`, or a constraint-preserving condition.
+
+**Not a delay but a real reduction.** The time series at 96 points shows the
+second condition's error rising after `t = 7.5` too, from 1.8e−03 to 6.0e−03
+at `t = 10.5`, but it stays below Sommerfeld's throughout: 2.4e−03 against
+8.1e−03 at `t = 8`, and 5.3e−03 against 1.09e−02 at `t = 9.5`.
+
+The slow test `test_the_second_condition_halves_what_the_teukolsky_wave_leaves_behind`
+runs the box of 10 at 40 points from the previous section. There the error
+after the reflection is 0.038, or 0.54 of the truncation error, against
+Sommerfeld's 1.0. It is bounded at 0.7.
+
 ### What is not done
 
-- **Not constraint-preserving**, as above. The Teukolsky wave shows what
-  that costs: a constraint violation after the reflection that no longer
-  converges past 72 points, and a reflection floor that 96 points can see.
+- **Not constraint-preserving**, as above. With Sommerfeld's condition the
+  constraint violation after the reflection stops converging past 72
+  points. With the second condition it converges again, at about 2.6
+  against the interior's 3.9.
 - **Not slab-restricted.** `Radiative.rates` takes three bounded-domain
   derivatives per variable per stage over the *whole* array — seventy-two
   array passes a stage for BSSN — and it dominates the run at 64³. The

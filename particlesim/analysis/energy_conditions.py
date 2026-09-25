@@ -131,13 +131,19 @@ def evaluate(
     wec_min = rho_eul.copy()
     sec_min = np.full(N, np.inf)
     dec_min = np.full(N, np.inf)
+    # The largest component sum of any vector a quadratic form was taken
+    # with, per point. With the size of T it bounds the rounding error of
+    # T_ab v^a v^b, which decides what counts as a violation below.
+    reach = np.abs(n).sum(axis=0)
 
     for d in dirs:
         e = frame.spatial_unit(d)
         k = n + e
+        reach = np.maximum(reach, np.abs(k).sum(axis=0))
         nec_min = np.minimum(nec_min, _quad(T, k, k))
         for s in boosts:
             u = (n + s * e) / np.sqrt(1 - s * s)
+            reach = np.maximum(reach, np.abs(u).sum(axis=0))
             tuu = _quad(T, u, u)
             wec_min = np.minimum(wec_min, tuu)
             guu = np.einsum("abn,an,bn->n", g, u, u)  # = -1
@@ -150,14 +156,23 @@ def evaluate(
             dec_min = np.minimum(dec_min, np.minimum.reduce([tuu, -gFF, future]))
 
     per = {"NEC": nec_min, "WEC": wec_min, "SEC": sec_min, "DEC": dec_min}
+    # A point violates a condition when its minimum is negative by more than
+    # the rounding of the quadratic forms it came from, not merely below zero.
+    # Where T vanishes exactly, as in GR's vacuum, that bound is zero and
+    # nothing changes. Where it does not, as with GR+Lambda's Lambda g_ab/8 pi,
+    # a null form T_ab k^a k^b that is zero analytically comes out at +-1e-18,
+    # and counting the negative half of that noise called 97% of the vacuum
+    # around an Alcubierre bubble a violation of the null energy condition.
+    noise = 16.0 * np.finfo(float).eps * np.abs(T).sum(axis=(0, 1)) * reach**2
     results = {}
     for name in conditions:
         pm = per[name]
+        violated = pm < -noise
         results[name] = ConditionResult(
             name=name,
             min_value=float(pm.min()),
-            violating_fraction=float(np.mean(pm < 0)),
-            integrated_violation=float(np.sum(np.minimum(pm, 0)) * cell_volume),
+            violating_fraction=float(np.mean(violated)),
+            integrated_violation=float(np.sum(np.where(violated, pm, 0.0)) * cell_volume),
             pointwise_min=pm,
         )
     return EnergyConditionReport(

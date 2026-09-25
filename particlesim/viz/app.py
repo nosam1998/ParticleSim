@@ -3,7 +3,7 @@
 This is the design document's second delivery family (Section 5.7): a Panel app
 served from the published Docker image, and the one place a modified theory's
 results are computed while you watch. ``particlesim serve`` starts it, and it
-has three tabs.
+has four tabs.
 
 **Runs.** Every run directory under ``--runs`` gets its dashboard shown
 (:mod:`particlesim.viz.dashboard`), written first if the run predates it.
@@ -15,6 +15,14 @@ every change:
 - ``D_f(R) / D_LCDM`` against ``k``
 - its square, the ``P(k)`` enhancement
 - the scale where the scalaron's Compton wavelength cuts in
+
+**Warp, live.** A warp bubble analysed under a chosen theory
+(:mod:`particlesim.scenarios.warp.live`, issue #55). Each of the theory's
+couplings gets a slider, and releasing one recomputes the matter the bubble
+needs. The view shows its energy density as isosurfaces and a slice in 3-D
+(:mod:`particlesim.viz.volume`), and the null and weak energy conditions.
+Under GR+Lambda, the weak energy condition moves with ``Lambda`` and the null
+one does not.
 
 **Theory plugins, live.** Any installed theory plugin can be scored against
 the singularity battery, with the report card and its figures that
@@ -112,6 +120,38 @@ def run_dashboards(runs: str | Path | None) -> dict[str, Path]:
     return found
 
 
+def warp_summary(result) -> str:
+    """The live warp result's numbers, as a small HTML table."""
+    report = result.report
+    rows = [
+        ("theory", html.escape(report["theory"]["gravity"]["id"])),
+        (
+            "couplings",
+            html.escape(
+                ", ".join(
+                    f"{k} = {v:g}" for k, v in report["theory"]["gravity"]["couplings"].items()
+                )
+                or "none"
+            ),
+        ),
+        ("Eulerian energy, total", f"{report['eulerian']['total_energy']:.6g}"),
+        ("Eulerian energy, negative part", f"{report['eulerian']['negative_energy']:.6g}"),
+        ("most negative density", f"{report['eulerian']['min_density']:.6g}"),
+    ]
+    for name in ("NEC", "WEC"):
+        condition = report["energy_conditions"][name]
+        rows.append(
+            (
+                f"{name} violated at",
+                f"{100 * condition['violating_fraction']:.2f}% of points, "
+                f"integral {condition['integrated_violation']:.6g}",
+            )
+        )
+    rows.append(("computed in", f"{result.seconds:.2f} s on {result.grid.shape[0]}³ points"))
+    body = "".join(f"<tr><th>{k}</th><td>{v}</td></tr>" for k, v in rows)
+    return f"<table style='border-collapse:collapse'>{body}</table>"
+
+
 def _frame(page: str, height: str = "82vh") -> str:
     """A whole HTML page inside an iframe, so its styles stay its own."""
     return (
@@ -124,7 +164,7 @@ def build_app(runs: str | Path | None = None) -> Any:
     """The three-tab app. A new one per browser session, as Panel serves it."""
     import panel as pn
 
-    pn.extension(sizing_mode="stretch_width")
+    pn.extension("plotly", sizing_mode="stretch_width")
 
     # --- runs
     dashboards = run_dashboards(runs)
@@ -155,8 +195,76 @@ def build_app(runs: str | Path | None = None) -> Any:
         pn.bind(fofr_view, exponent, omega_m, scale),
     )
 
-    # --- theory plugins, live
+    # --- a warp bubble under a theory, live
+    from particlesim.scenarios.warp.live import (
+        QUICK_FAMILY,
+        live_warp,
+        ready_families,
+        split_theories,
+    )
     from particlesim.theories import list_theories
+    from particlesim.viz.volume import volume_figure
+
+    usable = list(split_theories())
+    family = pn.widgets.Select(label="Warp metric", options=ready_families(), value=QUICK_FAMILY)
+    gravity = pn.widgets.Select(
+        label="Theory", options=usable, value="gr.lambda" if "gr.lambda" in usable else usable[0]
+    )
+    couplings = pn.Column()
+    active: list[tuple[str, Any]] = []  # (coupling name, its slider)
+    warp_view = pn.Column()
+
+    def recompute(*_) -> None:
+        values = {name: slider.value for name, slider in active}
+        try:
+            result = live_warp(family.value, gravity.value, values)
+        except Exception as error:  # noqa: BLE001 - shown in the page, where it belongs
+            warp_view[:] = [pn.pane.Alert(f"{family.value} under {gravity.value}: {error}")]
+            return
+        figure = volume_figure(
+            result.fields["energy_density"],
+            result.grid,
+            title=f"{family.value}: Eulerian energy density the bubble needs",
+            label="ρ",
+        )
+        warp_view[:] = [pn.pane.HTML(warp_summary(result)), pn.pane.Plotly(figure, height=580)]
+
+    def rebuild(*_) -> None:
+        active.clear()
+        for coupling in list_theories()[gravity.value].couplings:
+            low, high = coupling.bounds or (coupling.default - 1.0, coupling.default + 1.0)
+            if not np.isfinite([low, high]).all():
+                low, high = coupling.default - 1.0, coupling.default + 1.0
+            slider = pn.widgets.FloatSlider(
+                label=coupling.name,
+                start=float(low),
+                end=float(high),
+                step=(float(high) - float(low)) / 200,
+                value=float(coupling.default),
+            )
+            slider.param.watch(recompute, "value_throttled")
+            active.append((coupling.name, slider))
+        sliders = [slider for _, slider in active]
+        couplings[:] = sliders or [pn.pane.Markdown("This theory has no couplings.")]
+        recompute()
+
+    gravity.param.watch(rebuild, "value")
+    family.param.watch(recompute, "value")
+    rebuild()
+    warp_tab = pn.Column(
+        pn.pane.Markdown(
+            "The matter a warp bubble needs under the chosen theory, recomputed when a "
+            "coupling is released. A metric's geometry is derived once. The list holds "
+            "Alcubierre, which takes seconds, and any family already derived: a full-path "
+            "`particlesim run` of a family adds it. After that, every theory and "
+            "coupling costs about a second."
+        ),
+        pn.Row(family, gravity),
+        couplings,
+        warp_view,
+    )
+
+    # --- theory plugins, live
 
     theories = sorted(list_theories())
     selected = pn.widgets.Select(
@@ -183,6 +291,7 @@ def build_app(runs: str | Path | None = None) -> Any:
     return pn.Tabs(
         ("Runs", runs_tab),
         ("Modified gravity, live", fofr_tab),
+        ("Warp, live", warp_tab),
         ("Theory plugins, live", theory_tab),
         dynamic=True,
     )

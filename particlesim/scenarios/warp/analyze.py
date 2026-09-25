@@ -131,6 +131,32 @@ def build_grid(config: WarpAnalyzeConfig) -> UniformGrid:
     return UniformGrid(list(config.grid.extent), tuple(config.grid.resolution))
 
 
+def geometry_key(metric: WarpMetric, invariants: Sequence[str] = (), tidal: bool = False) -> str:
+    """The kernel cache's key for ``metric``'s geometry on the full path.
+
+    The metric, its parameter values and the extras decide it; the theory does
+    not. The ``"gr", []`` in it is general relativity's identity from before
+    the split moved out of the kernel, kept so kernels already on disk are
+    found.
+    """
+    return key_for(
+        "warp.full_stress_energy",
+        sp.srepr(metric.metric()),
+        "gr",
+        [],
+        sorted((str(k), v) for k, v in metric.params.items()),
+        list(invariants),
+        tidal,
+    )
+
+
+def geometry_cached(metric: WarpMetric) -> bool:
+    """Whether ``metric``'s full-path geometry is already derived and on disk."""
+    from particlesim.symbolic.cache import cache_dir, enabled
+
+    return enabled() and (cache_dir() / f"{geometry_key(metric)}.py").is_file()
+
+
 def full_stress_energy(
     metric: WarpMetric,
     stack: TheoryStack,
@@ -151,9 +177,15 @@ def full_stress_energy(
     sidx = [(i, j) for i in range(1, 4) for j in range(i, 4)]
     invariants = list(invariants)
 
+    # The geometry is the same whatever the theory, so it is derived once,
+    # under general relativity's key. A theory's split is applied to it
+    # afterwards, as arithmetic (theory_stress_energy). Changing a coupling
+    # therefore re-derives nothing, which is what makes the served app's warp
+    # view live (issue #55). The key is the one general relativity always
+    # had, so kernels already on disk are found.
     def build() -> list[sp.Expr]:
         geom = MetricGeometry(g_sym, COORDS)
-        T_sym = stack.gravity.effective_stress_energy(geom.einstein, g_sym)
+        T_sym = geom.einstein / (8 * sp.pi)
         exprs = [T_sym[a, b] for a, b in idx] + [g_sym[a, b] for a, b in idx]
         for name in invariants:
             if name == "kretschmann":
@@ -167,15 +199,7 @@ def full_stress_energy(
                 exprs.append(sum(Rl[i][c][j][d] * n[c] * n[d] for c in range(4) for d in range(4)))
         return exprs
 
-    key = key_for(
-        "warp.full_stress_energy",
-        sp.srepr(g_sym),
-        stack.gravity.id,
-        sorted(stack.gravity.values.items()),
-        sorted((str(k), v) for k, v in metric.params.items()),
-        invariants,
-        tidal,
-    )
+    key = geometry_key(metric, invariants, tidal)
     f, hit = compile_cached(key, COORDS, build, metric.params)
     flat = [c.ravel() for c in coords]
     out = f(np.zeros_like(flat[0]), *flat)
@@ -189,7 +213,55 @@ def full_stress_energy(
     if tidal:
         start = 2 * len(idx) + len(invariants)
         extras["tidal"] = out[start : start + len(sidx)]
-    return T, g, extras, hit
+    return theory_stress_energy(stack.gravity, 8 * np.pi * T, g, T), g, extras, hit
+
+
+def _symbolic_pair() -> tuple[sp.Matrix, sp.Matrix, list[sp.Symbol]]:
+    """Symmetric 4x4 matrices of plain symbols standing for ``G_ab`` and ``g_ab``."""
+    G = sp.Matrix(4, 4, lambda a, b: sp.Symbol(f"G_{min(a, b)}{max(a, b)}", real=True))
+    g = sp.Matrix(4, 4, lambda a, b: sp.Symbol(f"g_{min(a, b)}{max(a, b)}", real=True))
+    names = [G[a, b] for a in range(4) for b in range(a, 4)]
+    names += [g[a, b] for a in range(4) for b in range(a, 4)]
+    return G, g, names
+
+
+def theory_stress_energy(
+    theory,
+    einstein: np.ndarray,
+    metric: np.ndarray,
+    general_relativity: np.ndarray | None = None,
+) -> np.ndarray:
+    """``theory``'s matter stress-energy from a numeric ``G_ab`` and ``g_ab``.
+
+    Both arrays have shape ``(4, 4, N)``. The theory's own
+    ``effective_stress_energy`` runs once, on matrices of plain symbols, and
+    the few terms it returns are evaluated on the arrays. GR+Lambda, for
+    example, returns ``(G + Lambda g) / 8 pi``. A split that needs anything
+    but ``G_ab`` and ``g_ab``, such as a coordinate or a derivative, is
+    refused: it has to go through the symbolic path.
+
+    ``general_relativity`` is ``G / 8 pi`` as it was evaluated. When the theory's
+    split is general relativity's, that array is returned as it is, so every
+    theory with GR's split gets exactly what GR does.
+    """
+    G, g, names = _symbolic_pair()
+    split = sp.Matrix(theory.effective_stress_energy(G, g))
+    if general_relativity is not None and sp.simplify(split - G / (8 * sp.pi)) == sp.zeros(4, 4):
+        return general_relativity
+    extra = set().union(*(e.free_symbols for e in split)) - set(names)
+    if extra:
+        raise ValueError(
+            f"{theory.id}'s split uses {sorted(map(str, extra))} as well as G_ab and g_ab; "
+            "it needs the symbolic path"
+        )
+    arrays = [einstein[a, b] for a in range(4) for b in range(a, 4)]
+    arrays += [metric[a, b] for a in range(4) for b in range(a, 4)]
+    evaluate = sp.lambdify(names, list(split), "numpy")
+    values = evaluate(*arrays)
+    size = einstein.shape[-1]
+    return np.array([np.broadcast_to(np.asarray(v, dtype=float), (size,)) for v in values]).reshape(
+        4, 4, size
+    )
 
 
 def tidal_eigen_max(tidal6: np.ndarray, g: np.ndarray) -> np.ndarray:

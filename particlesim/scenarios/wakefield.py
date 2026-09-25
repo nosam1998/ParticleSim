@@ -33,9 +33,13 @@ from dataclasses import dataclass
 import numpy as np
 
 from particlesim.core.interpolate import midpoints
+from particlesim.solvers.pic.boundaries import Conducting, PerfectlyMatchedLayer, Periodic
+from particlesim.solvers.pic.cycle import advance
 from particlesim.solvers.pic.deposition import deposit_charge
-from particlesim.solvers.pic.particles import Species
-from particlesim.solvers.pic.yee import Fields, YeeGrid
+from particlesim.solvers.pic.laser import LaserPulse, PlaneWaveSource
+from particlesim.solvers.pic.particles import PUSHERS, Species
+from particlesim.solvers.pic.shapes import SUPPORTED_ORDERS
+from particlesim.solvers.pic.yee import Fields, YeeGrid, YeeSolver
 
 
 def linear_wake_amplitude(a0: float, sigma: float, plasma_wavenumber: float) -> float:
@@ -232,3 +236,138 @@ def measure_wake(
             "has not travelled far enough into the plasma"
         )
     return float(np.abs(fields.Dx[region]).max() / plasma_frequency), head
+
+
+#: The field boundaries a :class:`LaserWakefield` run can close its box with.
+BOUNDARIES = ("pml", "conducting", "periodic")
+
+
+@dataclass(frozen=True)
+class LaserWakefield:
+    """A one-dimensional laser-wakefield run, as data.
+
+    Everything :meth:`run` does is fixed by these fields, so a run can be
+    stored, compared and handed to another code (issue #82's WarpX adapter)
+    rather than living in the body of a test.
+
+    Units are :mod:`~particlesim.solvers.pic.yee`'s: ``c = 1``, and an
+    electron has charge ``-1`` and mass ``1``, so ``density`` is
+    ``omega_p^2``. The length unit is the caller's; the tests use the laser
+    wavelength.
+
+    The box is ``cells`` cells of ``spacing``. With ``boundary="pml"`` the
+    outer ``pml_cells`` at each end are an absorbing layer inside that box.
+    The pulse enters by total-field/scattered-field at ``source_index``,
+    where its peak passes at ``pulse.start``. Electrons fill everything from
+    ``plasma_start`` on, rising over ``ramp`` as :func:`uniform_plasma`
+    describes, on an immobile neutralizing background. ``steps`` cycles of
+    :func:`~particlesim.solvers.pic.cycle.advance` follow, at
+    ``courant`` times the Courant limit.
+    """
+
+    pulse: LaserPulse
+    density: float
+    cells: int
+    spacing: float
+    steps: int
+    plasma_start: float = 0.0
+    ramp: float = 0.0
+    per_cell: int = 16
+    source_index: int = 8
+    courant: float = 0.5
+    boundary: str = "pml"
+    pml_cells: int = 12
+    order: int = 1
+    pusher: str = "boris"
+
+    def __post_init__(self) -> None:
+        if self.cells < 2 or self.spacing <= 0:
+            raise ValueError("need at least two cells of positive spacing")
+        if self.density < 0 or self.steps < 0 or self.per_cell < 1:
+            raise ValueError("density and steps must be non-negative, per_cell positive")
+        if self.plasma_start < 0 or self.ramp < 0:
+            raise ValueError("plasma_start and ramp must be non-negative")
+        if not 1 <= self.source_index < self.cells - 1:
+            raise ValueError(f"the source must lie inside the box, got {self.source_index}")
+        if self.boundary not in BOUNDARIES:
+            raise ValueError(f"boundary must be one of {BOUNDARIES}")
+        if self.order not in SUPPORTED_ORDERS:
+            raise ValueError(f"order must be one of {SUPPORTED_ORDERS}")
+        if self.pusher not in PUSHERS:
+            raise ValueError(f"pusher must be one of {sorted(PUSHERS)}")
+
+    @property
+    def grid(self) -> YeeGrid:
+        return YeeGrid((self.cells,), (self.spacing,))
+
+    @property
+    def plasma_frequency(self) -> float:
+        return float(np.sqrt(self.density))
+
+    def solver(self) -> YeeSolver:
+        if self.boundary == "pml":
+            boundary = PerfectlyMatchedLayer(thickness=self.pml_cells)
+        elif self.boundary == "conducting":
+            boundary = Conducting()
+        else:
+            boundary = Periodic()
+        return YeeSolver(self.grid, courant=self.courant, boundary=boundary)
+
+    def run(self) -> tuple[Fields, Species]:
+        """The fields and electrons after ``steps`` cycles."""
+        solver = self.solver()
+        source = PlaneWaveSource(self.pulse, index=self.source_index)
+        source.attach(solver)
+        fields, species, _ = uniform_plasma(
+            solver.grid, self.density, self.per_cell, self.plasma_start, self.ramp, self.order
+        )
+        for _ in range(self.steps):
+            fields, species = advance(
+                solver, fields, species, order=self.order, scheme=self.pusher, source=source
+            )
+        return fields, species
+
+    def wake(self, fields: Fields) -> float:
+        """Peak ``|E_x| / E_wb`` behind the pulse, by :func:`measure_wake`."""
+        measured, _ = measure_wake(
+            self.grid, fields, self.plasma_frequency, self.pulse.tau, self.plasma_start
+        )
+        return measured
+
+
+def resonant_benchmark(
+    a0: float,
+    cells_per_wavelength: int = 16,
+    per_cell: int = 16,
+    density_ratio: float = 0.1,
+) -> LaserWakefield:
+    """Issue #34's benchmark: a resonant Gaussian pulse into an underdense ramp.
+
+    Lengths are in laser wavelengths. ``density_ratio`` is ``omega_p /
+    omega_0``, and the pulse is resonant: ``k_p sigma = sqrt(2)`` for
+    ``a = a0 exp(-s^2 / 2 sigma^2)``. The box is 110 wavelengths with
+    24-cell absorbing layers, and the source sits at cell 120. The plasma
+    starts 22 wavelengths beyond the source, rising over 3. The run lasts
+    until the peak has gone 56 wavelengths past the source, at half the
+    Courant limit.
+    """
+    omega0 = 2.0 * np.pi
+    k_p = density_ratio * omega0
+    sigma = resonant_length(k_p)
+    pulse = LaserPulse(a0=a0, wavelength=1.0, duration=sigma * np.sqrt(2) * np.sqrt(2 * np.log(2)))
+    dx = 1.0 / cells_per_wavelength
+    courant = 0.5
+    return LaserWakefield(
+        pulse=pulse,
+        density=k_p**2,
+        cells=int(round(110.0 / dx)),
+        spacing=dx,
+        steps=int(round((pulse.start + 56.0) / (courant * dx))),
+        plasma_start=120 * dx + 22.0,
+        ramp=3.0,
+        per_cell=per_cell,
+        source_index=120,
+        courant=courant,
+        boundary="pml",
+        pml_cells=24,
+    )

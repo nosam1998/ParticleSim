@@ -223,12 +223,19 @@ class Hierarchy:
         return out
 
     def _restrict_into(self, coarse_state, fine_state) -> dict[str, Any]:
-        """Inject the fine interior onto the coarse points inside the box."""
+        """Inject the fine interior onto the coarse points inside the box.
+
+        A field the fine level does not carry passes through untouched: the
+        auxiliary fields of :class:`~particlesim.solvers.nr.boundary.SecondOrder`
+        live only on the coarse level, beside its outer edge.
+        """
         return {
             name: _as_backend(
                 mesh.inject(np.asarray(value), np.asarray(fine_state[name]), self.box),
                 self.coarse.backend,
             )
+            if name in fine_state
+            else value
             for name, value in coarse_state.items()
         }
 

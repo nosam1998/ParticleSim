@@ -2035,6 +2035,58 @@ Light rays are covered only as far as the characteristic cross-check above
 goes. Rendering them, which is issue #55, is a separate matter.
 
 
+## A warp bubble under a modified theory, live
+
+Issue #55's acceptance is that the served app shows a live modified-theory
+warp result. `particlesim serve` has a "Warp, live" tab. It shows a bubble
+under any theory whose split of geometry into matter is algebraic in `G_ab`
+and `g_ab`: GR, GR+Λ, and the string EFT plugins, which use GR's split in
+the Einstein frame. Each coupling gets a slider, and releasing one
+recomputes in under a second.
+
+**Why it can be live.** The full path used to put the theory's split inside
+the symbolic kernel, so every coupling value re-derived the Einstein tensor:
+15 s for Alcubierre, and over half an hour for Natário. Now the geometry is
+derived once per metric, under the cache key GR always had, so kernels
+already on disk are found. `theory_stress_energy` then calls the theory's
+own `effective_stress_energy` once, on matrices of plain symbols, and
+evaluates the few terms it returns on the arrays. A theory whose split is
+GR's gets GR's array back exactly, so nothing changes for GR. A split that
+needs anything but `G_ab` and `g_ab` is refused rather than evaluated wrongly.
+
+**What GR+Λ does to a bubble.** The matter it needs is
+`(G_ab + Λ g_ab) / 8π`. Measured on Alcubierre at `24³` over `[−8, 8]³`:
+
+| | Λ = 0 | Λ = −0.22 |
+|---|---|---|
+| Eulerian energy, total | −5.573 | +30.28 |
+| points violating the weak energy condition | 100% | 22.9% |
+| null energy condition, integrated violation | −63.7215 | −63.7215 |
+
+The Eulerian density moves by exactly `−Λ/8π` everywhere, to `1e−12`
+relative. The null energy condition does not move at all, since
+`g_ab k^a k^b = 0` for every null `k`: no cosmological constant rescues it.
+`test_lambda_shifts_the_density_and_leaves_the_null_condition_alone` holds
+both, the second pointwise to `1e−15`.
+
+**A counting bug this found.** Energy-condition violations were counted as
+`min < 0`. Under GR a vacuum point's `T_ab` is exactly zero, so this never
+showed. `Λ g_ab / 8π` has an analytically zero null form that evaluates to
+`±1e−18`, and the negative half of that noise made 97% of the vacuum around
+the bubble count as violating the NEC. A violation now has to exceed the
+rounding bound of the quadratic form it came from:
+`16 ε Σ|T_ab| (Σ|v^a|)²` for the sampled vector `v`. That bound is zero
+wherever `T` is, so GR's counts are unchanged.
+
+**The 3-D views.** `particlesim.viz.volume` offers three routes:
+- **Plotly isosurfaces and a slice**, drawn by the browser's WebGL, which is
+  what the app shows.
+- **PyVista contours and orthogonal slices** as geometry, never rendered. VTK's
+  off-screen rendering crashes without EGL or OSMesa, which servers and CI
+  usually lack. A contour of `r²` at 0.5 comes out at radius 0.7061 against
+  `√0.5 = 0.7071`.
+- **A `.vti` writer that needs no VTK**, which PyVista reads back exactly.
+
 ## Warp design search: an objective with a closed-form optimum
 
 Issue #53, Warp Mode W2. W1 analyses a given bubble and W3 evolves fields on

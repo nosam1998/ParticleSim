@@ -27,7 +27,10 @@ jax = ["jax[cpu]>=0.4.30"]
 # not part of the dev group: the adapter's live tests skip without it.
 boltzmann = ["classy>=3.2"]
 # The served app (particlesim serve, issue #83), and what the Docker image runs.
-serve = ["panel>=1.9", "matplotlib>=3.8"]
+serve = ["panel>=1.9", "matplotlib>=3.8", "plotly>=5.20"]
+# Isosurfaces, slices and meshes as geometry (particlesim.viz.volume, issue #55).
+# VTK is large; nothing else needs it, and nothing here renders with it.
+3d = ["pyvista>=0.44"]
 dev = [
   "pytest>=8.0",
   "pytest-timeout>=2.3",
@@ -37,6 +40,7 @@ dev = [
   "ipywidgets>=8.1",
   "jax[cpu]>=0.4.30",
   "panel>=1.9",
+  "plotly>=5.20",
 ]
 
 [project.scripts]

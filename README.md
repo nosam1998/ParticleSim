@@ -38,10 +38,12 @@ run. It puts each result next to what [Benchmarks](docs/benchmarks.md) says
 about it, and CI uploads one from every benchmark job. `particlesim dashboard
 PATH…` rebuilds either kind.
 
-`particlesim serve` (with the `serve` extra) serves an app with three tabs:
+`particlesim serve` (with the `serve` extra) serves an app with four tabs:
 - **Runs:** your runs' dashboards.
 - **Modified gravity, live:** the Hu–Sawicki `f(R)` growth and `P(k)`
   enhancement, recomputed as you move `|f_R0|`, `Ω_m` and the scale factor.
+- **Warp, live:** the matter a warp bubble needs under GR, GR+Λ or a string
+  EFT plugin, in 3-D, recomputed as you move the theory's couplings.
 - **Theory plugins, live:** any installed plugin, scored against the
   singularity battery on demand.
 

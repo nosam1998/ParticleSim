@@ -83,14 +83,18 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def test_the_app_builds_with_its_three_tabs(tmp_path):
+def test_the_app_builds_with_its_four_tabs(tmp_path):
     pytest.importorskip("panel")
     from particlesim.viz.app import build_app
 
     app = build_app(tmp_path)
+    # The warp tab computed its first result as it was built.
+    warp = app[2]
+    assert any("NEC violated at" in str(getattr(o, "object", "")) for o in warp.objects[-1])
     assert [title for title, _ in zip(app._names, app, strict=True)] == [
         "Runs",
         "Modified gravity, live",
+        "Warp, live",
         "Theory plugins, live",
     ]
 

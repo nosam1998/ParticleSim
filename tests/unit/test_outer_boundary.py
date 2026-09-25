@@ -261,7 +261,7 @@ TEUKOLSKY_ZONE = 1.0
 TEUKOLSKY_CUBE = 2.5
 
 
-def _teukolsky_measure(n: int, final: float, every: float = 0.5):
+def _teukolsky_measure(n: int, final: float, every: float = 0.5, condition=boundary.Bounded):
     """Evolve a linear Teukolsky wave through the radiative boundary.
 
     Returns ``(t, amplitude, error)`` samples over the cube ``|x| <= 2.5``,
@@ -271,6 +271,10 @@ def _teukolsky_measure(n: int, final: float, every: float = 0.5):
     pulse did not have -- it says what the interior *should* hold at every
     moment, including after the wave has gone, so a reflection is measured
     as error rather than inferred from a norm that failed to fall.
+
+    ``condition`` wraps the evolution and the zone: :class:`~boundary.Bounded`
+    for Sommerfeld's condition, :class:`~boundary.SecondOrder` for Bayliss
+    and Turkel's.
     """
     from particlesim.solvers.nr import teukolsky
 
@@ -283,7 +287,7 @@ def _teukolsky_measure(n: int, final: float, every: float = 0.5):
     mesh = tuple(np.meshgrid(axis, axis, axis, indexing="ij"))
     evolution = bssn.Evolution.build(spacing, slicing="harmonic", shift_condition="frozen")
     width = int(round(TEUKOLSKY_ZONE / spacing[0]))
-    bounded = boundary.Bounded(
+    bounded = condition(
         evolution, boundary.Radiative(coords=mesh, spacing=spacing, axes=AXES, width=width)
     )
     inside = np.abs(axis) <= TEUKOLSKY_CUBE + 1e-9
@@ -316,6 +320,8 @@ def _teukolsky_measure(n: int, final: float, every: float = 0.5):
     stride = max(1, int(round(every / step)))
     current = dict(state)
     samples = [sample(0.0, current)]
+    if isinstance(bounded, boundary.SecondOrder):
+        current = bounded.start(current)
     for index in range(1, steps + 1):
         current = bounded.step(current, step)
         if index % stride == 0:
@@ -468,3 +474,29 @@ def test_the_second_condition_leaves_minkowski_alone():
     second = boundary.SecondOrder(_Still(), radiative)
     rates = second.right_hand_side(second.start({k: np.asarray(v) for k, v in state.items()}))
     assert max(float(np.abs(v).max()) for v in rates.values()) < 1e-13
+
+
+@pytest.mark.slow
+@pytest.mark.benchmark
+def test_the_second_condition_halves_what_the_teukolsky_wave_leaves_behind():
+    """The acceptance run above, with Bayliss and Turkel's condition in the zone.
+
+    Same wave, box, zone and cube. As multiples of the amplitude:
+
+        t                     2.5    6.5    8.0    8.5    9.0    10
+        error, Sommerfeld     0.071  0.062  0.071  0.064  --     0.056
+        error, second order   0.071  0.032  0.036  0.032  0.038  0.033
+        largest |h|, second   5.47   0.142  0.090  0.089  0.115  0.076
+
+    The truncation error while the wave is inside is unchanged, as it
+    should be. What comes back after it has gone is 0.54 of it, where
+    Sommerfeld's is 1.0. The bound is 0.7, which Sommerfeld fails.
+    """
+    samples = _teukolsky_measure(40, 10.0, condition=boundary.SecondOrder)
+    assert all(np.isfinite(value) for _, amp, err in samples for value in (amp, err))
+    initial = samples[0][1]
+    truncation = max(err for time, _, err in samples if time <= 3.5)
+    after = [(amp, err) for time, amp, err in samples if time >= 7.5]
+
+    assert max(err for _, err in after) < 0.7 * truncation, samples
+    assert max(amp for amp, _ in after) < initial / 200.0, samples

@@ -11,6 +11,14 @@ uv run pytest -q -m "benchmark and not slow"   # the PR gate
 uv run pytest -q -m slow                       # main and manual dispatch
 ```
 
+Add `--dashboard dashboards/benchmarks.html` to either command for an HTML
+dashboard of the run (issue #83). It lists every benchmark's result and time,
+next to the reference, tolerance and last documented value that this page gives
+it. It also lists the benchmarks this page does not name, and the ones it names
+that did not run. CI writes one for every benchmark run: the PR gate, the slow
+job and the nightly research job. It uploads each as an artifact, even when the
+run fails.
+
 All results below pass as of this page's last update. Where a tolerance
 looks loose, the reason is in the "notes" column: several of these compare
 against a closed form and are limited by double precision rather than by the
@@ -5940,6 +5948,13 @@ the design document.
   not exercised: no GPU on the machine this ran on.
 
 ### Milestones 8 and 9
+- Dashboard generated for every benchmark run in CI (issue #83) — **done** for
+  the static half:
+  - `--dashboard` joins each run's results with this page's tables.
+  - CI uploads a dashboard from every benchmark job.
+  - Every `particlesim run` writes a `dashboard.html` for its run directory.
+
+  The served app is issue #83's other half.
 - LWFA config round-trips (issue #82) — **done** for WarpX:
   - ParticleSim's wakefield benchmark goes to WarpX's inputs and comes back
     the same.

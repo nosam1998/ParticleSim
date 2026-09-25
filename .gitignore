@@ -11,3 +11,4 @@ runs/
 *.h5
 .ipynb_checkpoints/
 .claude/
+dashboards/

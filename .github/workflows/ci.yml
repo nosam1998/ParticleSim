@@ -29,7 +29,18 @@ jobs:
       - name: Unit tests
         run: uv run pytest -q -m "not slow"
       - name: Benchmarks
-        run: uv run pytest -q -m "benchmark and not slow"
+        run: >-
+          uv run pytest -q -m "benchmark and not slow"
+          --dashboard dashboards/benchmarks-py${{ matrix.python-version }}.html
+      # The dashboard is written whether the benchmarks pass or fail, and a
+      # failing run is the one whose page matters most.
+      - name: Upload the benchmark dashboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-dashboard-py${{ matrix.python-version }}
+          path: dashboards/
+          if-no-files-found: warn
       - name: GR limits
         run: uv run particlesim check-limits
 
@@ -58,7 +69,16 @@ jobs:
           restore-keys: kernels-
       # A test that derives a kernel pays for it inside its own timeout.
       # Research-resolution reruns take hours; they run nightly instead.
-      - run: uv run pytest -q -m "slow and not research" -o timeout=2400
+      - run: >-
+          uv run pytest -q -m "slow and not research" -o timeout=2400
+          --dashboard dashboards/slow-benchmarks.html
+      - name: Upload the benchmark dashboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slow-benchmark-dashboard
+          path: dashboards/
+          if-no-files-found: warn
       - name: Save derived kernels
         if: always()
         uses: actions/cache/save@v4

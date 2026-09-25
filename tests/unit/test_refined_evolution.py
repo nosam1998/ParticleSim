@@ -253,3 +253,48 @@ def test_the_fine_level_agrees_with_the_coarse_one_where_they_overlap():
         coarse_inside = np.asarray(out_coarse[name])[inside]
         restricted = mesh.restrict(np.asarray(out_fine[name]))
         assert np.allclose(coarse_inside, restricted, atol=0.0), name
+
+
+def test_a_field_only_the_coarse_level_carries_passes_through_restriction():
+    """The second-order boundary's auxiliary fields live beside the coarse edge only.
+
+    Restriction injects the fine interior into the coarse level field by
+    field, so a coarse field the fine level lacks has nothing to inject and
+    is left as it was.
+    """
+    from particlesim.solvers.nr import boundary
+
+    hierarchy, coarse_state, fine_state, _ = _hierarchy(32)
+    aux = boundary.AUXILIARY + "alpha"
+    marked = dict(coarse_state)
+    marked[aux] = np.ones(np.shape(coarse_state["alpha"]))
+    restricted = hierarchy._restrict_into(marked, fine_state)
+    assert np.array_equal(np.asarray(restricted[aux]), marked[aux])
+    inside = np.asarray(restricted["alpha"])[hierarchy.box.slices()]
+    assert np.array_equal(inside, mesh.restrict(np.asarray(fine_state["alpha"])))
+
+
+def test_a_hierarchy_steps_with_the_second_order_boundary_on_its_coarse_level():
+    """One coarse step of the gauge wave with Bayliss and Turkel's condition at the x edges."""
+    from particlesim.solvers.nr import boundary
+
+    hierarchy, coarse_state, fine_state, _ = _hierarchy(32)
+    axis = np.linspace(0.0, EXTENT, 32, endpoint=False) - EXTENT / 2
+    other = np.linspace(0.0, EXTENT, 8, endpoint=False) - EXTENT / 2
+    coords = np.meshgrid(axis, other, other, indexing="ij")
+    radiative = boundary.Radiative(
+        coords=coords, spacing=hierarchy.coarse.spacing, axes=(0,), width=3, backend="numpy"
+    )
+    second = boundary.SecondOrder(hierarchy.coarse, radiative)
+    two_level = refined.Hierarchy(
+        coarse=second,
+        fine=hierarchy.fine,
+        box=hierarchy.box,
+        parent_shape=hierarchy.parent_shape,
+        interpolation=hierarchy.interpolation,
+        buffer=hierarchy.buffer,
+    )
+    coarse, fine = two_level.step(second.start(coarse_state), fine_state)
+    assert boundary.AUXILIARY + "alpha" in coarse
+    assert not any(name.startswith(boundary.AUXILIARY) for name in fine)
+    assert all(np.all(np.isfinite(np.asarray(v))) for v in {**coarse, **fine}.values())

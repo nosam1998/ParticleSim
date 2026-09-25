@@ -1418,6 +1418,24 @@ the lapse and not the shift (`advect="lapse"`). With it the zone's lapse
 drifted faster, 0.31, 0.59 and 0.89 at 60, 90 and 120 M, and the hole
 dissolved by 125 M.
 
+**Bayliss and Turkel's second condition delays it by 25 M.** The same run
+with `TwoLevelPuncture.build(second_order=True)`, which puts
+`boundary.SecondOrder` on the coarse edge:
+
+| t / M | 10 | 40 | 100 | 120 | 150 | 180 |
+|---|---|---|---|---|---|---|
+| coarse `‖H‖`, Sommerfeld | 5.4e−03 | 3.9e−02 | 1.3e−02 | 2.5e−02 | 0.38 | hole gone |
+| coarse `‖H‖`, second order | 2.2e−04 | 3.3e−03 | 6.4e−03 | 7.6e−03 | 1.4e−02 | 3.2e−02 |
+| `max \|α − 1\|` in the zone, Sommerfeld | 0.10 | 0.19 | 0.38 | 0.55 | 0.84 | |
+| `max \|α − 1\|` in the zone, second order | 0.10 | 0.20 | 0.28 | 0.33 | 0.52 | 0.81 |
+
+The coarse constraint is two to thirty times lower throughout, and the
+zone's lapse drifts more slowly. It still drifts, and the hole still goes
+after it: the lapse at the nearest sample jumps from 0.12 to 0.74 between
+185 and 190 M, against 160 to 165 M. So the condition is not what was
+missing. The zone is at `9 M`, inside the region where the gauge is still
+settling, and a better condition there only slows the drift.
+
 **A single level says it is the box.** The same puncture on one level at
 `M/2`, boundary at `9 M`, behaves the same in all three gauges. The lapse at
 `r = 2 M` sloshes, 0.88, 0.64, 0.89, 1.06, 0.97 and 0.99 at t = 10 to 60 M,

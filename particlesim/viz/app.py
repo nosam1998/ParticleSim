@@ -248,6 +248,17 @@ def build_app(runs: str | Path | None = None) -> Any:
         couplings[:] = sliders or [pn.pane.Markdown("This theory has no couplings.")]
         recompute()
 
+    speed = pn.widgets.FloatSlider(
+        label="bubble speed v (c = 1)", start=0.0, end=3.0, step=0.05, value=1.5
+    )
+
+    def inside_view(v: float):
+        from particlesim.analysis.raytrace import Bubble
+        from particlesim.viz.warp_render import png_bytes, render
+
+        image, _ = render(Bubble(v=float(v)), 256, 128, step=0.03)
+        return pn.pane.PNG(png_bytes(image), sizing_mode="scale_width")
+
     gravity.param.watch(rebuild, "value")
     family.param.watch(recompute, "value")
     rebuild()
@@ -262,6 +273,16 @@ def build_app(runs: str | Path | None = None) -> Any:
         pn.Row(family, gravity),
         couplings,
         warp_view,
+        pn.pane.Markdown(
+            "### The view from inside\n"
+            "An Alcubierre bubble's passenger, looking out: light traced back through "
+            "the bubble to the sky it came from (`particlesim.analysis.raytrace`), tinted "
+            "by its exact frequency shift, `1 − v cos α`. Straight ahead is in the "
+            "middle. Above `v = 1` no light reaches the passenger from behind, and those "
+            "pixels are black."
+        ),
+        speed,
+        pn.bind(inside_view, speed),
     )
 
     # --- theory plugins, live

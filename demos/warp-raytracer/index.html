@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Warp Bubble View</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg:#ffffff; --fg:#1b1b1f; --muted:#5c5f6b; --line:#e3e4e8;
+  --card:#f7f7f9; --accent:#2d5bd7; --warn:#b3261e; --ok:#1a7f4b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#15161a; --fg:#e8e9ed; --muted:#a0a3ad; --line:#2c2e36;
+    --card:#1d1f25; --accent:#8ab0ff; --warn:#ff8a80; --ok:#6ee7a8;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#15161a; --fg:#e8e9ed; --muted:#a0a3ad; --line:#2c2e36;
+  --card:#1d1f25; --accent:#8ab0ff; --warn:#ff8a80; --ok:#6ee7a8;
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px 16px 56px;background:var(--bg);color:var(--fg);
+  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:980px;margin:0 auto}
+h1{font-size:1.45rem;margin:0 0 4px}
+p.sub{color:var(--muted);margin:0 0 18px;font-size:.92rem}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:12px;margin-bottom:14px}
+/* The panorama is twice as wide as it is tall; the canvas keeps that. */
+canvas{width:100%;aspect-ratio:2/1;display:block;border-radius:8px;background:#000;
+  image-rendering:pixelated}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+label{display:block;font-size:.83rem;color:var(--muted);margin-bottom:4px}
+input[type=range]{width:100%}
+select{font:inherit;width:100%;padding:6px 8px;border-radius:8px;
+  border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+.status{color:var(--muted);font-size:.86rem;margin:8px 0 0;font-variant-numeric:tabular-nums}
+.axes{display:flex;justify-content:space-between;color:var(--muted);font-size:.8rem;margin-top:4px}
+details{margin-top:14px} summary{cursor:pointer;color:var(--accent)}
+details p{color:var(--muted);font-size:.92rem}
+code{font-size:.88em}
+</style>
+</head>
+<body><main>
+<h1>Warp Bubble View</h1>
+<p class="sub">What a passenger at the centre of an Alcubierre warp bubble sees. Each pixel's
+light is traced back through the bubble's curved spacetime to the sky it came from, and tinted
+by its frequency shift. It runs on your GPU where the browser has WebGPU, and on the CPU where
+it does not.</p>
+
+<div class="panel">
+  <canvas id="view" width="256" height="128"></canvas>
+  <div class="axes"><span>behind</span><span>left</span><span>straight ahead</span><span>right</span><span>behind</span></div>
+  <p class="status" id="status">starting</p>
+</div>
+
+<div class="panel controls">
+  <div>
+    <label for="speed">bubble speed <b id="speedValue">1.50</b> c</label>
+    <input type="range" id="speed" min="0" max="3" step="0.01" value="1.5">
+  </div>
+  <div>
+    <label for="wall">wall steepness &sigma; <b id="wallValue">2.0</b></label>
+    <input type="range" id="wall" min="0.5" max="6" step="0.1" value="2">
+  </div>
+  <div>
+    <label for="size">resolution</label>
+    <select id="size">
+      <option value="128">128 &times; 64</option>
+      <option value="256" selected>256 &times; 128</option>
+      <option value="512">512 &times; 256</option>
+    </select>
+  </div>
+</div>
+
+<details open>
+  <summary>What you are looking at</summary>
+  <p>The sky is a reference pattern: a checkerboard in longitude and latitude, warm ahead of the
+  ship and cool behind, with a line every 30&deg;. Its distortion is the bubble's lensing and
+  nothing else. At zero speed you see it undistorted.</p>
+  <p>The tint is the light's frequency shift, blue where it arrives with more energy than it
+  left with and red where less. That shift is exact: the metric depends on time and on the
+  direction of travel only through <code>x &minus; v t</code>, so <code>p_t + v p_x</code> is
+  conserved along every ray. It follows that light arrives shifted by exactly
+  <code>1 &minus; v cos&alpha;</code>, whatever the bubble's speed. Light from straight ahead
+  is blueshifted by <code>1 + v</code>.</p>
+  <p>Above the speed of light, black appears behind the ship. No ray from the sky reaches the
+  passenger from those directions. Traced backwards, their light piles up at the bubble's rear
+  horizon with its energy growing without bound.</p>
+  <p>The physics is in <code>raytracer.js</code>. The test suite loads that file in Node and
+  compares its rays, ray by ray, with ParticleSim's Python tracer
+  (<code>particlesim.analysis.raytrace</code>). The Python tracer is itself checked against an
+  independent integrator of the geodesic equation to 1e-10. The GPU shader repeats the same
+  steps in single precision.</p>
+</details>
+</main>
+
+<script src="raytracer.js"></script>
+<script>
+(function () {
+  "use strict";
+  var R = window.WarpRaytracer;
+  var canvas = document.getElementById("view");
+  var ctx = canvas.getContext("2d");
+  var status = document.getElementById("status");
+  var speed = document.getElementById("speed"), wall = document.getElementById("wall");
+  var size = document.getElementById("size");
+  var gpu = null, pending = false, running = false;
+
+  function settings() {
+    var width = parseInt(size.value, 10);
+    return { bubble: { v: parseFloat(speed.value), R: 5, sigma: parseFloat(wall.value) },
+             width: width, height: width / 2 };
+  }
+
+  async function setUpGPU() {
+    if (!navigator.gpu) return null;
+    var adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return null;
+    var device = await adapter.requestDevice();
+    var module = device.createShaderModule({ code: R.WGSL });
+    var info = await module.getCompilationInfo();
+    if (info.messages.some(function (m) { return m.type === "error"; })) {
+      console.error(info.messages);
+      return null;
+    }
+    var pipeline = device.createComputePipeline({
+      layout: "auto", compute: { module: module, entryPoint: "main" } });
+    return { device: device, pipeline: pipeline };
+  }
+
+  async function renderGPU(s) {
+    var device = gpu.device, n = s.width * s.height;
+    var params = new ArrayBuffer(32), f = new Float32Array(params), u = new Uint32Array(params);
+    f[0] = s.bubble.v; f[1] = s.bubble.R; f[2] = s.bubble.sigma; f[3] = 0.02;
+    u[4] = s.width; u[5] = s.height; u[6] = 20000; u[7] = 0;
+    var uniform = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(uniform, 0, params);
+    var storage = device.createBuffer({ size: n * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    var readback = device.createBuffer({ size: n * 4, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    var group = device.createBindGroup({ layout: gpu.pipeline.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: uniform } }, { binding: 1, resource: { buffer: storage } }] });
+    var encoder = device.createCommandEncoder();
+    var pass = encoder.beginComputePass();
+    pass.setPipeline(gpu.pipeline); pass.setBindGroup(0, group);
+    pass.dispatchWorkgroups(Math.ceil(s.width / 8), Math.ceil(s.height / 8));
+    pass.end();
+    encoder.copyBufferToBuffer(storage, 0, readback, 0, n * 4);
+    device.queue.submit([encoder.finish()]);
+    await readback.mapAsync(GPUMapMode.READ);
+    var bytes = new Uint8ClampedArray(readback.getMappedRange().slice(0));
+    readback.unmap(); uniform.destroy(); storage.destroy(); readback.destroy();
+    return bytes;
+  }
+
+  async function draw() {
+    if (running) { pending = true; return; }
+    running = true;
+    var s = settings(), start = performance.now(), pixels, backend;
+    canvas.width = s.width; canvas.height = s.height;
+    if (gpu) {
+      pixels = await renderGPU(s); backend = "WebGPU, single precision";
+    } else {
+      status.textContent = "tracing on the CPU...";
+      await new Promise(function (resolve) { setTimeout(resolve, 0); });
+      pixels = R.renderCPU(s.bubble, s.width, s.height, 0.02); backend = "CPU, double precision";
+    }
+    ctx.putImageData(new ImageData(pixels, s.width, s.height), 0, 0);
+    status.textContent = backend + ": " + (s.width * s.height) + " rays in " +
+      Math.round(performance.now() - start) + " ms. Straight ahead, light arrives shifted by 1 + v = " +
+      (1 + s.bubble.v).toFixed(2) + ".";
+    window.lastRender = { backend: backend, pixels: pixels, settings: s };
+    running = false;
+    if (pending) { pending = false; draw(); }
+  }
+
+  function label() {
+    document.getElementById("speedValue").textContent = parseFloat(speed.value).toFixed(2);
+    document.getElementById("wallValue").textContent = parseFloat(wall.value).toFixed(1);
+  }
+  [speed, wall].forEach(function (el) {
+    el.addEventListener("input", label);
+    el.addEventListener("change", draw);
+  });
+  size.addEventListener("change", draw);
+  label();
+  setUpGPU().catch(function (e) { console.warn("WebGPU unavailable:", e); return null; })
+    .then(function (g) { gpu = g; draw(); });
+})();
+</script>
+</body>
+</html>

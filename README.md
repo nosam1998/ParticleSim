@@ -43,7 +43,8 @@ PATH…` rebuilds either kind.
 - **Modified gravity, live:** the Hu–Sawicki `f(R)` growth and `P(k)`
   enhancement, recomputed as you move `|f_R0|`, `Ω_m` and the scale factor.
 - **Warp, live:** the matter a warp bubble needs under GR, GR+Λ or a string
-  EFT plugin, in 3-D, recomputed as you move the theory's couplings.
+  EFT plugin, in 3-D, recomputed as you move the theory's couplings. Below it,
+  the view from inside the bubble as its speed changes.
 - **Theory plugins, live:** any installed plugin, scored against the
   singularity battery on demand.
 
@@ -87,6 +88,13 @@ push to `main`.
   and 1D cut of the Alcubierre Eulerian energy density, with the integrated
   negative energy. It computes the analytic Alcubierre result in the browser
   from the closed form in Section 3.2 of the design document.
+- [Warp bubble view](https://nosam1998.github.io/ParticleSim/warp-raytracer/):
+  what a passenger inside an Alcubierre bubble sees. Light is traced back
+  through the bubble on the GPU with WebGPU, or the CPU without it, and tinted
+  by its exact frequency shift `1 − v cos α`. Its physics file is tested in
+  Node against the Python tracer, ray for ray. Its shader is tested in headless
+  Chromium against the double-precision render, with every pixel within one
+  level of 255.
 - [Two-stream instability](https://nosam1998.github.io/ParticleSim/two-stream/):
   a one-dimensional electrostatic particle-in-cell code running live in the
   page. Two electron beams stream through each other and the measured growth

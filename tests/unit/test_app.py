@@ -90,7 +90,10 @@ def test_the_app_builds_with_its_four_tabs(tmp_path):
     app = build_app(tmp_path)
     # The warp tab computed its first result as it was built.
     warp = app[2]
-    assert any("NEC violated at" in str(getattr(o, "object", "")) for o in warp.objects[-1])
+    shown = [
+        str(getattr(o, "object", "")) for part in warp.objects for o in getattr(part, "objects", [])
+    ]
+    assert any("NEC violated at" in text for text in shown)
     assert [title for title, _ in zip(app._names, app, strict=True)] == [
         "Runs",
         "Modified gravity, live",

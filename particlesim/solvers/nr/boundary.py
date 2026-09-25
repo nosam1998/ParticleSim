@@ -360,17 +360,22 @@ class SecondOrder(Bounded):
     with the evolution, as ``d_r f`` does.
 
     The state carries one auxiliary field per evolved variable, named with the
-    prefix :data:`AUXILIARY`. :meth:`start` adds them. They are not
-    projected, and not seen by the kernel.
+    prefix :data:`AUXILIARY`. :meth:`start` adds them, and :meth:`step` adds
+    any that are missing. They are not projected, and not seen by the kernel.
     """
 
     def start(self, state) -> dict[str, Any]:
-        """``state`` with its auxiliary fields, all zero."""
+        """``state`` with its auxiliary fields, zero where they are missing."""
         out = dict(state)
         for name in state:
-            if not name.startswith(AUXILIARY):
+            if not name.startswith(AUXILIARY) and AUXILIARY + name not in out:
                 out[AUXILIARY + name] = np.zeros(np.asarray(state[name]).shape)
         return out
+
+    def project(self, state) -> dict[str, Any]:
+        """The evolution's projection on the geometry; the auxiliary fields pass through."""
+        geometry, auxiliary = self._split(state)
+        return {**self.evolution.project(geometry), **auxiliary}
 
     def _split(self, state):
         geometry = {k: v for k, v in state.items() if not k.startswith(AUXILIARY)}
@@ -410,8 +415,8 @@ class SecondOrder(Bounded):
     def step(self, state, time_step: float | None = None):
         """One classical fourth-order step, both conditions applied at each stage."""
         step = self.time_step if time_step is None else float(time_step)
-        names = list(state)
-        base = dict(state)
+        base = self.start(state)
+        names = list(base)
         first = self.right_hand_side(base)
         second = self.right_hand_side({n: base[n] + (step / 2) * first[n] for n in names})
         third = self.right_hand_side({n: base[n] + (step / 2) * second[n] for n in names})
@@ -420,10 +425,7 @@ class SecondOrder(Bounded):
             n: base[n] + (step / 6) * (first[n] + 2 * second[n] + 2 * third[n] + fourth[n])
             for n in names
         }
-        geometry, auxiliary = self._split(out)
-        if self.evolution.enforce:
-            geometry = self.evolution.project(geometry)
-        return {**geometry, **auxiliary}
+        return self.project(out) if self.evolution.enforce else out
 
 
 def interior(array, width: int, axes) -> np.ndarray:

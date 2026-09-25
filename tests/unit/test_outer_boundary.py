@@ -457,6 +457,27 @@ def test_the_second_condition_is_exact_where_sommerfeld_leaves_b_over_r_cubed():
     assert moved < 0.05 * np.abs(expected[zone]).max()
 
 
+def test_the_second_condition_adds_its_fields_and_does_not_project_them():
+    """A state without the auxiliary fields steps; projecting leaves them untouched."""
+    mesh, radiative = _second_order_setup(n=16, extent=16.0, width=3)
+    exact = _Exact(mesh)
+    field, _, _ = exact.profile()
+    second = boundary.SecondOrder(exact, radiative)
+    stepped = second.step({"phi": field}, 0.1)
+    assert set(stepped) == {"phi", boundary.AUXILIARY + "phi"}
+    assert np.all(np.isfinite(stepped[boundary.AUXILIARY + "phi"]))
+
+    class _Projecting(_Exact):
+        def project(self, state):
+            return {name: 2.0 * value for name, value in state.items()}
+
+    projected = boundary.SecondOrder(_Projecting(mesh), radiative).project(stepped)
+    assert np.allclose(projected["phi"], 2.0 * stepped["phi"])
+    assert np.array_equal(
+        projected[boundary.AUXILIARY + "phi"], stepped[boundary.AUXILIARY + "phi"]
+    )
+
+
 def test_the_second_condition_leaves_minkowski_alone():
     state, spacing = bssn.gauge_wave(shape=(16, 16, 16), amplitude=0.0, extent=EXTENT)
     axis = np.linspace(0.0, EXTENT, 16, endpoint=False) - EXTENT / 2

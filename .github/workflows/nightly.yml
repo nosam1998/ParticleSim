@@ -1,0 +1,22 @@
+name: Nightly
+
+# Research-resolution reruns (issue #22): measurements the push-triggered jobs
+# check against stored numbers are measured again from scratch here. Hours,
+# not minutes, so they never gate a push.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - run: uv sync --locked --all-extras
+      # pytest-timeout's 600 s default is per test; these are whole studies.
+      - run: uv run pytest -q -m research -o timeout=0 -rA

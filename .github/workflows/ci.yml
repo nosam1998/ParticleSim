@@ -57,7 +57,8 @@ jobs:
           key: kernels-${{ hashFiles('particlesim/symbolic/**', 'particlesim/solvers/nr/**') }}
           restore-keys: kernels-
       # A test that derives a kernel pays for it inside its own timeout.
-      - run: uv run pytest -q -m slow -o timeout=2400
+      # Research-resolution reruns take hours; they run nightly instead.
+      - run: uv run pytest -q -m "slow and not research" -o timeout=2400
       - name: Save derived kernels
         if: always()
         uses: actions/cache/save@v4

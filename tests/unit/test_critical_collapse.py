@@ -18,6 +18,7 @@ from particlesim.analysis.critical_collapse import (
     subcritical_scaling,
 )
 from particlesim.core.spherical import SphericalGrid
+from particlesim.solvers.nr.adaptive import AdaptiveCollapse
 from particlesim.solvers.nr.spherical import ScalarCollapse, gaussian_pulse
 
 # A thin shell: width / r0 = 1/8, so the initial slice stays weak right up
@@ -308,3 +309,42 @@ def test_central_field_and_proper_time_integrate_what_they_say():
     alpha, a, Pi = 0.5 + 0 * t, 2.0 + 0 * t, np.cos(t)
     np.testing.assert_allclose(central_proper_time(t, alpha)[-1], 0.5)
     np.testing.assert_allclose(central_field(t, alpha, a, Pi)[-1], 0.25 * np.sin(1.0), rtol=1e-6)
+
+
+#: The bracket the research-resolution bisection is expected to land in:
+#: ``THIRD_ECHO_EXTREMA``'s, bisected on the same solver to 7.0e-13.
+RESEARCH_PSTAR = (8.4818720557332e-4, 8.4818720557392e-4)
+
+
+@pytest.mark.slow
+@pytest.mark.research
+def test_the_exponent_and_period_are_reproduced_from_scratch_at_research_resolution():
+    """Issue #22's nightly job: the whole measurement, not its stored numbers.
+
+    The CI tests above hold ``gamma`` and ``Delta`` to measured peaks and
+    extrema. This one measures them again. It bisects the threshold on the
+    adaptive solver from a bracket that says only "one side disperses, the
+    other collapses", 2e-5 wide, down to 2e-8 relative. Then it runs the
+    twelve subcritical amplitudes from ``1 - p/p* = 1e-3`` to ``1e-6`` and
+    fits the power law with its echo ripple.
+
+    About two and a half hours on one core, most of it in the last ten
+    bisection steps, where each run goes seventeen levels deep. It runs
+    nightly (``.github/workflows/nightly.yml``), not on every push.
+    """
+
+    def make():
+        return AdaptiveCollapse(SphericalGrid(r_max=RMAX, n=400), cells_per_radius=16.0)
+
+    threshold = bisect_threshold(make, shell, 8.40e-4, 8.60e-4, t_end=16.0, iterations=20)
+    assert (threshold.upper - threshold.lower) / threshold.upper < 3e-8
+    assert threshold.lower <= RESEARCH_PSTAR[1] * (1 + 3e-8)
+    assert threshold.upper >= RESEARCH_PSTAR[0] * (1 - 3e-8)
+
+    fit = subcritical_scaling(make, shell, threshold, epsilons=REFINED_EPSILONS, t_end=16.0)
+    assert not fit.saturated
+    assert len(fit.epsilons) == len(REFINED_EPSILONS)
+    assert fit.gamma == pytest.approx(ScalingFit.CHOPTUIK_GAMMA, abs=0.008)
+    assert fit.delta == pytest.approx(ScalingFit.CHOPTUIK_DELTA, abs=0.07)
+    # The same peaks the stored fit used, to the bisection's reach at 1e-6.
+    assert np.allclose(fit.peaks, REFINED_PEAKS, rtol=0.03)

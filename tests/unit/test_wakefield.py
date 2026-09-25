@@ -1,13 +1,17 @@
 """One-dimensional laser wakefield (design doc Section 10, Milestone 2)."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
 from particlesim.scenarios.wakefield import (
+    LaserWakefield,
     gaussian_wake,
     linear_wake_amplitude,
     measure_wake,
     nonlinear_wake,
+    resonant_benchmark,
     resonant_length,
     uniform_plasma,
 )
@@ -155,27 +159,48 @@ def test_measure_wake_refuses_before_the_pulse_has_travelled():
 
 
 def _run_wakefield(a0: float, cells_per_wavelength: int = 16, per_cell: int = 16):
-    plasma_frequency, k_p, density = _plasma_scales()
+    _, k_p, _ = _plasma_scales()
     sigma = resonant_length(k_p)
-    pulse = LaserPulse(
-        a0=a0,
-        wavelength=WAVELENGTH,
-        duration=sigma * np.sqrt(2) * np.sqrt(2 * np.log(2)),
-    )
-    dx = WAVELENGTH / cells_per_wavelength
-    grid = YeeGrid((int(round(110.0 / dx)),), (dx,))
-    solver = YeeSolver(grid, courant=0.5, boundary=PerfectlyMatchedLayer(thickness=24))
-    source = PlaneWaveSource(pulse, index=120)
-    source.attach(solver)
-
-    start = 120 * dx + 22.0
-    fields, species, _ = uniform_plasma(grid, density, per_cell=per_cell, start=start, ramp=3.0)
-    for _ in range(int(round((pulse.start + 56.0) / solver.dt))):
-        fields, species = advance(solver, fields, species, order=1, source=source)
-
-    measured, _ = measure_wake(grid, fields, plasma_frequency, pulse.tau, start)
+    run = resonant_benchmark(a0, cells_per_wavelength, per_cell, DENSITY_RATIO)
+    fields, _ = run.run()
     behind = 4 * sigma + 0.5 * 2 * np.pi / k_p
-    return measured, gaussian_wake(a0, sigma, k_p).amplitude(behind), sigma, k_p
+    return run.wake(fields), gaussian_wake(a0, sigma, k_p).amplitude(behind), sigma, k_p
+
+
+def test_the_run_description_is_the_loop_it_replaces():
+    """``LaserWakefield.run`` against the loop the benchmark used to spell
+    out, bit for bit, over a short stretch at low resolution."""
+    run = replace(resonant_benchmark(0.3, cells_per_wavelength=8, per_cell=4), steps=200)
+    fields, species = run.run()
+
+    grid = YeeGrid((run.cells,), (run.spacing,))
+    solver = YeeSolver(grid, courant=0.5, boundary=PerfectlyMatchedLayer(thickness=24))
+    source = PlaneWaveSource(run.pulse, index=120)
+    source.attach(solver)
+    by_hand, electrons, _ = uniform_plasma(
+        grid, run.density, per_cell=4, start=120 * run.spacing + 22.0, ramp=3.0
+    )
+    for _ in range(200):
+        by_hand, electrons = advance(solver, by_hand, electrons, order=1, source=source)
+    for name in ("Dx", "Dy", "Dz", "Bx", "By", "Bz"):
+        assert np.array_equal(getattr(fields, name), getattr(by_hand, name))
+    assert np.array_equal(species.momentum, electrons.momentum)
+    assert np.abs(fields.Dz).max() > 0.1  # the pulse is in
+
+
+def test_the_run_description_refuses_what_it_cannot_run():
+    pulse = LaserPulse()
+    for bad, message in (
+        ({"cells": 1}, "two cells"),
+        ({"source_index": 0}, "inside the box"),
+        ({"boundary": "open"}, "boundary"),
+        ({"order": 3}, "order"),
+        ({"pusher": "higuera"}, "pusher"),
+        ({"ramp": -1.0}, "non-negative"),
+    ):
+        settings = {"pulse": pulse, "density": 0.1, "cells": 64, "spacing": 0.1, "steps": 1}
+        with pytest.raises(ValueError, match=message):
+            LaserWakefield(**(settings | bad))
 
 
 @pytest.mark.slow

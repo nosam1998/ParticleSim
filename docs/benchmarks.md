@@ -5097,6 +5097,24 @@ envelope approximation anywhere: the ponderomotive force that drives the
 wake emerges from electrons quivering in a resolved laser field, rather than
 being put in by hand.
 
+**The same run in WarpX (issue #82).** The benchmark is a `LaserWakefield`,
+and `particlesim.adapters.warpx` translates it to WarpX's inputs with the same
+scheme: Yee, Esirkepov, a full-order staggered gather, Boris, and no filter.
+WarpX's 1D build ran it (`docs/adapters/warpx.md`). At `a₀ = 0.3`:
+
+| cells per wavelength | 16 | 32 | 64 | 128 |
+|---|---|---|---|---|
+| WarpX | +2.19% | +2.12% | +2.09% | +2.10% |
+| ParticleSim | −1.65% | +1.14% | +1.85% | |
+
+WarpX is converged at 2.1% above the frozen-pulse cold-fluid theory.
+ParticleSim converges to the same place at second order: the doublings move
+it 2.79 and then 0.71 points, and extrapolating from 32 and 64 gives +2.09%.
+So the benchmark's −1.7% is ParticleSim's discretization error at 16 cells
+per wavelength, on top of a theory the full kinetic problem sits 2.1% above.
+At the benchmark's resolution, both codes are inside its 5%. At `a₀ = 0.8`,
+WarpX is +2.5%.
+
 ### Cold plasma
 
 | Benchmark | Reference | Tolerance | Measured | Test |
@@ -5922,6 +5940,16 @@ the design document.
   not exercised: no GPU on the machine this ran on.
 
 ### Milestones 8 and 9
+- LWFA config round-trips (issue #82) — **done** for WarpX:
+  - ParticleSim's wakefield benchmark goes to WarpX's inputs and comes back
+    the same.
+  - WarpX's own examples round-trip token for token, and the parser agrees with
+    the table WarpX reported parsing.
+  - WarpX ran the translation. Its wake is 2.2% from theory, within the
+    benchmark's 5%.
+  - Its plotfiles are reproduced byte for byte.
+
+  See `docs/adapters/warpx.md`.
 - One adapter round-trips a config and results (issue #81) — **done** for
   GRChombo: its own example parameter files round-trip token for token through
   a typed setup, the evolution translates exactly or is refused, and its plot

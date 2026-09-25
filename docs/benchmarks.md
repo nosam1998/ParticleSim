@@ -4330,7 +4330,7 @@ size at each `λ` (`L√λ` fixed), 60 000 to 100 000 sweeps each:
 | 1/8 | 11.32 | 10.72 | 10.50 | 10.54 | 10.538 ± 0.042 |
 | 1/16 | 11.30 | 10.87 | 10.73 | 10.69 | 10.691 ± 0.037 |
 | 1/32 | 11.74 | 11.08 | 10.84 | 10.86 (at 91) | 10.856 ± 0.026 |
-| 1/64 | 11.41 | 11.09 | pending | | not used |
+| 1/64 | 11.41 | 11.09 | 10.91 | | 10.914 ± 0.176 |
 
 **The infinite-volume value is the largest lattice's, and the last step is
 its error.** The steps fall from `L√λ = 16` to 64 in every row. After that
@@ -4344,13 +4344,16 @@ Schaich and Loinaz (2009) showed is needed:
 
 | fit | couplings | `f₀` | `χ²/dof` |
 |---|---|---|---|
-| `f₀ + aλ + bλ ln λ` | all six | 10.965 ± 0.029 | 9.1/3 |
-| `f₀ + aλ + bλ ln λ` | `λ ≤ 1/2` | 11.022 ± 0.036 | 1.6/2 |
-| `f₀ + aλ + bλ ln λ` | `λ ≤ 1/4` | 11.103 ± 0.080 | 0.3/1 |
-| `f₀ + bλ ln λ` | `λ ≤ 1/4` | 11.061 ± 0.034 | 0.7/2 |
-| `f₀ + bλ ln λ` | `λ ≤ 1/8` | 11.081 ± 0.054 | 0.4/1 |
+| `f₀ + aλ + bλ ln λ` | all seven | 10.966 ± 0.029 | 9.1/4 |
+| `f₀ + aλ + bλ ln λ` | `λ ≤ 1/2` | 11.022 ± 0.035 | 1.6/3 |
+| `f₀ + aλ + bλ ln λ` | `λ ≤ 1/4` | 11.100 ± 0.078 | 0.4/2 |
+| `f₀ + bλ ln λ` | `λ ≤ 1/4` | 11.061 ± 0.034 | 0.7/3 |
+| `f₀ + bλ ln λ` | `λ ≤ 1/8` | 11.080 ± 0.053 | 0.5/2 |
 
-`λ = 1` is where the fit through all six fails, and it is the one coupling
+`λ = 1/64` enters with a wide error, since its last step is −0.17 and
+nothing larger than 512 was affordable at `τ_int = 108`. It sits where the
+fits put it, 10.91 against their 10.91 to 10.95, and moves none of them by more
+than 0.003. `λ = 1` is where the fit through all seven fails, and it is the one coupling
 at which `aμ` is 0.3. Every fit that describes its data gives 11.02 to
 11.10. **`f₀ = 11.05 ± 0.04 ± 0.04`**, the second error the spread of those
 fits.
@@ -6679,7 +6682,7 @@ the design document.
 - Two-dimensional φ⁴ critical coupling, to 1% (issue #63) — **done**:
   `λ/μ² = 11.05 ± 0.04 ± 0.04` against Bronzin et al.'s 11.055, from cluster
   updates, Binder crossings at `U*` on lattices up to 512², the lattice
-  tadpole in closed form, and a `λ ln λ` continuum fit down to `λ = 1/32`.
+  tadpole in closed form, and a `λ ln λ` continuum fit down to `λ = 1/64`.
 - Compact U(1) plaquette expectation (issue #63) — **done**, and against the
   exact finite-volume character sum rather than `I₁/I₀`, which a correct run
   misses by 13% on a small lattice.

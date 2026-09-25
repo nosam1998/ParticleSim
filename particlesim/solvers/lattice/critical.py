@@ -49,8 +49,8 @@ linear. Schaich and Loinaz (2009) showed that a ``lambda ln lambda`` term is
 needed, which is why fits through ``lambda ~ 1`` found 10.26 and theirs
 10.8. :func:`continuum_fit` fits ``f_0 + a lambda + b lambda ln lambda``.
 
-**The result** is ``f_0 = 11.05 +- 0.04 +- 0.04`` from six couplings down to
-``lambda = 1/32`` on lattices up to 512 points a side, against Bronzin, De
+**The result** is ``f_0 = 11.05 +- 0.04 +- 0.04`` from seven couplings down to
+``lambda = 1/64`` on lattices up to 512 points a side, against Bronzin, De
 Palma and Guagnelli's 11.055. The measurements are in ``docs/benchmarks.md``.
 """
 

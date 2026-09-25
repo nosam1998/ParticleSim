@@ -2026,10 +2026,9 @@ has the same exposure.
 ### What is not done
 
 `box phi = 0` is a *test* field: it is evolved on the warp background and
-does not source it. Issue #54's second task — a dynamical evolution with a
-user-supplied sourcing matter model, where the field and the geometry evolve
-together — is a substantially larger piece and is not attempted here, so the
-issue stays open for it.
+does not source it. Issue #54's other task, a dynamical evolution with a
+user-supplied sourcing matter model, is covered in "Warp Mode W3, dynamical"
+below.
 
 Light rays are covered only as far as the characteristic cross-check above
 goes. Rendering them, issue #55, has its own section below.
@@ -2140,6 +2139,75 @@ shader in single precision. The tests hold both to this module:
   runs where Playwright and a Chromium build are installed.
 
 The served app's warp tab has the same view, with a slider for the speed.
+
+## Warp Mode W3, dynamical: a bubble held together by its own matter
+
+Issue #54's last task: a dynamical evolution with a user-supplied sourcing
+matter model. W1 says what matter a warp metric needs. This supplies
+exactly that matter to the full Einstein equations and asks whether the
+bubble holds, and what happens with less.
+
+**The matter model** is `particlesim.solvers.nr.matter.PrescribedMatter`.
+It holds a stress-energy `(ρ, S_i, S_ij)` given in advance, as arrays or
+as a function of time. `SourcedEvolution` adds it to BSSN's right-hand side
+through the same matter terms the fluid of #57 uses, now shared in
+`particlesim.solvers.nr.matter`. The matter does not respond to the
+geometry. For a warp study that is the point: the source is what the
+spacetime demands, and the question is whether supplying exactly that keeps
+the spacetime.
+
+**A bubble that should not change.** In coordinates riding with the bubble,
+`x′ = x − vt`, Alcubierre's metric is stationary: unit lapse, flat slices
+and a static shift `β^x = v(1 − f)`. `particlesim.solvers.warp.sourced`
+computes its `G_ab/8π` symbolically and splits it with the Eulerian normal.
+The energy density comes out as W1's closed form, `−v²(y² + z²)f′²/32πr²`,
+and the momentum density as the momentum constraint of the flat-slice ADM
+module. Both are checked in the tests. With that source and the gauge
+frozen at the metric's own lapse and shift, every BSSN rate vanishes in the
+continuum. With `v = 0.5`, `R = 1.5` and `σ = 1` on a torus of side 10, the
+largest rate away from the torus's edge is:
+
+| points | with its source | without |
+|---|---|---|
+| 20 | 1.3e−2 | 0.43 |
+| 30 | 4.3e−3 | 0.44 |
+| 40 | 1.6e−3 | 0.44 |
+| 60 | 3.3e−4 | 0.44 |
+
+With the source, the local order climbs to 3.9, the BSSN scheme's fourth.
+Without it, the rates are of order one at every resolution. The largest
+residual is always in `Γ̄^x`, which carries the shift's second derivatives.
+
+**Less exotic matter, and none.** Evolved to `t = 4` at 30 points, the
+largest change in `K`, `φ`, `Ā_xx` and `Γ̄^x` away from the edge is:
+
+| source | `t = 1` | `t = 2` | `t = 3` | `t = 4` |
+|---|---|---|---|---|
+| all of it | 0.005 | 0.017 | 0.033 | 0.049 |
+| 90% | 0.050 | 0.11 | 0.24 | 0.40 |
+| none | 0.49 | 1.06 | 1.85 | 2.73 |
+
+With the full source the drift is truncation error. It is the same error
+the stationarity table shows, accumulating. At `t = 2` it is 0.018, 0.0086
+and 0.0021 at 30, 40 and 60 points, order 3.4 between the last two. A 10%
+shortfall of negative energy moves the geometry eight times as far by
+`t = 4`. With no source the bubble comes apart at once.
+
+**Why the edge is masked.** `f` is even, so its periodic extension is
+continuous, but its slope is not. At the torus's edge `f` is still 1e−3,
+and the points within the stencil's reach of the edge carry an error that
+does not converge. `interior()` excludes a margin of 1.5. The evolution
+tables stop at `t = 4`, before that error has had time to cross the margin.
+
+### What is not here
+
+- **Matter that responds.** `PrescribedMatter` is a source, not a field. A
+  fluid that evolves with the geometry exists, `CoupledEvolution` from #57,
+  but it carries positive energy, and a warp bubble needs negative energy.
+  No exotic matter model with its own dynamics is implemented.
+- **A bubble that accelerates.** In the ship's frame a constant-speed bubble
+  is stationary, which is what makes the test sharp. A time-dependent
+  source is supported, but it has not been exercised on a bubble.
 
 ## Warp design search: an objective with a closed-form optimum
 

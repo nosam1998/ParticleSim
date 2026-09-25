@@ -387,27 +387,16 @@ class CoupledEvolution:
         return geometry, {k: state[k] for k in FLUID}
 
     def matter_rates(self, geometry: Mapping[str, Any], primitives: Primitives, slice_: Slice):
-        """The matter terms of the BSSN equations, keyed by the variable they add to."""
+        """The matter terms of the BSSN equations, keyed by the variable they add to.
+
+        The terms themselves are :func:`particlesim.solvers.nr.matter.matter_rates`,
+        shared with every other matter model.
+        """
+        from particlesim.solvers.nr.matter import matter_rates
+
         energy, momentum, stress = stress_energy(primitives, slice_, self.fluid.eos)
-        alpha = slice_.alpha
-        trace = sum(slice_.inverse[i][j] * stress[i][j] for i in INDICES for j in INDICES)
-        shrink = np.exp(-4.0 * np.asarray(geometry["phi"]))
-        conformal = [
-            [np.asarray(geometry[f"gt{min(i, j)}{max(i, j)}"]) for j in INDICES] for i in INDICES
-        ]
-        conformal_inverse, _ = _inverse(conformal)
-        rates = {"trK": 4.0 * np.pi * alpha * (energy + trace)}
-        for i in INDICES:
-            for j in range(i, 3):
-                rates[f"At{i}{j}"] = (
-                    -8.0 * np.pi * alpha * (shrink * stress[i][j] - conformal[i][j] * trace / 3.0)
-                )
-            rates[f"Gt{i}"] = (
-                -16.0 * np.pi * alpha * sum(conformal_inverse[i][j] * momentum[j] for j in INDICES)
-            )
-            if getattr(self.geometry, "shift_condition", None) == "gamma_driver":
-                rates[f"B{i}"] = rates[f"Gt{i}"]
-        return rates
+        gamma_driver = getattr(self.geometry, "shift_condition", None) == "gamma_driver"
+        return matter_rates(geometry, energy, momentum, stress, gamma_driver)
 
     def right_hand_side(self, state: Mapping[str, Any]) -> dict[str, Any]:
         geometry, fluid = self.split(state)
@@ -443,6 +432,7 @@ class CoupledEvolution:
     def constraints(self, state: Mapping[str, Any]) -> dict[str, np.ndarray]:
         """The Hamiltonian and momentum constraints with their matter terms, as arrays."""
         from particlesim.solvers.nr.bssn import physical_slice_arrays
+        from particlesim.solvers.nr.matter import with_matter
 
         geometry, fluid = self.split(state)
         backend = self.geometry.backend
@@ -452,10 +442,7 @@ class CoupledEvolution:
         slice_ = Slice.from_bssn(geometry)
         primitives = self.fluid.primitives(fluid, slice_)
         energy, momentum, _ = stress_energy(primitives, slice_, self.fluid.eos)
-        result = {"hamiltonian": np.asarray(out["hamiltonian"]) - 16.0 * np.pi * energy}
-        for i in INDICES:
-            result[f"momentum{i}"] = np.asarray(out[f"momentum{i}"]) - 8.0 * np.pi * momentum[i]
-        return result
+        return with_matter(out, energy, momentum)
 
 
 def homogeneous_state(

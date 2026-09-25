@@ -61,8 +61,9 @@ _DASHBOARD_CSS = """
   :root:not([data-theme="light"]) .skipped { background: #2c2e36; color: #c4c6d0; }
 }
 .scroll { overflow-x: auto; }
-td, th { overflow-wrap: anywhere; }
+thead th, td.nowrap { white-space: nowrap; }
 tbody th { width: 32%; }
+tbody th + td, li code { overflow-wrap: anywhere; }
 .card .n { overflow-wrap: anywhere; font-size: 1.25rem; }
 td code, li code { font-size: 0.85em; }
 td.why { color: var(--muted); font-size: 0.85rem; }
@@ -201,6 +202,11 @@ def _page(title: str, body: Sequence[str], generated: str | None = None) -> str:
     )
 
 
+def _breakable(name: str) -> str:
+    """A test id, escaped, that may wrap after its underscores and ``::``."""
+    return html.escape(name).replace("_", "_<wbr>").replace("::", "::<wbr>")
+
+
 def _card(number: object, label: str) -> str:
     return f"<div class='card'><div class='n'>{number}</div><div class='l'>{label}</div></div>"
 
@@ -296,12 +302,12 @@ class BenchmarkDashboard:
             rows.append(
                 "<tr>"
                 f"<td><span class='badge {o.outcome}'>{o.outcome}</span></td>"
-                f"<td><code>{html.escape(o.nodeid.split('::', 1)[-1])}</code>{why}</td>"
+                f"<td><code>{_breakable(o.nodeid.split('::', 1)[-1])}</code>{why}</td>"
                 f"<td>{what}{section}</td>"
                 f"<td>{_cell(first, 'reference', 'expected', 'theory')}</td>"
                 f"<td>{_cell(first, 'tolerance')}</td>"
                 f"<td>{_cell(first, 'measured', 'achieved', 'result')}</td>"
-                f"<td class='num'>{o.duration:.2f} s</td>"
+                f"<td class='num nowrap'>{o.duration:.2f} s</td>"
                 "</tr>"
             )
         table = f"<table><thead>{head}</thead><tbody>{''.join(rows)}</tbody></table>"
@@ -419,7 +425,8 @@ def write_run_dashboard(run_dir: str | Path, title: str | None = None) -> Path:
     for p in files:
         name = html.escape(str(p.relative_to(run_dir)))
         link = f"<a href='{name}'>{name}</a>" if p.suffix == ".html" else f"<code>{name}</code>"
-        body.append(f"<tr><td>{link}</td><td class='num'>{_size(p.stat().st_size)}</td></tr>")
+        size = _size(p.stat().st_size)
+        body.append(f"<tr><td>{link}</td><td class='num nowrap'>{size}</td></tr>")
     body.append("</tbody></table>")
     body.append(
         "<details><summary>Configuration</summary><pre>"

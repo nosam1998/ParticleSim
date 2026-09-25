@@ -160,3 +160,36 @@ class TheoryStack:
             "em": self.em.describe() if self.em else None,
             "eos": self.eos.describe() if self.eos else None,
         }
+
+
+class IllPosedRun(ValueError):
+    """A run that ADR-008 refuses: strong-field 3-D evolution without a well-posed formulation."""
+
+
+def require_well_posed(theory: Theory, dimensions: int, strong_field: bool) -> None:
+    """ADR-008: refuse strong-field 3-D runs for plugins that only declare ``order_reduced``.
+
+    Design doc Section 12. The 3-D solvers call this through
+    :func:`particlesim.solvers.nr.bssn.admit_theory`.
+
+    Order reduction treats the beyond-GR terms as a perturbation and
+    iterates. That sidesteps ill-posedness, but only while the correction is
+    small, which a strong-field region does not promise. A weak-field or
+    lower-dimensional run is allowed, and so is a static solve.
+    ``modified_ccz4`` would be the well-posed alternative, and is refused
+    too, as not implemented, rather than silently run as something else.
+    """
+    if dimensions < 3 or not strong_field:
+        return
+    if theory.formulation == "order_reduced":
+        raise IllPosedRun(
+            f"{theory.id} declares formulation 'order_reduced', which treats its "
+            "beyond-GR terms perturbatively; a strong-field 3-D run leaves the regime "
+            "where that is valid, so ADR-008 refuses it. A modified-CCZ4 formulation "
+            "(Kovacs-Reall; Areste Salo-Clough-Figueras) would be needed"
+        )
+    if theory.formulation == "modified_ccz4":
+        raise NotImplementedError(
+            f"{theory.id} declares 'modified_ccz4', which the 3-D solvers do not "
+            "implement yet (issue #52)"
+        )

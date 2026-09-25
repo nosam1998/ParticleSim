@@ -56,6 +56,7 @@ gr = "particlesim.theories.gr:GeneralRelativity"
 "string.eft4d.dilaton" = "particlesim.theories.dilaton:Dilaton"
 "string.compactify.torus" = "particlesim.theories.compactify:ToroidalCompactification"
 "string.compactify.quintic" = "particlesim.theories.compactify:QuinticCompactification"
+"string.eft4d.dgb" = "particlesim.theories.gauss_bonnet:DilatonGaussBonnet"
 "string.eft4d.emda" = "particlesim.theories.emda:EMDA"
 
 [project.entry-points."particlesim.inflaton_potentials"]

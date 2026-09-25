@@ -30,6 +30,7 @@ def _builtin() -> dict[str, type[Theory]]:
     from particlesim.theories.compactify import QuinticCompactification, ToroidalCompactification
     from particlesim.theories.dilaton import Dilaton
     from particlesim.theories.emda import EMDA
+    from particlesim.theories.gauss_bonnet import DilatonGaussBonnet
     from particlesim.theories.gr import GeneralRelativity
     from particlesim.theories.gr_lambda import GRWithLambda
     from particlesim.theories.kk import KaluzaKlein
@@ -49,6 +50,7 @@ def _builtin() -> dict[str, type[Theory]]:
             ToroidalCompactification,
             QuinticCompactification,
             EMDA,
+            DilatonGaussBonnet,
         )
     }
 

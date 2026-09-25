@@ -5566,6 +5566,71 @@ the same way perturbs the density with no net current, and nothing magnetic
 grows from it, so the sign of the seed is the difference between measuring
 this instability and measuring noise.
 
+### The hose instability
+
+`particlesim/scenarios/hosing.py`, issue #36's last item. A beam in the ion
+channel it has blown out oscillates across it at the betatron wavenumber
+`k_b`. The channel's edge electrons respond at their own `k_c`, and each
+slice then feels a channel the slices ahead of it have moved. The model is
+the two centroids (Whittum, Sharp, Yu, Lampe and Joyce 1991):
+
+    ∂²y_b/∂s² = −k_b² (y_b − y_c),      ∂²y_c/∂ξ² = −k_c² (y_c − y_b)
+
+with `ξ` the distance behind the head and `s` the distance travelled. The
+channel equation is solved by its Green's function, with cumulative Simpson
+quadrature. That leaves one equation for the beam, integrated in `s` with
+DOP853.
+
+**Where the asymptotic growth comes from.** With every slice offset at `s =
+0`, the double Laplace transform of the beam's centroid is
+`(y₀/p) cos(k_b s p/√(p² + k_c²))`. It grows near the channel resonance,
+`p = ik_c + δ`. There the exponent is `Φ = δξ + k_b s √(k_c/2iδ)`, and it
+is stationary at `δ^{3/2} = k_b s √(k_c/2i) / 2ξ`, where `Φ = 3ξδ`. Its
+real part is
+
+    Γ = (3√3/4) (k_b s)^{2/3} (k_c ξ)^{1/3}
+
+which is Whittum's. The expansion needs `δ ≪ k_c`, which is
+`k_b s ≪ k_c ξ`, and a large `Γ`.
+
+| check | result |
+|---|---|
+| early, `y_b = y₀[1 − (k_b s)² cos(k_c ξ)/2]`, `s = 0.01` | 2e−8, the size of the `s⁴` term |
+| the channel's Green's function against a closed form | fourth order: ×17.0, ×16.4, ×16.1 per halving |
+| slope of `ln \|y_b\|` against `Γ`, `k_c = 100`, `s` = 5, 10, 20, 40 | 0.936, 0.969, **0.994**, 1.018 |
+| macroparticles with no spread, against the centroid model | 6.6e−11 |
+
+**The slope reaches one from both sides.** The fit is over the beam's tail,
+where `Γ` is 38 to 152. At `s = 5` the `1/Γ` correction dominates and
+the slope is low. At `s = 40` the `k_b s / k_c ξ` correction dominates and
+it is high. Between them, at `s = 20`, it is 1 to 0.6%, and it does not
+change between 8001 and 16001 slices. With `k_c = 10` the second
+correction takes over sooner: 0.967, 1.041 and 1.109 at `s` = 10, 20 and
+40.
+
+**A spread in energy holds the hose back.** `HoseBeam` carries each slice as
+particles with betatron wavenumbers spread flat over `k_b(1 ± spread)`,
+which is what a spread in energy gives, since `k_b ∝ γ^{−1/2}`. They
+phase-mix, and the channel sees a centroid that responds less coherently.
+It competes only when the spread is comparable with the growth per unit
+distance. With `k_c = 10` the hose grows fast enough that a 40% spread
+lowers `ln|y_b|` at `s = 40` only from 56.6 to 55.0. With `k_c = 1`,
+`ln|y_b|` at the envelope's peak is:
+
+| spread | `s = 20` | `s = 40` | `s = 80` |
+|---|---|---|---|
+| 0 | 11.3 | 15.3 | 20.1 |
+| 0.1 | 11.1 | 14.7 | 19.2 |
+| 0.2 | 10.6 | 12.1 | 15.2 |
+| 0.5 | 5.3 | 6.5 | 6.8 |
+
+At a spread of one half the instability has all but stopped.
+
+**What this is not.** It is the centroid model, not a particle-in-cell run.
+The blowout, the channel's response and its wavenumber are the model's
+assumptions, not something computed. A 2-D PIC run would test them, and
+needs a moving window this code does not have.
+
 ### Laser wakefield
 
 | Benchmark | Reference | Tolerance | Measured | Test |

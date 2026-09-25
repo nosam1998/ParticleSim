@@ -3741,6 +3741,119 @@ taken as the model's input rather than derived from the shell junction
 conditions — what is checked is its two limits, the weak-field addition above
 and the divergence as `f_A → 0`.
 
+## Scalarized black holes in Einstein-scalar-Gauss-Bonnet, and a first law that checks them
+
+Issue #52. `particlesim.theories.gauss_bonnet` adds the scalar-Gauss–Bonnet
+class, `R − 2(∇φ)² + λ² f(φ) 𝒢`, and the plugin `string.eft4d.dgb` with the
+heterotic string's coupling `f = e^{−2φ}`. The acceptance is that an EsGB
+scalarized black hole is reproduced. This does that in spherical symmetry.
+The 3-D evolution the issue also asks for is not here; see the end of this
+section.
+
+### The equations are derived, not transcribed
+
+The static equations come from the action. The metric
+`−e^{2Φ}dt² + e^{2Λ}dr² + r²dΩ²` goes in, `MetricGeometry` computes `R` and
+`𝒢`, and the action is reduced to one dimension and varied in `(Φ, Λ, φ)`.
+The `Λ` equation is a constraint, quadratic in `e^{2Λ}`. With the coupling
+off, it reduces to Schwarzschild's. Its derivative and the other two
+equations are solved for `Λ′`, `Φ″` and `φ″`, and the generated code is
+cached. For a sanity check that needs none of this, `𝒢` of Schwarzschild is
+`48M²/r⁶`, symbolically.
+
+### The acceptance: the bifurcation points
+
+Take `f = (1 − e^{−6φ²})/12`, the coupling of Doneva and Yazadjiev (2018).
+Then `f′(0) = 0`, and every GR black hole is a solution. Near the horizon
+the scalar's effective mass, `−12λ²M²/r⁶`, is tachyonic, and small enough
+holes hold a static bound state. Each new bound state is a branch of
+scalarized holes leaving Schwarzschild:
+
+| branch | `M/λ` here | Doneva and Yazadjiev |
+|---|---|---|
+| fundamental | 0.58697 | 0.587 |
+| one node | 0.22643 | 0.226 |
+| two nodes | 0.14012 | 0.140 |
+
+These depend on the coupling only through `f″(0)`. The tests show that the
+quadratic coupling of Silva et al. (2018) shares them, and that doubling
+`f″(0)` moves each point by `√2`.
+
+### The branch, and the first law as the check
+
+`static_black_hole` shoots from a regular horizon for the scalar value
+there that leaves nothing at infinity. Regularity fixes `φ′` at the horizon
+as a root of a quadratic, which needs `24λ⁴f′(φ_H)² < r_H⁴`. Along the
+fundamental branch (`λ = 1`):
+
+| `r_H` | `φ_H` | `M` | `D` | `T` | `S/4πM²` |
+|---|---|---|---|---|---|
+| 1.17 | 0.0461 | 0.5859 | 0.0241 | 0.0680 | 1.0000 |
+| 1.00 | 0.3176 | 0.5349 | 0.1414 | 0.0791 | 1.0061 |
+| 0.81 | 0.4735 | 0.4663 | 0.1808 | 0.0981 | 1.0378 |
+| 0.63 | 0.5943 | 0.3918 | 0.1967 | 0.1290 | 1.1241 |
+| 0.45 | 0.7136 | 0.3095 | 0.1955 | 0.1897 | 1.3577 |
+| 0.30 | 0.8269 | 0.2335 | 0.1762 | 0.3092 | 1.9163 |
+| 0.15 | 0.9798 | 0.1442 | 0.1213 | 0.7614 | 4.2630 |
+
+**The branch ends between `r_H = 0.15λ` and `0.14λ`,** at `M ≈ 0.14λ`. It
+is not the horizon condition that ends it: at 0.15 the discriminant is
+still 0.55. Shots with a smaller `φ_H` run into a point outside the horizon
+where the reduced equations stop being finite. At 0.15 the solution sits
+at the edge of that region, and at 0.14 every shot that could reach
+`φ(∞) = 0` falls inside it.
+
+The branch starts at the bifurcation point's mass. Every hole on it has more
+entropy than a Schwarzschild hole of the same mass, and the excess grows
+away from the bifurcation. More entropy at equal mass is the usual argument
+that a scalarized hole is the thermodynamically preferred state.
+
+The first law, `dM = T dS`, is the check that cannot be tuned. The mass
+comes from the far field, the temperature from the horizon's surface
+gravity, and the entropy is Wald's, `πr_H² + 4πλ²f(φ_H)`. They agree only if
+the equations, the solution and the entropy formula are all right:
+- Over the 77 holes from `r_H = 1.17` to 0.41, the first law holds to
+  5.5e−5 at worst, which is the error of a central difference at step 0.01.
+- At `r_H = λ` it holds to 4e−5.
+- With the bare area in place of Wald's entropy, it fails by 34%.
+
+Schwarzschild comes back from the same equations, with `φ = 0`:
+`M = r_H/2` to 1e−10 and `T = 1/4πr_H` to 3e−8.
+
+Two numerical choices are measured rather than assumed:
+- **The shots are integrated in `ln(r − r_H)`.** Near the horizon a
+  stiff mode forced 25,000 steps in `r` from `r_H(1 + 10⁻⁷)`. Starting at
+  `r_H(1 + 10⁻⁵)` instead changes the mass by 1e−9 and takes 1,400 steps.
+- **The surface gravity is extrapolated linearly from two points off the
+  horizon.** Read at one point, it carried an `O(ε)` error of 3e−5.
+
+### The string's own coupling gives every hole hair
+
+With `f = e^{−2φ}`, `f′(0) ≠ 0` and there is no GR branch. The scalar is
+sourced with one sign, so `φ_H < 0`, and a regular horizon then needs
+`r_H⁴ > 96 e^{−4φ_H}`: these holes have a minimum size, about `3.3λ`.
+
+### ADR-008, enforced
+
+`string.eft4d.dgb` declares `formulation = "order_reduced"`. The well-posed
+alternative is modified CCZ4 (Kovács–Reall; Aresté Saló–Clough–Figueras),
+and it is not implemented. `Evolution.build` and `ccz4.build` call
+`admit_theory` before they derive anything:
+- A plugin at its GR limit is GR, and is admitted.
+- An `order_reduced` plugin away from its limit raises `IllPosedRun`,
+  which says why.
+- Any other plugin away from its limit is refused too. The 3-D solvers
+  evolve vacuum GR, and would otherwise ignore it without a word.
+
+### What is not here
+
+- **Modified CCZ4, and any 3-D evolution of this theory.** The issue's first
+  task stays open.
+- **An order-reduction scheme.** The plugin declares the formulation that
+  ADR-008 gates, but no evolution uses it yet.
+- **Stability.** A scalarized branch can be linearly unstable, and the
+  quadratic coupling's is. Radial perturbations are not computed here.
+
 ## What strings already say: a reference that can refuse a hypothesis
 
 Issue #75. Some singular geometries have an exact conformal field theory
@@ -6143,7 +6256,11 @@ the design document.
   exists now, and its interior error converges at order 3.9 on the way out
   through the radiative boundary; see that section
 - Head-on binary black hole final mass and radiated energy, to 5% (issue #51)
-- Einstein-scalar-Gauss-Bonnet scalarized black hole (issue #52)
+- Einstein-scalar-Gauss-Bonnet scalarized black hole (issue #52) — **done** in
+  spherical symmetry: the three bifurcation points are Doneva and Yazadjiev's
+  to three decimals, and the branch satisfies the first law to 5.5e−5 with
+  Wald's entropy. ADR-008 is enforced at the 3-D solvers. Modified CCZ4 is
+  not implemented, so this theory has no 3-D evolution.
 
 ### Milestone 5, hydrodynamics
 - Divergence of B preserved to round-off (issue #59) — **done**, and the

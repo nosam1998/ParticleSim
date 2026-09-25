@@ -28,7 +28,13 @@ from __future__ import annotations
 from typing import Any
 
 from particlesim.solvers.nr import bssn as bssn_solver
-from particlesim.solvers.nr.bssn import COURANT, DISSIPATION, Evolution, constraint_kernel
+from particlesim.solvers.nr.bssn import (
+    COURANT,
+    DISSIPATION,
+    Evolution,
+    admit_theory,
+    constraint_kernel,
+)
 from particlesim.symbolic import cache, codegen
 from particlesim.symbolic import ccz4 as symbolic_ccz4
 from particlesim.symbolic.bssn import from_state
@@ -160,8 +166,14 @@ def build(
     courant: float = COURANT,
     jit: bool = True,
     enforce: bool = True,
+    theory=None,
 ) -> Evolution:
-    """An :class:`~particlesim.solvers.nr.bssn.Evolution` running CCZ4."""
+    """An :class:`~particlesim.solvers.nr.bssn.Evolution` running CCZ4.
+
+    ``theory``, if given, is checked by
+    :func:`~particlesim.solvers.nr.bssn.admit_theory` before anything is built.
+    """
+    admit_theory(theory, dimensions=len(spacing))
     return Evolution(
         spacing=tuple(float(value) for value in spacing),
         order=order,

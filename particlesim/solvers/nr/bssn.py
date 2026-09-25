@@ -501,6 +501,30 @@ def dissipation_operator(order: int = 4):
     return radius, [scale * float(w) for w in weights]
 
 
+def admit_theory(theory, dimensions: int = 3) -> None:
+    """Whether a theory plugin can be evolved here, per ADR-008. Raises if not.
+
+    These solvers evolve vacuum General Relativity. A plugin at its GR limit
+    is GR, and is admitted. Away from that limit, a plugin that declares
+    ``order_reduced`` is refused by
+    :func:`~particlesim.theories.base.require_well_posed`, which says why.
+    Any other plugin is refused because its field equations are not the
+    ones evolved here. ``None`` means plain GR.
+    """
+    if theory is None:
+        return
+    from particlesim.theories.base import require_well_posed
+
+    limit = theory.gr_limit()
+    if all(theory.values.get(name) == value for name, value in limit.items()):
+        return
+    require_well_posed(theory, dimensions=dimensions, strong_field=True)
+    raise NotImplementedError(
+        f"{theory.id} away from its GR limit {limit}: the 3-D solvers evolve vacuum "
+        "General Relativity, and this plugin's field equations are not implemented in them"
+    )
+
+
 @dataclass(frozen=True)
 class Evolution:
     """A BSSN evolution on a periodic grid."""
@@ -534,7 +558,10 @@ class Evolution:
         enforce: bool = True,
         upwind: bool = False,
         advect: bool | str = True,
+        theory=None,
     ) -> Evolution:
+        """Build the kernels. ``theory``, if given, is checked by :func:`admit_theory` first."""
+        admit_theory(theory, dimensions=len(spacing))
         kernel = rhs_kernel(
             order=order,
             backend=backend,

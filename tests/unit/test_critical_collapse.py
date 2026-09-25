@@ -317,6 +317,7 @@ RESEARCH_PSTAR = (8.4818720557332e-4, 8.4818720557392e-4)
 
 
 @pytest.mark.slow
+@pytest.mark.benchmark
 @pytest.mark.research
 def test_the_exponent_and_period_are_reproduced_from_scratch_at_research_resolution():
     """Issue #22's nightly job: the whole measurement, not its stored numbers.

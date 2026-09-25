@@ -27,19 +27,21 @@ def _dispatch(config, out: str | None) -> int:
         from particlesim.scenarios.warp.analyze import run
 
         result = run(config)
-        print(json.dumps(result.report, indent=2, default=str))
-        print(f"outputs written to {config.output.dir}", file=sys.stderr)
-        return 0
-    if config.scenario == "cosmo.linear":
+    elif config.scenario == "cosmo.linear":
         from particlesim.scenarios.cosmo.linear import run
 
         result = run(config)
         result.save(config.output.dir)
-        print(json.dumps(result.report, indent=2, default=str))
-        print(f"outputs written to {config.output.dir}", file=sys.stderr)
-        return 0
-    print(f"scenario {config.scenario} has no runner yet", file=sys.stderr)
-    return 2
+    else:
+        print(f"scenario {config.scenario} has no runner yet", file=sys.stderr)
+        return 2
+    print(json.dumps(result.report, indent=2, default=str))
+    print(f"outputs written to {config.output.dir}", file=sys.stderr)
+    # Every run gets a dashboard (issue #83), whatever formats it asked for.
+    from particlesim.viz.dashboard import write_run_dashboard
+
+    print(f"dashboard: {write_run_dashboard(config.output.dir)}", file=sys.stderr)
+    return 0
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -91,6 +93,32 @@ def _cmd_hypothesis(args: argparse.Namespace) -> int:
     return 0 if card.passed else 1
 
 
+def _cmd_dashboard(args: argparse.Namespace) -> int:
+    from particlesim.viz.dashboard import (
+        read_outcomes,
+        render_benchmark_dashboard,
+        write_run_dashboard,
+    )
+
+    for target in map(Path, args.paths):
+        if target.is_dir():
+            path = write_run_dashboard(target)
+        elif target.suffix == ".json":
+            outcomes, meta = read_outcomes(target)
+            docs = Path(args.docs)
+            path = render_benchmark_dashboard(
+                outcomes,
+                target.with_suffix(".html"),
+                documentation=docs if docs.is_file() else None,
+                meta=meta,
+            )
+        else:
+            print(f"{target}: neither a run directory nor benchmark results", file=sys.stderr)
+            return 2
+        print(path)
+    return 0
+
+
 def _cmd_scenarios(args: argparse.Namespace) -> int:
     for name in sorted(SCENARIOS):
         print(name)
@@ -122,6 +150,16 @@ def build_parser() -> argparse.ArgumentParser:
     rn.add_argument("config")
     rn.add_argument("--out", help="override the output directory")
     rn.set_defaults(func=_cmd_run)
+
+    db = sub.add_parser(
+        "dashboard",
+        help="write the HTML dashboard for run directories or benchmark results (.json)",
+    )
+    db.add_argument("paths", nargs="+", help="run directories, or --dashboard's .json results")
+    db.add_argument(
+        "--docs", default="docs/benchmarks.md", help="benchmark documentation to join with"
+    )
+    db.set_defaults(func=_cmd_dashboard)
 
     rr = sub.add_parser("rerun", help="re-run a scenario from a run manifest")
     rr.add_argument("manifest")

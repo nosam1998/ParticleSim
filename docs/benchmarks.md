@@ -4128,6 +4128,9 @@ this same check looked 9% off at that mode and nowhere else.
 
 ### φ⁴: the critical coupling is not delivered, and three measurements say why
 
+*Superseded by the next section, which delivers it. What follows is why local
+updates could not.*
+
 The other half of the acceptance asks for the two-dimensional φ⁴ critical
 coupling within 1% of the literature. It is not met. The machinery is here
 and tested, the transition is located, and the obstacles are measured rather
@@ -4197,6 +4200,108 @@ unstable in that direction.
 tunnelling, several lattice couplings for the continuum extrapolation, and
 several sizes at each. That is a study, not a test, so #63 keeps the φ⁴ task
 open on this measured basis rather than on a tolerance that was missed.
+
+### φ⁴ with clusters: the critical coupling, 11.05 against 11.055
+
+`particlesim.solvers.lattice.critical` removes the first two obstacles above
+and does the conversion the third asks for.
+
+**Clusters for the sign, hybrid Monte Carlo for the size.** With
+`φ_x = s_x|φ_x|`, the nearest-neighbour term is an Ising model in the signs
+with bonds `|φ_x||φ_y|`. Swendsen and Wang's algorithm updates it exactly
+(Brower and Tamayo 1989), and a hybrid Monte Carlo trajectory between flips
+moves the magnitudes. Three checks:
+
+- **The flip samples the Ising weights of the signs.** On a `2 × 3` torus
+  with fixed magnitudes the 64 sign patterns are held to their Boltzmann
+  weights by a chi-square: 60.6, 64.2 and 59.7 over 63 degrees of freedom
+  for three seeds. A bond probability of `1 − e^(−J)` in place of
+  `1 − e^(−2J)` gives 85 000. Successive flips are correlated, so the test
+  keeps every third; unthinned it reads up to 118 for a correct flip.
+- **The same theory as plain hybrid Monte Carlo.** At `λ = 1`, `L = 16`,
+  `m₀² = −1.29` the Binder cumulant is 0.6036 ± 0.0008 with flips and
+  0.6008 ± 0.0026 without, and `⟨φ²⟩` is 0.7635 against 0.7628. `τ_int` is
+  4 against 16, with a hundred times as many sign changes.
+- **The chain no longer slows with the lattice.** At the crossing `τ_int`
+  of `M²` is 4, 6, 8 and 8 for `L` = 16 to 128 at `λ = 1`. It grows as `λ`
+  falls, to 56 at `λ = 1/32` and 110 at `λ = 1/64`, because the magnitudes
+  are moved only by the trajectories and a small `λ` makes them soft.
+
+**The crossing.** φ⁴ is in the two-dimensional Ising class, so at the
+critical point the Binder cumulant tends to that class's value on a
+periodic square, `U* = 0.6106901` (Salas and Sokal 2000). Each lattice
+gives the bare mass where `U_L = U*`, found by reweighting one long run in
+`m₀²`, which `Σφ²` is conjugate to. The error is from 20 jackknife blocks.
+
+**The conversion.** The literature quotes `f = λ/μ²` for `(λ/4)φ⁴` with
+`μ²` the mass after normal ordering, `m₀² = μ² − 3λA(μ²)`, and `A` the
+lattice tadpole `K(m = (2/z)²)/(πz)`, `z = 2 + μ²/2`. The repository's
+`Phi4` writes `gφ⁴/4!`, so `λ = g/6`. `μ²` is a small difference of two
+numbers near `3λA`, which makes `f` steep in the bare mass: 1.3% per 1e−03
+at `λ = 1/4`. So the crossings have to be good to 1e−04 or better, and at
+`L = 512` they are good to 2e−05.
+
+**The measurement.** `f` at the crossing, for lattices of the same physical
+size at each `λ` (`L√λ` fixed), 60 000 to 100 000 sweeps each:
+
+| `λ` | `L√λ = 16` | 32 | 64 | 128 | taken |
+|---|---|---|---|---|---|
+| 1 | 11.04 | 10.38 | 10.31 | 10.28 | 10.278 ± 0.036 |
+| 1/2 | 11.16 | 10.39 | 10.27 | 10.25 | 10.253 ± 0.016 |
+| 1/4 | 11.13 | 10.49 | 10.38 | 10.37 | 10.373 ± 0.012 |
+| 1/8 | 11.32 | 10.72 | 10.50 | 10.54 | 10.538 ± 0.042 |
+| 1/16 | 11.30 | 10.87 | 10.73 | 10.69 | 10.691 ± 0.037 |
+| 1/32 | 11.74 | 11.08 | 10.84 | 10.86 (at 91) | 10.856 ± 0.026 |
+@@SIXTEENTH@@
+
+**The infinite-volume value is the largest lattice's, and the last step is
+its error.** The steps fall from `L√λ = 16` to 64 in every row. After that
+they change sign from row to row, −0.035 at `λ = 1/16` and +0.041 at
+`λ = 1/8`. A power-law extrapolation fitted to the first three would be
+extrapolating noise, and it was tried: it put `λ = 1/32` at 10.76 from the
+lattices up to 362, and 512 then read 10.86.
+
+**The continuum limit.** `λ → 0` in lattice units, with the `λ ln λ` term
+Schaich and Loinaz (2009) showed is needed:
+
+| fit | couplings | `f₀` | `χ²/dof` |
+|---|---|---|---|
+| `f₀ + aλ + bλ ln λ` | all six | 10.965 ± 0.029 | 9.1/3 |
+| `f₀ + aλ + bλ ln λ` | `λ ≤ 1/2` | 11.022 ± 0.036 | 1.6/2 |
+| `f₀ + aλ + bλ ln λ` | `λ ≤ 1/4` | 11.103 ± 0.080 | 0.3/1 |
+| `f₀ + bλ ln λ` | `λ ≤ 1/4` | 11.061 ± 0.034 | 0.7/2 |
+| `f₀ + bλ ln λ` | `λ ≤ 1/8` | 11.081 ± 0.054 | 0.4/1 |
+
+`λ = 1` is where the fit through all six fails, and it is the one coupling
+at which `aμ` is 0.3. Every fit that describes its data gives 11.02 to
+11.10. **`f₀ = 11.05 ± 0.04 ± 0.04`**, the second error the spread of those
+fits.
+
+**Against the literature**, all in the `(λ/4)φ⁴` convention with the same
+normal ordering: Loinaz and Willey (1998) 10.26, Schaich and Loinaz (2009)
+10.8, Bosetti, De Palma and Guagnelli (2015) 11.15(6)(3), and Bronzin, De
+Palma and Guagnelli (2019) 11.055. Against the last, the difference is
+0.05%, and against Bosetti et al. 0.9%. **#63's criterion, 1% of the
+literature, is met.**
+
+**The history is in the table.** At `λ = 1` and infinite volume this gives
+10.28, which is Loinaz and Willey's number. A `λ ln λ` fit through
+`λ ≥ 1/4` alone lands at 10.74, near Schaich and Loinaz's. The rest of
+the way to 11.05 is below `λ = 1/8`, on lattices of 362 and 512 points a
+side, which is where the later studies went.
+
+**Two ways the run misled itself.** At small `λ` the pilot runs that
+bisect for the crossing are short compared with `τ_int`, and at
+`λ = 1/16`, `L = 64`, the bisection stopped 0.001 from the crossing with
+`U = 0.595`. The reweighting window of the time was a fixed multiple of
+the bracket, so the root-finder was handed an interval with no sign change
+and failed. The window is now three over the spread of `Σφ²`, which is how
+far reweighting can reach, and a run that misses is repeated at the
+window's edge. The second was the extrapolation above.
+
+The slow test `test_the_crossing_at_lambda_one_reproduces_the_production_run`
+repeats `λ = 1`, `L = 32` with the repository's sampler: −1.27715 ± 0.00083
+against the production run's −1.27616 ± 0.00055, in 90 seconds.
 
 ## SU(2) on the lattice: the checks that cannot pass by accident
 
@@ -6493,12 +6598,10 @@ the design document.
   tolerance.
 
 ### Milestone 6, lattice
-- Two-dimensional φ⁴ critical coupling, to 1% (issue #63) — the hybrid Monte
-  Carlo half is in, and the transition is bracketed at `m² ≈ −3.8`. The
-  number is not quoted: local updates stop tunnelling below the transition
-  and the error bar *shrinks* as they do, and the published ratio is a
-  renormalized continuum quantity needing a counterterm plus two
-  extrapolations. Needs a cluster algorithm, not more sweeps.
+- Two-dimensional φ⁴ critical coupling, to 1% (issue #63) — **done**:
+  `λ/μ² = 11.05 ± 0.04 ± 0.04` against Bronzin et al.'s 11.055, from cluster
+  updates, Binder crossings at `U*` on lattices up to 512², the lattice
+  tadpole in closed form, and a `λ ln λ` continuum fit down to `λ = 1/32`.
 - Compact U(1) plaquette expectation (issue #63) — **done**, and against the
   exact finite-volume character sum rather than `I₁/I₀`, which a correct run
   misses by 13% on a small lattice.

@@ -115,7 +115,7 @@ def run_dashboards(runs: str | Path | None) -> dict[str, Path]:
 def _frame(page: str, height: str = "82vh") -> str:
     """A whole HTML page inside an iframe, so its styles stay its own."""
     return (
-        f"<iframe srcdoc=\"{html.escape(page, quote=True)}\" "
+        f'<iframe srcdoc="{html.escape(page, quote=True)}" '
         f'style="width:100%;height:{height};border:0" sandbox></iframe>'
     )
 
@@ -129,7 +129,7 @@ def build_app(runs: str | Path | None = None) -> Any:
     # --- runs
     dashboards = run_dashboards(runs)
     if dashboards:
-        chooser = pn.widgets.Select(name="Run", options=list(dashboards))
+        chooser = pn.widgets.Select(label="Run", options=list(dashboards))
         shown = pn.bind(lambda name: pn.pane.HTML(_frame(dashboards[name].read_text())), chooser)
         runs_tab = pn.Column(chooser, shown)
     else:
@@ -137,9 +137,11 @@ def build_app(runs: str | Path | None = None) -> Any:
         runs_tab = pn.pane.Markdown(f"No run directories {where}.")
 
     # --- f(R), live
-    exponent = pn.widgets.FloatSlider(name="log10 |f_R0|", start=-7.0, end=-4.0, step=0.25, value=-5.0)
-    omega_m = pn.widgets.FloatSlider(name="Ω_m", start=0.15, end=0.5, step=0.01, value=0.3)
-    scale = pn.widgets.FloatSlider(name="scale factor a", start=0.2, end=1.0, step=0.05, value=1.0)
+    exponent = pn.widgets.FloatSlider(
+        label="log10 |f_R0|", start=-7.0, end=-4.0, step=0.25, value=-5.0
+    )
+    omega_m = pn.widgets.FloatSlider(label="Ω_m", start=0.15, end=0.5, step=0.01, value=0.3)
+    scale = pn.widgets.FloatSlider(label="scale factor a", start=0.2, end=1.0, step=0.05, value=1.0)
 
     def fofr_view(e: float, om: float, a: float):
         return pn.pane.Matplotlib(fofr_figure(10.0**e, om, a), dpi=110, tight=True)
@@ -158,7 +160,7 @@ def build_app(runs: str | Path | None = None) -> Any:
 
     theories = sorted(list_theories())
     selected = pn.widgets.Select(
-        name="Theory plugin", options=theories, value="lqg.lqc" if "lqg.lqc" in theories else None
+        label="Theory plugin", options=theories, value="lqg.lqc" if "lqg.lqc" in theories else None
     )
 
     def card_view(theory_id: str | None):

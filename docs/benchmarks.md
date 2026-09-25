@@ -5948,13 +5948,13 @@ the design document.
   not exercised: no GPU on the machine this ran on.
 
 ### Milestones 8 and 9
-- Dashboard generated for every benchmark run in CI (issue #83) — **done** for
-  the static half:
+- Dashboard generated for every benchmark run in CI (issue #83) — **done**:
   - `--dashboard` joins each run's results with this page's tables.
   - CI uploads a dashboard from every benchmark job.
   - Every `particlesim run` writes a `dashboard.html` for its run directory.
-
-  The served app is issue #83's other half.
+  - `particlesim serve` serves the Panel app from the Docker image: the runs,
+    and modified theories computed live, namely `f(R)` growth and any
+    plugin's singularity report card.
 - LWFA config round-trips (issue #82) — **done** for WarpX:
   - ParticleSim's wakefield benchmark goes to WarpX's inputs and comes back
     the same.

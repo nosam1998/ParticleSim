@@ -376,3 +376,95 @@ def test_a_teukolsky_wave_leaves_without_a_reflection_above_truncation():
     assert max(err for _, err in after) < 1.5 * truncation, samples
     # Two orders of magnitude, from 48 to at most 0.24 at this resolution.
     assert max(amp for amp, _ in after) < initial / 100.0, samples
+
+
+# --- Bayliss and Turkel's second condition ---------------------------------
+
+
+class _Exact:
+    """A stand-in evolution whose rates are those of an exact outgoing field.
+
+    ``f = a(t - r)/r + b(t - r)/r^2`` with Gaussian profiles, evaluated at
+    ``t = 0``. Its rate is known everywhere, so the zone's rate can be held
+    to it.
+    """
+
+    enforce = False
+    backend = "numpy"
+
+    def __init__(self, mesh, amplitude=1.0, quadrupole=10.0, centre=8.0, width=2.0):
+        self.radius = np.sqrt(sum(np.asarray(m) ** 2 for m in mesh))
+        self.a, self.b, self.centre, self.width = amplitude, quadrupole, centre, width
+
+    def profile(self, time=0.0):
+        r = self.radius
+        phase = (time - r + self.centre) / self.width
+        g = np.exp(-(phase**2))
+        dg = -2 * phase * g / self.width
+        field = self.a * g / r + self.b * g / r**2
+        rate = self.a * dg / r + self.b * dg / r**2
+        # B1 f = (d_t + d_r + 1/r) f leaves -b g / r^3 of the second term.
+        carried = -self.b * g / r**3
+        return field, rate, carried
+
+    def right_hand_side(self, state):
+        return {"phi": self.profile()[1]}
+
+
+def _second_order_setup(n=64, extent=16.0, width=4):
+    axis = np.linspace(0.0, extent, n, endpoint=False) - extent / 2 + extent / (2 * n)
+    mesh = tuple(np.meshgrid(axis, axis, axis, indexing="ij"))
+    spacing = (extent / n,) * 3
+    radiative = boundary.Radiative(
+        coords=mesh, spacing=spacing, axes=AXES, width=width, backend="numpy"
+    )
+    return mesh, radiative
+
+
+def test_the_second_condition_is_exact_where_sommerfeld_leaves_b_over_r_cubed():
+    """In the zone, B2's rate is the field's own to the stencil's error; Sommerfeld's is not.
+
+    For a ``b(t - r)/r^2`` term Sommerfeld's rate is off by exactly ``b/r^3``.
+    Bayliss and Turkel carry that as ``v`` and are off only by the finite
+    difference.
+    """
+    mesh, radiative = _second_order_setup()
+    exact = _Exact(mesh)
+    field, rate, carried = exact.profile()
+    zone = radiative.mask()
+
+    sommerfeld = boundary.Bounded(exact, radiative).boundary.apply(
+        exact.right_hand_side(None), {"phi": field}
+    )["phi"]
+    second = boundary.SecondOrder(exact, radiative)
+    state = second.start({"phi": field})
+    state[boundary.AUXILIARY + "phi"] = np.where(zone, carried, 0.0)
+    rates = second.right_hand_side(state)
+
+    sommerfeld_error = np.abs(np.asarray(sommerfeld) - rate)[zone].max()
+    second_error = np.abs(rates["phi"] - rate)[zone].max()
+    assert second_error < sommerfeld_error / 20
+    # And the carried field moves as B2 says, d_t v = -b g'(t - r) / r^3.
+    phase = (exact.centre - exact.radius) / exact.width
+    expected = -exact.b * (-2 * phase / exact.width) * np.exp(-(phase**2)) / exact.radius**3
+    moved = np.abs(rates[boundary.AUXILIARY + "phi"] - expected)[zone].max()
+    assert moved < 0.05 * np.abs(expected[zone]).max()
+
+
+def test_the_second_condition_leaves_minkowski_alone():
+    state, spacing = bssn.gauge_wave(shape=(16, 16, 16), amplitude=0.0, extent=EXTENT)
+    axis = np.linspace(0.0, EXTENT, 16, endpoint=False) - EXTENT / 2
+
+    class _Still:
+        enforce = False
+
+        def right_hand_side(self, s):
+            return {name: np.zeros_like(np.asarray(v)) for name, v in s.items()}
+
+    mesh = tuple(np.meshgrid(axis, axis, axis, indexing="ij"))
+    radiative = boundary.Radiative(
+        coords=mesh, spacing=spacing, axes=AXES, width=3, backend="numpy"
+    )
+    second = boundary.SecondOrder(_Still(), radiative)
+    rates = second.right_hand_side(second.start({k: np.asarray(v) for k, v in state.items()}))
+    assert max(float(np.abs(v).max()) for v in rates.values()) < 1e-13

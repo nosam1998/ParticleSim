@@ -332,6 +332,99 @@ class Bounded:
         return current, history
 
 
+#: The prefix of the auxiliary fields :class:`SecondOrder` carries in the state.
+AUXILIARY = "B2:"
+
+
+@dataclass(frozen=True, eq=False)
+class SecondOrder(Bounded):
+    """Bayliss and Turkel's second condition on the zone: exact for ``1/r`` and ``1/r^2``.
+
+    Sommerfeld's condition is ``B1 u = 0`` with
+    ``B1 = d_t + c d_r + c/r`` and ``u = f - f_0``. It annihilates an outgoing
+    ``a(t - r)/r`` exactly, and leaves ``-c b(t - r)/r^3`` of a ``b(t - r)/r^2``
+    term. Near a quadrupole wave that residual is what comes back. Bayliss and
+    Turkel (1980) apply a second factor,
+
+        (d_t + c d_r + 3c/r)(d_t + c d_r + c/r) u = 0
+
+    which annihilates both terms. It is second order in time, so it is carried
+    as Sommerfeld plus an auxiliary field ``v = B1 u``. That field obeys
+    ``d_t v = -c (d_r v + 3 v / r)`` in the zone, and ``d_t u = -c (d_r u + u/r) + v``.
+
+    Inside the zone ``v`` is evolved, and starts at zero, which is right when
+    nothing is leaving at ``t = 0``. Outside it ``v`` is what the interior's own
+    rates make of ``B1 u``: the kernel's ``d_t f`` less Sommerfeld's. The
+    zone's radial derivative of ``v`` then reaches into a field consistent
+    with the evolution, as ``d_r f`` does.
+
+    The state carries one auxiliary field per evolved variable, named with the
+    prefix :data:`AUXILIARY`. :meth:`start` adds them. They are not
+    projected, and not seen by the kernel.
+    """
+
+    def start(self, state) -> dict[str, Any]:
+        """``state`` with its auxiliary fields, all zero."""
+        out = dict(state)
+        for name in state:
+            if not name.startswith(AUXILIARY):
+                out[AUXILIARY + name] = np.zeros(np.asarray(state[name]).shape)
+        return out
+
+    def _split(self, state):
+        geometry = {k: v for k, v in state.items() if not k.startswith(AUXILIARY)}
+        return geometry, {k: v for k, v in state.items() if k.startswith(AUXILIARY)}
+
+    def _radial(self, field):
+        b = self.boundary
+        radius = np.maximum(b.radius, min(b.spacing))
+        gradient = sum(
+            np.asarray(b.coords[axis])
+            / radius
+            * edge_derivative(field, axis, b.spacing[axis], order=b.order)
+            for axis in range(DIMENSION)
+        )
+        return gradient, radius
+
+    def right_hand_side(self, state) -> dict[str, Any]:
+        geometry, auxiliary = self._split(state)
+        rates = self.evolution.right_hand_side(geometry)
+        zone = self.boundary.mask()
+        b = self.boundary
+        out = {}
+        for name, value in geometry.items():
+            field = np.asarray(value)
+            speed = b.speed if b.speeds is None else b.speeds.get(name, b.speed)
+            gradient, radius = self._radial(field)
+            sommerfeld = -speed * (gradient + (field - ASYMPTOTIC.get(name, 0.0)) / radius)
+            kernel = np.asarray(rates[name])
+            carried = np.where(zone, np.asarray(auxiliary[AUXILIARY + name]), kernel - sommerfeld)
+            out[name] = np.where(zone, sommerfeld + carried, kernel)
+            carried_gradient, _ = self._radial(carried)
+            out[AUXILIARY + name] = np.where(
+                zone, -speed * (carried_gradient + 3.0 * carried / radius), 0.0
+            )
+        return out
+
+    def step(self, state, time_step: float | None = None):
+        """One classical fourth-order step, both conditions applied at each stage."""
+        step = self.time_step if time_step is None else float(time_step)
+        names = list(state)
+        base = dict(state)
+        first = self.right_hand_side(base)
+        second = self.right_hand_side({n: base[n] + (step / 2) * first[n] for n in names})
+        third = self.right_hand_side({n: base[n] + (step / 2) * second[n] for n in names})
+        fourth = self.right_hand_side({n: base[n] + step * third[n] for n in names})
+        out = {
+            n: base[n] + (step / 6) * (first[n] + 2 * second[n] + 2 * third[n] + fourth[n])
+            for n in names
+        }
+        geometry, auxiliary = self._split(out)
+        if self.evolution.enforce:
+            geometry = self.evolution.project(geometry)
+        return {**geometry, **auxiliary}
+
+
 def interior(array, width: int, axes) -> np.ndarray:
     """The physical region, with the boundary zone cut off.
 
@@ -347,4 +440,13 @@ def interior(array, width: int, axes) -> np.ndarray:
     return out[tuple(slices)]
 
 
-__all__ = ["ASYMPTOTIC", "GAUGE_SPEEDS", "Bounded", "Radiative", "edge_derivative", "interior"]
+__all__ = [
+    "ASYMPTOTIC",
+    "AUXILIARY",
+    "GAUGE_SPEEDS",
+    "Bounded",
+    "Radiative",
+    "SecondOrder",
+    "edge_derivative",
+    "interior",
+]

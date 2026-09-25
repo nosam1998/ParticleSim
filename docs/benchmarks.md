@@ -5219,6 +5219,70 @@ pressureless and uniform, so it needs initial data this scenario does not
 build from a stellar model. And collapse *through* a horizon, which is a
 statement about coordinates that polar-areal slicing cannot make.
 
+## A fluid in three dimensions, coupled to BSSN: a universe that expands as Friedmann says
+
+Issue #57's last task. `particlesim.solvers.hydro.grhd` evolves the
+Valencia equations on any 3+1 slice, and `CoupledEvolution` steps them
+together with BSSN. The matter terms enter BSSN outside the generated
+kernel, as the dissipation and upwinding already do:
+- `d_t K` gains `4πα(ρ_ADM + S)`
+- `d_t Ā_ij` gains `−8πα e^{−4φ} S_ij^TF`
+- `d_t Γ̄^i` gains `−16πα γ̄^{ij} S_j`, and so does the Γ-driver's `B^i`
+
+No kernel is re-derived.
+
+The momentum source is `½ α√γ T^{μν} ∂_j g_{μν}`, evaluated literally: the
+four-metric is assembled from the lapse, shift and three-metric, and
+differenced. There is no hand expansion to get wrong. The energy source is
+the 3+1 form with `K_ij`.
+
+### Five checks, each on a different piece
+
+| check | what it isolates | result |
+|---|---|---|
+| flat space, along each axis, against the 1-D special-relativistic solver | fluxes, speeds, reconstruction, axis handling | equal to 1e−14 |
+| round trip through primitive recovery on a curved slice | the momentum's size, `√(γ^{ij}S_iS_j)`, in the flat-space bisection | 1e−11 |
+| `Σ d_t D` on a curved, shifted slice | the flux form | zero to round-off |
+| a hydrostatic profile, `hα = const`, in a static lapse | the momentum source against the flux | order 1.98 unlimited |
+| FRW, BSSN and fluid together, against Friedmann | the coupling, both ways | fourth order in `dt` |
+
+**Hydrostatic balance** is where the gravitational source has to cancel a
+flux. At rest the momentum equation is `p′ = −(e + p) α′/α`, and the
+isentropic profile `hα = const` solves it. The discrete residual falls at
+order 1.98 with unlimited slopes. With the monotonised-central limiter it is
+order 1.0 in the maximum norm and 1.5 in the rms. The limiter clips at the
+two extrema, as it does in one dimension; nothing is wrong with the balance.
+
+**A homogeneous universe.** An ideal gas with `Γ = 4/3` and `ε = 0.5`
+starts at rest on a flat slice, with `K = −3H` from the Friedmann
+constraint. The lapse and shift are frozen, so coordinate time is the
+fluid's proper time. The run is compared with the Friedmann equation,
+integrated separately to 1e−13. The expansion comes from BSSN's `d_t K`
+with the matter term, and the cooling from the fluid's energy source,
+`−3H√γ p`. Nothing in the coupled code knows about Friedmann.
+
+| steps over `1/H₀` | `a / a_Friedmann − 1` | `K` | `ρ` | `p` | Hamiltonian constraint / `16πe` |
+|---|---|---|---|---|---|
+| 20 | −6.6e−7 | −6.3e−7 | 2.0e−6 | 2.4e−6 | 3.3e−6 |
+| 40 | −4.0e−8 | −3.7e−8 | 1.2e−7 | 1.5e−7 | 2.0e−7 |
+| 80 | −2.4e−9 | −2.3e−9 | 7.3e−9 | 9.0e−9 | 1.2e−8 |
+
+That is fourth order in the step, the order of the Runge–Kutta scheme,
+with the scale factor at 1.81 by the end. The constraint shrinks at the
+same rate, so it is the time integration's error and not a coupling
+inconsistency. The frozen-gauge BSSN kernel takes about five minutes to
+derive the first time it is used, so this test is marked slow.
+
+### What is not here
+
+- **A star.** A static TOV star in 3-D is the standard next test, and needs a
+  non-periodic grid or a large torus. The radiative boundary exists, but the
+  fluid's own boundary treatment does not.
+- **Higher-order reconstruction.** PPM and WENO5 exist in one dimension and
+  are not wired into the 3-D fluxes; the scheme here is second order.
+- **An atmosphere.** Vacuum regions are what a star needs and a homogeneous
+  universe does not. The recovery's floors are the one-dimensional ones.
+
 ## Theory-limit gates
 
 Every registered plugin must recover general relativity at its declared
@@ -6278,8 +6342,9 @@ the design document.
   quotes, and the exact solver is itself held to the jump conditions of the
   scheme's own flux. The coupling to `nr.spherical` is done too, with the
   curvature source terms held to a star that is an exact solution of them.
-  What remains of #57 is `nr.bssn`, which is three-dimensional and a
-  different problem.
+  The `nr.bssn` coupling is done too: a homogeneous universe, BSSN and
+  fluid together, expands as the Friedmann equation says, to fourth order
+  in the step. See "A fluid in three dimensions" above.
 - Collapse forms a horizon and matches the Schwarzschild exterior (issue #60)
   — **done**, with the horizon read as the approach polar-areal slicing
   actually produces and the exterior held to Birkhoff's theorem rather than

@@ -1,4 +1,10 @@
-"""Toroidal compactification to a four-dimensional effective theory.
+"""Compactification to a four-dimensional effective theory: tori, and the quintic.
+
+Issue #76 for the torus and issue #87 for the quintic threefold. The torus
+part is below. :class:`QuinticVacuum` and :func:`emit_quintic_plugin` do the
+same for the heterotic string on the quintic, with its Yukawa coupling from
+:mod:`particlesim.theories.special_geometry` and its Kaluza-Klein scale from
+the numerical Ricci-flat metric of :mod:`particlesim.theories.calabi_yau`.
 
 Issue #76. Pick a vacuum -- a torus, optionally orbifolded -- and read off
 the 4D field content, the moduli, the Kahler potential and the gauge kinetic
@@ -33,9 +39,11 @@ twisted sector is where most of an orbifold's chiral matter comes from.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from fractions import Fraction
 
+import numpy as np
 import sympy as sp
 
 from particlesim.theories.base import Coupling, Theory
@@ -293,12 +301,208 @@ every hand-written plugin rather than only through this module's own tests.
 ToroidalCompactification = emit_plugin(DEFAULT_VACUUM)
 
 
+@dataclass(frozen=True)
+class QuinticVacuum:
+    """The heterotic string on the quintic threefold, standard embedding (issue #87).
+
+    ``kahler_modulus`` is ``t = B + i J``, the complexified area of the
+    quintic's line class in string units. The couplings come from two
+    places:
+    - The Yukawa coupling and the moduli-space metric are exact special
+      geometry, with worldsheet instantons. See
+      :mod:`particlesim.theories.special_geometry`.
+    - The Kaluza-Klein scale comes from the numerically computed Ricci-flat
+      metric. See :mod:`particlesim.theories.calabi_yau`.
+
+    Mirror symmetry fixes the first exactly. Nothing fixes the second except
+    the metric.
+    """
+
+    kahler_modulus: complex = 2.0j
+    string_coupling: float = 0.1
+    metric_degree: int = 3
+    points: int = 60000
+    seed: int = 0
+
+    def __post_init__(self) -> None:
+        if complex(self.kahler_modulus).imag < 1.5:
+            raise ValueError(
+                f"Im t = {complex(self.kahler_modulus).imag} is too small: the instanton "
+                "sum converges only above about 1.3, and near there the large-volume "
+                "description this vacuum is built on is not the right one"
+            )
+        if not 0.0 < self.string_coupling < 1.0:
+            raise ValueError(f"the string coupling must lie in (0, 1), got {self.string_coupling}")
+
+    def topology(self) -> dict[str, int]:
+        from particlesim.theories.special_geometry import chern_numbers
+
+        return chern_numbers()
+
+    def moduli(self) -> list[Modulus]:
+        """One Kahler modulus, ``h^(2,1) = 101`` complex-structure moduli, and the dilaton."""
+        topology = self.topology()
+        found = [Modulus(f"T{i + 1}", "kahler") for i in range(topology["h11"])]
+        found += [Modulus(f"U{i + 1}", "complex_structure") for i in range(topology["h21"])]
+        found.append(Modulus("S", "axio_dilaton"))
+        return found
+
+    def generations(self) -> int:
+        """``h21 - h11 = |chi| / 2 = 100``: the net number of ``27``s of ``E_6``."""
+        topology = self.topology()
+        return topology["h21"] - topology["h11"]
+
+    def dilaton_vev(self) -> float:
+        return 1.0 / float(self.string_coupling)
+
+    def gauge_coupling(self) -> float:
+        """``g^2 = 1 / Re S``, from the gauge kinetic function ``f = S``, as on the torus."""
+        return 1.0 / self.dilaton_vev()
+
+    def moduli_space(self):
+        from particlesim.theories.special_geometry import QuinticModuli
+
+        return QuinticModuli()
+
+    def yukawa_coupling(self) -> float:
+        """The normalised ``27bar^3`` coupling at ``t``: ``e^K |kappa_ttt| G^(-3/2)``."""
+        return self.moduli_space().normalized_yukawa(self.kahler_modulus)
+
+    def kahler_metric(self) -> float:
+        """``G_(t tbar)``, the kinetic term of the Kahler modulus."""
+        return self.moduli_space().metric(self.kahler_modulus)
+
+    def spectrum(self):
+        """The Laplacian on the Fermat quintic, with Donaldson's balanced metric.
+
+        This is computed at unit Kahler class, and rescaling the class by
+        ``Im t`` divides every eigenvalue by ``Im t``.
+        """
+        from particlesim.theories.calabi_yau import (
+            Quintic,
+            balanced_metric,
+            laplacian_spectrum,
+        )
+
+        quintic = Quintic()
+        train = quintic.sample(self.points, seed=self.seed)
+        test = quintic.sample(self.points, seed=self.seed + 1)
+        metric = balanced_metric(train, self.metric_degree)
+        return laplacian_spectrum(test, metric.tensor(test))
+
+    def kaluza_klein_scale(self) -> float:
+        """``sqrt(lambda_1 / Im t)``, the lightest Kaluza-Klein mass, in string units.
+
+        ``lambda_1`` is the first non-zero level at unit Kahler class, the
+        mean of its 20 Monte Carlo-split eigenvalues.
+        """
+        first = self.spectrum().levels(scaled=False)[1][0]
+        return float(np.sqrt(first / complex(self.kahler_modulus).imag))
+
+
+class _Derived(Mapping):
+    """Derived couplings, each computed the first time it is asked for.
+
+    The Kaluza-Klein scale needs a balanced metric and a Laplacian, several
+    seconds of work. Registering the plugin must not trigger that, since
+    every plugin is imported to be listed.
+    """
+
+    def __init__(self, **compute):
+        self._compute = compute
+        self._values: dict = {}
+
+    def __getitem__(self, key):
+        if key not in self._values:
+            self._values[key] = self._compute[key]()
+        return self._values[key]
+
+    def __contains__(self, key) -> bool:
+        # Mapping's default looks the value up, which would compute it.
+        return key in self._compute
+
+    def __iter__(self):
+        return iter(self._compute)
+
+    def __len__(self) -> int:
+        return len(self._compute)
+
+
+def emit_quintic_plugin(
+    vacuum: QuinticVacuum, name: str = "string.compactify.quintic"
+) -> type[Theory]:
+    """A Tier A plugin whose couplings are derived from a quintic compactification.
+
+    The same shape as :func:`emit_plugin`: the couplings default to the GR
+    limit, so the plugin passes the same limit harness as every other, and
+    ``derived`` carries the vacuum's values.
+    """
+    count = len(vacuum.moduli())
+    generations = vacuum.generations()
+
+    class QuinticCompactified(Theory):
+        id = name
+        frame = "einstein"
+        couplings = [
+            Coupling("gauge_coupling", 0.0, units="dimensionless", bounds=POSITIVE),
+            Coupling("yukawa_coupling", 0.0, units="dimensionless", bounds=POSITIVE),
+            Coupling("kaluza_klein_scale", 0.0, units="1/length", bounds=POSITIVE),
+        ]
+        provenance = (
+            f"Derived from the heterotic string on the quintic, standard embedding, at "
+            f"t = {complex(vacuum.kahler_modulus)} and string coupling "
+            f"{vacuum.string_coupling}. The Yukawa coupling comes from special geometry "
+            "with worldsheet instantons from mirror symmetry. The Kaluza-Klein scale "
+            f"comes from the Laplacian of Donaldson's balanced metric at degree "
+            f"{vacuum.metric_degree}"
+        )
+        validity_statement = (
+            "large volume (Im t >= 1.5) and weak coupling; moduli unstabilised; "
+            "the Kaluza-Klein scale is computed on the Fermat point of the complex "
+            "structure moduli space and inherits the balanced metric's distance from "
+            "Ricci-flat"
+        )
+
+        def gr_limit(self) -> dict[str, float]:
+            return {"gauge_coupling": 0.0, "yukawa_coupling": 0.0, "kaluza_klein_scale": 0.0}
+
+        def effective_stress_energy(self, einstein, metric):
+            return sp.Matrix(einstein) / (8 * sp.pi)
+
+        def observable_predictions(self) -> dict:
+            return {
+                **self.values,
+                "modulus_count": count,
+                "generations": generations,
+                "moduli_stabilised": False,
+            }
+
+    QuinticCompactified.derived = _Derived(
+        gauge_coupling=vacuum.gauge_coupling,
+        yukawa_coupling=vacuum.yukawa_coupling,
+        kaluza_klein_scale=vacuum.kaluza_klein_scale,
+        modulus_count=lambda: count,
+        generations=lambda: generations,
+    )
+    return QuinticCompactified
+
+
+DEFAULT_QUINTIC = QuinticVacuum()
+"""``t = 2i`` at ``g_s = 0.1``: large volume, where the instanton sum converges fast."""
+
+QuinticCompactification = emit_quintic_plugin(DEFAULT_QUINTIC)
+
+
 __all__ = [
+    "DEFAULT_QUINTIC",
     "DEFAULT_VACUUM",
     "Modulus",
+    "QuinticCompactification",
+    "QuinticVacuum",
     "ToroidalCompactification",
     "ToroidalVacuum",
     "emit_plugin",
+    "emit_quintic_plugin",
     "kahler_metric",
     "kahler_potential",
     "modulus_symbols",

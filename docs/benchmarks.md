@@ -3484,6 +3484,144 @@ reports `moduli_stabilised: False` rather than leaving it to a docstring.
 Presenting a vacuum with unlifted flat directions as a finished model is the
 substantive error available here, so it is asserted against.
 
+## The quintic: numerical Ricci-flat metrics, and couplings against a published table
+
+Issue #87. `string.compactify` now has a vacuum that is not flat: the
+heterotic string on the quintic threefold with the standard embedding. The
+emitted plugin, `string.compactify.quintic`, carries three couplings:
+- the gauge coupling, from the dilaton as on the torus
+- the Yukawa coupling of three `27bar`s of `E₆`, from special geometry with
+  worldsheet instantons
+- the Kaluza–Klein scale, from the Laplacian of a numerically computed
+  Ricci-flat metric
+
+The acceptance asks that emitted couplings agree with a published numerical
+result. The Yukawa coupling is the one that does.
+
+### The couplings: Candelas et al.'s instanton numbers, as exact integers
+
+The `27bar³` coupling is the intersection number `5`, corrected by strings
+wrapping rational curves: `κ(t) = 5 + Σ n_d d³ qᵈ/(1 − qᵈ)`.
+`particlesim.theories.special_geometry` gets the `n_d` the way Candelas, de
+la Ossa, Green and Parkes (1991) did. It builds the periods of the mirror
+quintic from its Picard–Fuchs equation, inverts the mirror map, and reads
+the coupling in the flat coordinate. Every step is a power series with
+rational coefficients, so it runs in exact arithmetic:
+
+| degree `d` | `n_d` here | published |
+|---|---|---|
+| 1 | 2875 | 2875 |
+| 2 | 609250 | 609250 |
+| 3 | 317206375 | 317206375 |
+| 4 | 242467530000 | 242467530000 |
+| 5 | 229305888887625 | 229305888887625 |
+
+Integrality is a check, not an input. `n_d` is extracted as a rational, and
+the module raises if any is not whole. Through degree 10 every one is.
+
+The rest of the data comes from the prepotential. Its two topological
+inputs, `χ = −200` and `c₂·J = 50`, are derived from
+`c(X) = (1 + J)⁵/(1 + 5J)` rather than quoted, and `h²¹ = 101` is counted
+twice, from `χ` and from the 126 quintic monomials less `GL(5)`'s 25. The
+coupling the plugin emits is the normalised one, `e^K |κ| G^{−3/2}`. That
+combination is invariant under Kähler transformations and reparametrisations,
+and its large-volume limit is `2/√3` exactly:
+
+| `t` | `\|κ\|` | `e^{−K}` | `G` | classical `G` | normalised Yukawa |
+|---|---|---|---|---|---|
+| `1.5i` | 5.2691 | 24.479 | 0.2264 | 0.3333 | 1.998 |
+| `2i` (the default) | 5.0101 | 55.274 | 0.1618 | 0.1875 | 1.393 |
+| `3i` | 5.0000 | 181.94 | 0.0798 | 0.0833 | 1.219 |
+| `30i` | 5.0000 | 180001.94 | 0.000833 | 0.000833 | 1.1548 |
+
+The instantons matter only near the conifold. At `t = 2i` they move `κ` by
+0.2%. The `α′³` term moves the coupling far more: `−χζ(3)/(4π³) = 1.938` in
+`e^{−K}`, which lowers `G` by 14% and puts the coupling 21% above `2/√3`. The
+tests hold the metric to a finite-difference Laplacian of `K`, and each
+derivative of the prepotential to a difference of the one before.
+
+### The metric: three approximations to Ricci-flat, and an exact check on the sampler
+
+`particlesim.theories.calabi_yau` puts points on the Dwork quintic by
+intersecting it with random lines. Integrals are Monte Carlo sums weighted
+against the Fubini–Study measure those points carry. **The sampler is checked
+against a closed form.** At the Fermat point, `zᵢ → zᵢ⁵` turns
+`∫|Ω|²` into a complex Selberg integral equal to `π³γ(1/5)⁵/625 = 47.2976`.
+With 200,000 points the sampler gives 47.271 ± 0.049, 0.5 standard errors
+away. A mis-weighted sampler would be biased, and more points would not help.
+
+Ricci-flatness is `ω³ ∝ Ω ∧ Ω̄`. Its measure, `σ`, is the mean of
+`|1 − η/⟨η⟩|` with `η = det g/|Ω|²`, and it is zero for the Ricci-flat
+metric. Each metric was fitted on 100,000 points and measured on 50,000
+others:
+
+| metric | `σ` | `∫ω³` (5 exactly) |
+|---|---|---|
+| Fubini–Study, restricted | 0.372 | 5 |
+| Donaldson balanced, `k = 2` | 0.273 | 5.004 |
+| Donaldson balanced, `k = 3` | 0.194 | 5.008 |
+| Donaldson balanced, `k = 4` | 0.132 | 5.010 |
+| network, 5 epochs | 0.067 | 5.015 |
+| network, 10 epochs | 0.029 | 5.013 |
+| network, 30 epochs | 0.0126 | 5.013 |
+
+**Donaldson's balanced metrics** fall as his theorem says they should, and
+the T-operator iteration converges geometrically, to 2e−6 in ten steps at
+`k = 3`. **The network** is Fubini–Study plus `∂∂̄φ`, with `φ` a three-layer
+network of the invariants `z_a z̄_b/|z|²`. That makes the metric Kähler and
+globally defined by construction, so Ricci-flatness is the only loss. It
+stays positive definite throughout, and after 30 epochs it is ten times
+closer to Ricci-flat than Donaldson at `k = 4`. It needs JAX, and its
+tests skip without it. `∫ω³ = 5` is fixed by the Kähler class, so it is a
+check on each metric's pullback. The chart-independence of `η`, to 1e−9,
+checks the charts.
+
+### What the metric changes: the Kaluza–Klein spectrum
+
+The plugin's Kaluza–Klein scale is `√(λ₁/Im t)`, with `λ₁` the first non-zero
+eigenvalue of the Laplacian on the quintic. `laplacian_spectrum` solves for
+it by Galerkin in the basis `s_a s̄_b/|z|^{2k}`. The Fermat quintic's
+permutations and phases fix the multiplicities: a zero mode, then 20, then 4.
+They come out exactly for every metric. In units where the volume is 1,
+that is `λ Vol^{1/3}`:
+
+| metric | basis | 20-fold level | 4-fold level |
+|---|---|---|---|
+| Fubini–Study | degree 1 | 42.12 | 66.89 |
+| Fubini–Study | degree 2 | 41.64 | 66.11 |
+| balanced `k = 2` | degree 1 | 41.90 | 71.49 |
+| balanced `k = 3` | degree 1 | 41.74 | 75.32 |
+| balanced `k = 4` | degree 1 | 41.62 | 78.54 |
+| network, 30 epochs | degree 1 | 41.42 | 84.97 |
+| balanced `k = 4` | degree 2 | 41.32 | |
+| network, 30 epochs | degree 2 | 41.16 | |
+
+The first level barely moves between metrics, falling 2% from Fubini–Study
+to the network. The Kaluza–Klein scale is read from that level, so it
+depends on the metric by only a percent or two. The 4-fold level is where
+the metric shows: it rises 27% as the metric approaches Ricci-flat. The
+degree-2 functions contain the degree-1 ones, so on the same points the
+larger basis can only lower each level.
+In the degree-2 basis the 4-fold level on the network metric falls among the
+higher levels and is not separated here. Braun, Brelidze, Douglas and Ovrut
+(2008) computed this spectrum. Their paper could not be reached from where
+this was written, so it is not compared.
+
+### What is not here
+
+- **Yukawa couplings that need the metric.** In the standard embedding the
+  matter-field metrics are fixed by special geometry, so the emitted Yukawa
+  coupling does not depend on the numerical metric. A non-standard bundle
+  would make it depend on it, through harmonic bundle-valued forms. That is
+  not implemented.
+- **Other Calabi–Yaus.** Everything here is the quintic. The complex-structure
+  modulus `ψ` of the Dwork family is supported by the sampler and the metrics.
+  At `ψ = 0.5` the sampler gives `∫|Ω|² = 45.03 ± 0.07`, Fubini–Study has
+  `σ = 0.363` and the balanced `k = 3` metric 0.201. The emitted plugin sits
+  at the Fermat point.
+- **Moduli stabilisation**, as on the torus: `observable_predictions()` says
+  `moduli_stabilised: False`.
+
 ## Charged interiors under EMDA: an absent mechanism, not a modified rate
 
 Issue #71 asks for mass inflation to be reported and compared with general
@@ -6084,5 +6222,10 @@ the design document.
   0.97% early at the true caustic, with sixteen slabs of 64 × 64 point masses.
   A cubic lattice is 15% early, correctly, because its sheets are not uniform;
   the plain mesh is 7.7% late at `128³`.
+- `string.compactify` with numerical Calabi–Yau metrics (issue #87) — **done**
+  for the quintic. The emitted Yukawa coupling's instanton numbers are
+  Candelas et al.'s, as exact integers. Donaldson's balanced metrics and a
+  trained network reach `σ = 0.0126`, and the Kaluza–Klein scale comes from
+  the Laplacian of a balanced metric. See "The quintic" above.
 - BFSS energy versus temperature at one coupling (issue #85)
 - IKKT dimension-emergence observable (issue #86)

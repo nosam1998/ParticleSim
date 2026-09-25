@@ -74,6 +74,15 @@ and 3.0e-02 at 96, the continuum cost of a condition that is not
 constraint-preserving. See :mod:`particlesim.solvers.nr.teukolsky` and
 ``docs/benchmarks.md``.
 
+**Bayliss and Turkel's second condition removes that floor.**
+:class:`SecondOrder` also annihilates the ``1/r^2`` part. On the same wave,
+what comes back after the reflection is 3.2e-02, 1.35e-02 and 6.0e-03 at 48,
+72 and 96 points, converging at order 2.8 where Sommerfeld's stalled at 1.2.
+``|H|`` after the reflection converges again too, 7.4e-03 at 96 points
+against Sommerfeld's 3.0e-02. Both still converge more slowly than the
+interior's 3.9, so the ratio to truncation grows, from 0.91 to 1.26 between
+72 and 96 points, but slowly.
+
 **The cost that is real is arithmetic.** :meth:`Radiative.rates` takes three
 bounded-domain derivatives per variable per stage over the *whole* array,
 which is seventy-two array passes a stage for BSSN and dominates the run at

@@ -27,7 +27,33 @@ uv run pytest -q -m "not slow"
 ```
 
 The Alcubierre run writes `fields.npz`, `report.json`, `energy_density.png`,
-and `manifest.json` under `runs/warp_alcubierre/`.
+`manifest.json`, and a self-contained `dashboard.html` under
+`runs/warp_alcubierre/`.
+
+## Dashboards and the app
+
+Every `particlesim run` writes a `dashboard.html` for its run directory.
+`pytest --dashboard dashboards/benchmarks.html` writes one for a benchmark
+run. It puts each result next to what [Benchmarks](docs/benchmarks.md) says
+about it, and CI uploads one from every benchmark job. `particlesim dashboard
+PATH…` rebuilds either kind.
+
+`particlesim serve` (with the `serve` extra) serves an app with three tabs:
+- **Runs:** your runs' dashboards.
+- **Modified gravity, live:** the Hu–Sawicki `f(R)` growth and `P(k)`
+  enhancement, recomputed as you move `|f_R0|`, `Ω_m` and the scale factor.
+- **Theory plugins, live:** any installed plugin, scored against the
+  singularity battery on demand.
+
+```bash
+uv sync --extra serve
+uv run particlesim serve --runs runs --show
+
+# or from the Docker image
+docker build -t particlesim .
+docker run -p 5006:5006 -v "$PWD/runs:/runs" particlesim \
+  serve --runs /runs --address 0.0.0.0 --allow-websocket-origin localhost:5006
+```
 
 ## Documentation
 

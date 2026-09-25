@@ -26,6 +26,8 @@ jax = ["jax[cpu]>=0.4.30"]
 # Compiles CLASS from source and needs a C compiler, so it is an extra and
 # not part of the dev group: the adapter's live tests skip without it.
 boltzmann = ["classy>=3.2"]
+# The served app (particlesim serve, issue #83), and what the Docker image runs.
+serve = ["panel>=1.9", "matplotlib>=3.8"]
 dev = [
   "pytest>=8.0",
   "pytest-timeout>=2.3",
@@ -34,6 +36,7 @@ dev = [
   "pre-commit>=3.7",
   "ipywidgets>=8.1",
   "jax[cpu]>=0.4.30",
+  "panel>=1.9",
 ]
 
 [project.scripts]

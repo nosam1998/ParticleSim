@@ -119,6 +119,20 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    from particlesim.viz.app import serve
+
+    try:
+        import panel  # noqa: F401
+    except ImportError:
+        print("serve needs Panel: pip install particlesim[serve]", file=sys.stderr)
+        return 2
+    origins = args.allow_websocket_origin or None
+    print(f"serving on http://{args.address}:{args.port}/", file=sys.stderr)
+    serve(args.runs, args.port, args.address, origins, show=args.show)
+    return 0
+
+
 def _cmd_scenarios(args: argparse.Namespace) -> int:
     for name in sorted(SCENARIOS):
         print(name)
@@ -160,6 +174,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--docs", default="docs/benchmarks.md", help="benchmark documentation to join with"
     )
     db.set_defaults(func=_cmd_dashboard)
+
+    sv = sub.add_parser(
+        "serve", help="serve the app: runs, and modified theories computed live (needs [serve])"
+    )
+    sv.add_argument("--runs", help="a directory of run directories to show")
+    sv.add_argument("--port", type=int, default=5006)
+    sv.add_argument("--address", default="localhost", help="0.0.0.0 to listen on every interface")
+    sv.add_argument(
+        "--allow-websocket-origin",
+        action="append",
+        metavar="HOST[:PORT]",
+        help="a host the browser may connect from; repeatable (default: localhost only)",
+    )
+    sv.add_argument("--show", action="store_true", help="open a browser")
+    sv.set_defaults(func=_cmd_serve)
 
     rr = sub.add_parser("rerun", help="re-run a scenario from a run manifest")
     rr.add_argument("manifest")

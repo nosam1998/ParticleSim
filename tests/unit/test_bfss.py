@@ -190,3 +190,33 @@ def test_at_high_temperature_the_energy_is_classical():
     blocks = np.asarray(energies).reshape(10, -1).mean(axis=1)
     mean, error = blocks.mean(), blocks.std(ddof=1) / np.sqrt(10)
     assert abs(mean - 6 * 30 * (1 - 1 / 16)) < max(3 * error, 0.03 * 168.75)
+
+
+def test_the_virial_fermion_term_is_the_scaling_derivative_of_the_determinant():
+    """``d/de ln|det L((1 + e) X)| = Re Tr L^-1 Y``, and the noise estimate averages to it."""
+    rng = np.random.default_rng(7)
+    model = BFSS(2, 2, 0.8)
+    sampler = RationalHMC(model, seed=4)
+    A, B, alpha = sampler.start(2.0)
+    k = model.kernels
+    shape = model.fermion_shape
+
+    def logdet(scale):
+        x = k["fine"](scale * A, scale * B)
+        dense = _dense(lambda p: k["free"](alpha)[None] * p + k["yukawa"](x, p), shape)
+        return np.linalg.slogdet(dense)[1], dense
+
+    eps = 1e-6
+    numeric = (logdet(1 + eps)[0] - logdet(1 - eps)[0]) / (2 * eps)
+    _, dense = logdet(1.0)
+    x = k["fine"](A, B)
+    y = _dense(lambda p: k["yukawa"](x, p), shape)
+    exact = np.real(np.trace(np.linalg.solve(dense, y)))
+    assert abs(numeric - exact) < 1e-6 * abs(exact)
+    samples = []
+    for _ in range(400):
+        eta = (rng.normal(size=shape) + 1j * rng.normal(size=shape)) / np.sqrt(2)
+        value, _ = sampler._fermion_trace(A, B, alpha, jnp.asarray(eta))
+        samples.append(float(np.real(value)))
+    mean, error = np.mean(samples), np.std(samples) / np.sqrt(len(samples))
+    assert abs(mean - exact) < 4 * error

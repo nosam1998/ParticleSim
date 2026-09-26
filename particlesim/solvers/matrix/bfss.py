@@ -364,6 +364,7 @@ class RationalHMC:
     ):
         self.model = model
         self.radius_cut = radius_cut
+        self.walled = False
         self.steps, self.substeps, self.length = steps, substeps, length
         self.rng = np.random.default_rng(seed)
         self.spectrum = spectrum
@@ -548,6 +549,7 @@ class RationalHMC:
             PA, PB, pa = PA - w * gA, PB - w * gB, pa - w * ga
         dH = self.action(A1, B1, alpha1, phi) + self._kinetic(PA, PB, pa) - before
         outside = self.radius_cut is not None and self.radius(A1, B1) > self.radius_cut
+        self.walled = outside  # the proposal crossed the cut: how often the wall is felt
         if self.rng.random() < np.exp(-max(dH, 0.0)) and not outside:
             return A1, B1, alpha1, dH, True, most
         return A, B, alpha, dH, False, most

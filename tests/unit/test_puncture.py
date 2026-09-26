@@ -35,6 +35,32 @@ def test_a_sample_on_the_puncture_is_refused():
         puncture.puncture_state(grid, (0.0, 0.0, 0.0), backend="numpy")
 
 
+def test_a_perturbed_puncture_is_the_puncture_plus_a_wave_linear_in_its_amplitude():
+    """At zero amplitude the data are Brill-Lindquist; the change is linear in the wave.
+
+    Except in ``phi`` and ``K``: the wave and its rate are traceless, so the
+    determinant and the trace move only at second order.
+    """
+    axis = np.linspace(-6.0, 6.0, 25) + 0.125
+    grid = np.meshgrid(axis, axis, axis, indexing="ij")
+    plain = puncture.puncture_state(grid, (0.0, 0.0, 0.0), backend="numpy")
+    still = puncture.perturbed_puncture_state(grid, (0.0, 0.0, 0.0), 0.0, backend="numpy")
+    for name, value in plain.items():
+        assert np.allclose(still[name], value, atol=1e-14), name
+    small = puncture.perturbed_puncture_state(grid, (0.0, 0.0, 0.0), 1e-6, backend="numpy")
+    double = puncture.perturbed_puncture_state(grid, (0.0, 0.0, 0.0), 2e-6, backend="numpy")
+
+    def change(state, name):
+        return np.asarray(state[name]) - np.asarray(still[name])
+
+    for name in ("gt00", "gt02", "At11", "Gt2"):
+        once, twice = change(small, name), change(double, name)
+        assert np.max(np.abs(once)) > 1e-7, name
+        assert np.max(np.abs(twice - 2 * once)) < 1e-4 * np.max(np.abs(once)), name
+    for name in ("phi", "trK"):
+        assert np.max(np.abs(change(small, name))) < 1e-10, name
+
+
 @pytest.mark.slow
 def test_two_levels_carry_a_puncture_through_the_collapse_of_the_lapse():
     """Fifteen ``M`` on two levels with a radiative edge, upwinded.

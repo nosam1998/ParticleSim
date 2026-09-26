@@ -133,7 +133,7 @@ def test_the_force_is_the_derivative_of_the_pseudofermion_action():
     rng = np.random.default_rng(5)
     model = BFSS(3, 2, 0.8)
     sampler = RationalHMC(model, poles=28, md_poles=28, tol=1e-12, md_tol=1e-12, seed=2)
-    A, B, alpha = sampler.start(0.6)
+    A, B, alpha = sampler.start(2.0)
     phi = jnp.asarray(
         rng.normal(size=model.fermion_shape) + 1j * rng.normal(size=model.fermion_shape)
     )
@@ -155,7 +155,7 @@ def test_the_pseudofermion_action_is_the_quarter_power():
     rng = np.random.default_rng(6)
     model = BFSS(2, 2, 0.8)
     sampler = RationalHMC(model, seed=3)
-    A, B, alpha = sampler.start(0.6)
+    A, B, alpha = sampler.start(2.0)
     phi = rng.normal(size=model.fermion_shape) + 1j * rng.normal(size=model.fermion_shape)
     x = model.kernels["fine"](A, B)
     dense = _dense(lambda p: model.kernels["normal"](x, alpha, p), model.fermion_shape)
@@ -178,7 +178,7 @@ def test_at_high_temperature_the_energy_is_classical():
     """
     model = BFSS(4, 2, 30.0)
     sampler = RationalHMC(model, steps=5, substeps=4, seed=11)
-    A, B, alpha = sampler.start(0.3 * 30**0.25)
+    A, B, alpha = sampler.start(2.0)
     for _ in range(4):
         sampler.tune(A, B, alpha)
         for _ in range(20):

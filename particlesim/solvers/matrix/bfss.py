@@ -337,6 +337,15 @@ class RationalHMC:
     ``L'^dag L'``, which :meth:`extremes` measures. ``poles`` and ``tol`` are
     for the action and the heatbath, ``md_poles`` and ``md_tol`` for the
     force.
+
+    ``radius_cut`` rejects any proposal with ``R^2 = (1/N beta) int Tr X^2``
+    above it. At finite ``N`` the black hole is only metastable: the moduli
+    of the ``N`` D0-branes are flat, a brane that leaves gains the entropy
+    of nine noncompact directions, and the canonical ensemble does not
+    exist. At ``N = 6`` and ``T = 0.6``, ``R^2`` climbed from 4 to 25 in 400
+    trajectories without one. The cut restricts the sampling to the bound
+    state, and a result is only a result if it does not depend on where
+    the cut is.
     """
 
     def __init__(
@@ -351,8 +360,10 @@ class RationalHMC:
         tol: float = 1e-10,
         md_tol: float = 1e-7,
         seed: int = 0,
+        radius_cut: float | None = None,
     ):
         self.model = model
+        self.radius_cut = radius_cut
         self.steps, self.substeps, self.length = steps, substeps, length
         self.rng = np.random.default_rng(seed)
         self.spectrum = spectrum
@@ -416,6 +427,7 @@ class RationalHMC:
         self._parts = jax.jit(lambda A, B, alpha: (k["kinetic"](A, B, alpha), k["quartic"](A, B)))
         self._normal = jax.jit(normal)
         self._inverse = jax.jit(inverse)
+        self._radius = jax.jit(lambda A, B: (jnp.sum(A**2) + jnp.sum(B**2)) / (n_mat * coarse))
 
     # --- the constrained configuration space -------------------------------------------
     def project(self, A, B, alpha):
@@ -437,9 +449,14 @@ class RationalHMC:
         A, B, _ = self.project(jnp.asarray(A), jnp.asarray(B), jnp.zeros(n_mat))
         return A, B
 
-    def start(self, scale: float = 0.5):
-        """A random traceless configuration of this size, ``alpha`` spread over ``[-1/2, 1/2]``."""
+    def radius(self, A, B) -> float:
+        """``R^2 = (1/N beta) int dt Tr X_i X_i``, exactly, from the time samples."""
+        return float(self._radius(A, B))
+
+    def start(self, radius: float = 2.0):
+        """A random traceless configuration with ``R^2 = radius``, ``alpha`` in ``[-1/2, 1/2]``."""
         A, B = self._gaussian_pair()
+        scale = np.sqrt(radius / self.radius(A, B))
         return scale * A, scale * B, jnp.asarray(np.linspace(-0.5, 0.5, self.model.size))
 
     def tune(self, A, B, alpha, directions: int = 8):
@@ -530,7 +547,8 @@ class RationalHMC:
             w = dt if s < self.steps - 1 else dt / 2
             PA, PB, pa = PA - w * gA, PB - w * gB, pa - w * ga
         dH = self.action(A1, B1, alpha1, phi) + self._kinetic(PA, PB, pa) - before
-        if self.rng.random() < np.exp(-max(dH, 0.0)):
+        outside = self.radius_cut is not None and self.radius(A1, B1) > self.radius_cut
+        if self.rng.random() < np.exp(-max(dH, 0.0)) and not outside:
             return A1, B1, alpha1, dH, True, most
         return A, B, alpha, dH, False, most
 
@@ -547,7 +565,6 @@ class RationalHMC:
             value, _ = self._fermion_trace(A, B, alpha, jnp.asarray(eta))
             traces.append(float(np.real(value)))
         trace = float(np.mean(traces))
-        x = np.asarray(A) + 1j * np.asarray(B)
         return dict(
             kinetic=kinetic,
             quartic=quartic,
@@ -555,7 +572,7 @@ class RationalHMC:
             energy_primitive=3 * t / n_mat**2 * (model.bosons / 2 - kinetic - quartic),
             energy=3 * t / n_mat**2 * (quartic - trace / 4),
             polyakov=float(np.abs(np.mean(np.exp(1j * np.asarray(alpha))))),
-            radius=float(np.mean(np.einsum("ikab,ikba->k", x, x).real) / n_mat),
+            radius=self.radius(A, B),
         )
 
     def extremes(self, A, B, alpha, iterations: int = 12) -> tuple[float, float]:

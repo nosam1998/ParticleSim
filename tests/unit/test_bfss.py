@@ -129,6 +129,7 @@ def test_the_quartic_term_is_integrated_exactly():
     assert abs(value - direct) < 1e-10 * abs(direct)
 
 
+@pytest.mark.slow
 def test_the_force_is_the_derivative_of_the_pseudofermion_action():
     rng = np.random.default_rng(5)
     model = BFSS(3, 2, 0.8)
@@ -151,6 +152,7 @@ def test_the_force_is_the_derivative_of_the_pseudofermion_action():
     assert abs(numeric - analytic) < 1e-6 * abs(numeric)
 
 
+@pytest.mark.slow
 def test_the_pseudofermion_action_is_the_quarter_power():
     rng = np.random.default_rng(6)
     model = BFSS(2, 2, 0.8)
@@ -192,6 +194,7 @@ def test_at_high_temperature_the_energy_is_classical():
     assert abs(mean - 6 * 30 * (1 - 1 / 16)) < max(3 * error, 0.03 * 168.75)
 
 
+@pytest.mark.slow
 def test_the_virial_fermion_term_is_the_scaling_derivative_of_the_determinant():
     """``d/de ln|det L((1 + e) X)| = Re Tr L^-1 Y``, and the noise estimate averages to it."""
     rng = np.random.default_rng(7)

@@ -1412,8 +1412,8 @@ and it changed nothing measurable: the zone's lapse drifted by 0.256 at 70 M
 with it and 0.253 without.
 
 **Advecting the lapse alone did worse.** Without an advection term,
-`∂_t α = −2αK` has no stationary trumpet, which suggested the drift was the
-interior's lapse still collapsing. Campanelli et al.'s combination advects
+`∂_t α = −2αK` is stationary only on a maximal slice, which suggested the
+drift was the interior's lapse still collapsing towards one. Campanelli et al.'s combination advects
 the lapse and not the shift (`advect="lapse"`). With it the zone's lapse
 drifted faster, 0.31, 0.59 and 0.89 at 60, 90 and 120 M, and the hole
 dissolved by 125 M.
@@ -1448,6 +1448,39 @@ at 100 M or more, with as many levels as that takes. With two levels that
 means either grids several times larger on every side or a boundary
 condition that absorbs the 1+log gauge pulses. Neither is done here.
 **#48 stays open.**
+
+**Starting on the end state removes the pulse, not the drift.**
+`puncture.trumpet_state` is Schwarzschild's maximal trumpet (Baumgarte and
+Naculich 2007). Its stationary lapse is `(1 − 2M/R + C²/R⁴)^(1/2)` and its
+shift is `C xⁱ/R³`, with `C = 3√3M²/4`. It is an exact stationary solution
+of the unadvected gauge. The right-hand side on it falls from 1.4e−03 to
+1.0e−04 and 7.1e−06 at `2 ≤ r ≤ 4 M` as the spacing halves from `M/2`.
+`TwoLevelPuncture.build(data="trumpet")` starts the same run from it, with
+the second-order edge. The zone's lapse is measured against its starting
+value, since the trumpet's is not one:
+
+| t / M | 10 | 40 | 100 | 150 | 180 | 210 | 220 |
+|---|---|---|---|---|---|---|---|
+| `max \|α − α₀\|` in the zone | 0.001 | 0.084 | 0.19 | 0.39 | 0.62 | 0.85 | 0.50 |
+| lapse at `r = 2 M`, 0.614 at the start | 0.611 | 0.395 | 0.215 | 0.157 | 0.325 | 0.891 | 0.971 |
+| coarse `‖H‖` | 5.0e−04 | 1.5e−03 | 5.4e−03 | 1.1e−02 | 1.8e−02 | 4.1e−02 | 5.4e−02 |
+
+At 10 M the zone is seventy times quieter than with Brill–Lindquist data,
+whose pulse had moved it by 0.10 by then. After that the whole slice
+drifts, and the drift starts at the hole:
+- By 120 M, `K` is positive everywhere: 0.005 inside `3 M`, 0.001 at
+  `10 M`.
+- The lapse has fallen by 86% nearest the hole and by 16% at `10 M`.
+- From 150 M the lapse near the hole climbs back, and the hole is gone
+  between 210 and 220 M. `φ_max` falls from 0.97 to 0.14, 25 M later than
+  Brill–Lindquist data with the same edge.
+- With Sommerfeld's condition the trumpet run went non-finite at 190 M.
+
+A single periodic level cannot separate numerical from gauge causes. Its
+lattice of images collapses like a closed universe, with `K ≈ 0.07`
+everywhere by 40 M at both `M/2` and `M/4`. So what ends the two-level run
+is not the initial gauge pulse. At this resolution, `M/4`, something at the
+hole drives a slow drift of the slicing.
 
 
 ## A radiative outer boundary: letting a pulse leave

@@ -120,6 +120,12 @@ def trumpet_state(coords, position, mass: float = 1.0, backend: str = "jax") -> 
     error, which falls by 13 to 16 per halving of the spacing at
     ``2 <= r <= 6 M``. There is nothing left for the gauge to do, and so no
     pulse for the outer boundary to mishandle.
+
+    That removes the start-up pulse but not the failure. On two levels at
+    ``M/4`` the zone's lapse moved seventy times less by 10 M, but the whole
+    slice then drifted from the hole outward. The hole went between 210 and
+    220 M, against 185 to 190 M from Brill-Lindquist data. The measurements
+    are in ``docs/benchmarks.md``.
     """
     module = _module(backend)
     relative = [np.asarray(c) - p for c, p in zip(coords, position, strict=True)]

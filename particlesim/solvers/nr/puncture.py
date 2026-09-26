@@ -74,6 +74,74 @@ def puncture_state(coords, position, mass: float = 1.0, backend: str = "jax") ->
     return {name: module.asarray(value) for name, value in state.items()}
 
 
+def trumpet_isotropic_radius(areal, mass: float = 1.0):
+    """The isotropic radius of the maximal trumpet, in closed form.
+
+    Baumgarte and Naculich (2007): the stationary maximal slice of
+    Schwarzschild, ``K = 0``, reaches down to the areal radius ``R = 3M/2`` and
+    no further. In isotropic coordinates that throat sits at ``r = 0``.
+    """
+    R, m = np.asarray(areal, dtype=float), mass
+    a = (2 * R + m + np.sqrt(4 * R**2 + 4 * m * R + 3 * m**2)) / 4
+    b = ((4 + 3 * np.sqrt(2)) * (2 * R - 3 * m)) / (
+        8 * R + 6 * m + 3 * np.sqrt(8 * R**2 + 8 * m * R + 6 * m**2)
+    )
+    return a * b ** (1 / np.sqrt(2))
+
+
+def trumpet_areal_radius(isotropic, mass: float = 1.0):
+    """``R(r)``, inverting :func:`trumpet_isotropic_radius` by bisection in ``ln(R - 3M/2)``."""
+    r = np.asarray(isotropic, dtype=float)
+    throat = 1.5 * mass
+    low = np.full(r.shape, np.log(1e-300))
+    high = np.full(r.shape, np.log(1e6 * mass + float(np.max(r))))
+    for _ in range(200):
+        middle = 0.5 * (low + high)
+        above = trumpet_isotropic_radius(throat + np.exp(middle), mass) > r
+        high = np.where(above, middle, high)
+        low = np.where(above, low, middle)
+    return throat + np.exp(0.5 * (low + high))
+
+
+def trumpet_state(coords, position, mass: float = 1.0, backend: str = "jax") -> dict[str, Any]:
+    """Schwarzschild's maximal trumpet with its stationary lapse and shift.
+
+    With ``C = 3 sqrt(3) M^2 / 4`` and ``f = (1 - 2M/R + C^2/R^4)^(1/2)``:
+    - ``psi^4 = (R/r)^2`` and the conformal metric flat;
+    - ``K = 0`` and ``Abar_ij = (C/R^3)(delta_ij - 3 n_i n_j)``;
+    - the lapse ``f`` and the shift ``beta^i = C x^i / R^3``;
+    - ``Gammabar^i = 0`` and ``B^i = 0``.
+
+    This is what Brill-Lindquist data with the moving-puncture gauge
+    settles to, but here it is present from the start. It is an exact
+    stationary solution of the unadvected gauge, ``d_t alpha = -2 alpha K``
+    and ``d_t beta = 3B/4``: ``K`` stays zero, ``Gammabar^i`` stays constant,
+    and ``B`` stays zero. The kernel's right-hand side on it is truncation
+    error, which falls by 13 to 16 per halving of the spacing at
+    ``2 <= r <= 6 M``. There is nothing left for the gauge to do, and so no
+    pulse for the outer boundary to mishandle.
+    """
+    module = _module(backend)
+    relative = [np.asarray(c) - p for c, p in zip(coords, position, strict=True)]
+    radius = np.sqrt(sum(r**2 for r in relative))
+    if float(np.min(radius)) <= 0.0:
+        raise ValueError("a grid point lands on the puncture: the throat is there")
+    areal = trumpet_areal_radius(radius, mass)
+    c = 3 * np.sqrt(3) / 4 * mass**2
+    lapse = np.sqrt(np.maximum(1 - 2 * mass / areal + c**2 / areal**4, 0.0))
+    zero = np.zeros_like(radius)
+    state: dict[str, Any] = {"phi": 0.5 * np.log(areal / radius), "trK": zero, "alpha": lapse}
+    for i in INDICES:
+        state[f"beta{i}"] = c * relative[i] / areal**3
+        state[f"B{i}"] = zero
+        state[f"Gt{i}"] = zero
+        for j in range(i, DIMENSION):
+            delta = 1.0 if i == j else 0.0
+            state[f"gt{i}{j}"] = np.full_like(radius, delta)
+            state[f"At{i}{j}"] = c / areal**3 * (delta - 3 * relative[i] * relative[j] / radius**2)
+    return {name: module.asarray(value) for name, value in state.items()}
+
+
 def perturbed_puncture_state(
     coords,
     position,
@@ -156,6 +224,7 @@ class TwoLevelPuncture:
         advect: bool | str = False,
         backend: str = "jax",
         second_order: bool = False,
+        data: str = "brill_lindquist",
     ) -> tuple[TwoLevelPuncture, dict[str, Any], dict[str, Any]]:
         """The setup and its initial coarse and fine states.
 
@@ -226,11 +295,12 @@ class TwoLevelPuncture:
             zone=width,
             mass=mass,
         )
-        coarse = puncture_state(coarse_mesh, position, mass, backend)
+        initial = {"brill_lindquist": puncture_state, "trumpet": trumpet_state}[data]
+        coarse = initial(coarse_mesh, position, mass, backend)
         if second_order:
             coarse = edge.start(coarse)
         fine_mesh = np.meshgrid(fine_axis, fine_axis, fine_axis, indexing="ij")
-        fine = puncture_state(fine_mesh, position, mass, backend)
+        fine = initial(fine_mesh, position, mass, backend)
         return setup, coarse, fine
 
     @property
@@ -289,4 +359,11 @@ class TwoLevelPuncture:
         }
 
 
-__all__ = ["TwoLevelPuncture", "perturbed_puncture_state", "puncture_state"]
+__all__ = [
+    "TwoLevelPuncture",
+    "perturbed_puncture_state",
+    "puncture_state",
+    "trumpet_areal_radius",
+    "trumpet_isotropic_radius",
+    "trumpet_state",
+]

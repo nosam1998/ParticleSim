@@ -95,3 +95,48 @@ def test_two_levels_carry_a_puncture_through_the_collapse_of_the_lapse():
     assert 0.0 < rows[-1]["shift_max"] < 1.0, rows
     # And the hole is still there: a run that dissolves it stays finite.
     assert rows[-1]["phi_max"] > 0.5, rows
+
+
+def test_the_trumpet_radius_is_the_integral_it_closes():
+    """``ln r = ln R - int_R^inf (1/f - 1) dR'/R'``, and ``R(r)`` inverts it."""
+    from scipy.integrate import quad
+
+    c = 3 * np.sqrt(3) / 4
+
+    def f(R):
+        return np.sqrt(1 - 2 / R + c**2 / R**4)
+
+    for areal in (1.5001, 1.6, 2.0, 3.0, 10.0, 100.0):
+        integral, _ = quad(lambda x: (1 / f(x) - 1) / x, areal, np.inf, limit=400)
+        expected = areal * np.exp(-integral)
+        assert puncture.trumpet_isotropic_radius(areal) == pytest.approx(expected, rel=1e-9)
+    r = np.geomspace(1e-3, 50.0, 40)
+    assert np.allclose(puncture.trumpet_isotropic_radius(puncture.trumpet_areal_radius(r)), r)
+    assert puncture.trumpet_areal_radius(np.array([1e-12]))[0] == pytest.approx(1.5, abs=1e-6)
+
+
+@pytest.mark.slow
+def test_the_trumpet_is_stationary_under_the_unadvected_gauge():
+    """The right-hand side on the trumpet is truncation error, fourth order.
+
+    Measured at ``2 <= r <= 4 M``: 1.4e-03, 1.0e-04 and 7.1e-06 at spacings
+    ``M/2``, ``M/4`` and ``M/8``. Brill-Lindquist data under the same gauge
+    has rates of 1.2e-02 there at both ``M/2`` and ``M/4``: not truncation
+    error, but a lapse and shift that still have to settle.
+    """
+    from particlesim.solvers.nr import bssn
+
+    worst = []
+    for n in (32, 64):
+        spacing = 16.0 / n
+        axis = np.arange(n) * spacing
+        position = (n // 2 * spacing + spacing / 4,) * 3
+        grid = np.meshgrid(axis, axis, axis, indexing="ij")
+        state = puncture.trumpet_state(grid, position)
+        evolution = bssn.Evolution.build((spacing,) * 3, dissipation=0.0, advect=False)
+        rates = evolution.right_hand_side(state)
+        r = np.sqrt(sum((g - p) ** 2 for g, p in zip(grid, position, strict=True)))
+        shell = (r > 2.0) & (r < 4.0)
+        worst.append(max(float(np.max(np.abs(np.asarray(v)[shell]))) for v in rates.values()))
+    assert worst[0] < 2e-3
+    assert worst[0] / worst[1] > 10

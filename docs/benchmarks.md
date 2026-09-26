@@ -6728,6 +6728,161 @@ Getting there took eleven bisections below the 3e−9 bracket, each run 15 to
 to its sixteenth figure, so 7e−13 is about three thousand times the
 precision of `p` itself.
 
+## The BFSS matrix model: a black hole's energy from quantum mechanics
+
+Issue #85. `particlesim.solvers.matrix.bfss` computes the internal energy of
+the D0-brane matrix model at finite temperature by Monte Carlo, and compares
+it with the black hole its dual gravity describes. It is the first Tier C
+solver: there is no metric and no field equation, only an integral over nine
+`N × N` matrices and their superpartners.
+
+### What the answer should be
+
+The units are those of the 't Hooft coupling, `λ = g²N = 1`. Type IIA
+supergravity's black 0-brane has
+
+    E/N² = (9/14) (4¹³ 15² (π/7)¹⁴)^(1/5) T^(14/5) = 7.407 T^(14/5),
+
+and the module computes the coefficient from that closed form. The stringy
+corrections are not known on the gravity side, so the published curves are
+Monte Carlo fits:
+
+| source | `E/N²` | range |
+|---|---|---|
+| Hanada, Hyakutake, Nishimura and Takeuchi (2009), non-lattice | `7.41 T^(14/5) − 5.58 T^(23/5)` | `0.5 ≤ T ≤ 0.7` |
+| Berkowitz et al. (2016), lattice, continuum and large `N` | `7.41 T^(14/5) − 9.7 T^(23/5) + 5.6 T^(29/5)` | `0.4 ≤ T ≤ 1` |
+
+The two fits differ by 6 to 9% where they overlap. Gravity also predicts
+the leading correction at finite `N`: `−5.77 T^(2/5)/N²` (Hanada, Hyakutake,
+Ishiki and Nishimura 2014). At `N = 10` and `T = 0.6` that is 4%, and the
+comparisons below add it to both curves.
+
+### The method
+
+This is Hanada, Nishimura and Takeuchi's non-lattice formulation.
+- The gauge field is fixed to a constant diagonal one.
+- The matrices keep the Fourier modes `|n| ≤ Λ`.
+- The fermions are integrated out into a Pfaffian, whose modulus is carried
+  by rational hybrid Monte Carlo. The phase is left out, as in both studies
+  compared with.
+- The energy is measured by the virial estimator
+  `E = 3T (⟨S₄⟩ − Re⟨Tr L⁻¹Y⟩/4)`, derived in the module's docstring.
+
+Every mode's momentum has the mass of its free kinetic term, and the zero
+modes and gauge angles take theirs from the measured curvature. The fermion
+force runs on a coarser step with a cheaper approximation, and the
+accept-reject step uses the accurate one. At `N = 10` and `Λ = 6` a
+trajectory takes 14 to 20 seconds on one core, with four runs sharing four.
+
+### Checks that do not need the answer
+
+- **The fermion operator.**
+  - Its Yukawa part is Hermitian.
+  - It is antisymmetric in the Majorana bilinear `Tr(ψχ)`, which is what a
+    Pfaffian needs.
+  - On a static diagonal background its determinant is the analytic
+    product to 1e−10.
+- **The pseudofermion action.** It is `(L†L)^(−1/4)` to 1e−7 against a dense
+  diagonalisation, and its force is its derivative to 1e−6.
+- **The virial estimator's fermion term.** It is the derivative of
+  `ln|det L|` under `X → (1 + ε)X`, computed densely, and the noise estimate
+  averages to it.
+- **The classical limit.** At high temperature only the zero modes are
+  strongly coupled, and the model becomes classical statistical mechanics.
+  After the Gauss law, each generator carries eight coordinates. Each has
+  `T/2` of kinetic energy and `T/4` of quartic potential energy, so
+  `E/N² → 6T(1 − 1/N²)`. At `N = 4`, `T = 30` the virial estimator gives
+  165.9 ± 2.1 against 168.75, and `⟨S₄⟩` is 29.9 against 30.
+- **The primitive estimator** `3T(D/2 − ⟨S_b⟩)` is exact but carries every
+  mode's fluctuation, so its errors are 0.07 to 0.13 against the virial
+  estimator's 0.02 to 0.03. Over the seven stationary runs below it is
+  higher by 0.08 ± 0.04. One run differs by 2.6σ, and the other six by less
+  than 1σ.
+
+### A black hole that comes apart at finite `N`
+
+The `N` D0-branes have flat moduli. A brane that leaves the bound state
+gains the entropy of nine noncompact directions, so at finite `N` the
+canonical ensemble does not exist, and the black hole is only metastable.
+The sampler takes a cut on `R² = (1/Nβ) ∫ Tr X²` and rejects any proposal
+above it. A result counts only if the cut is never felt.
+
+- **`N = 6` escapes.** Without a cut, `R²` climbed from 4 to 25 in 400
+  trajectories at `T = 0.6`. The two estimators parted, to 0.71 and 1.32,
+  because the virial identity holds only in equilibrium. With a cut the
+  ensemble presses against it wherever it is put: `R²` sat at 4.1 to 4.4
+  under a cut at 4.5, and at 5.0 to 5.2 under 5.5.
+- **`N = 8` makes excursions.** In them `R²` rises from 3.6 to about 4, the
+  Polyakov loop falls from 0.88 to 0.79, and `E` falls by 15 to 20% for a
+  hundred trajectories. At `T = 0.5` and `0.7` a brane left within 150
+  trajectories under a cut at 5.5.
+- **`N = 10` holds at `T ≥ 0.6`.** The cut at 4.5 was never met, and `R²`
+  stays at 3.6 to 3.7. At `T = 0.5` it did not hold. Over 550 trajectories
+  `R²` drifted from 3.7 to 4.4, the Polyakov loop from 0.81 to 0.62, and `E`
+  from 0.96 to 0.53, so `T = 0.5` is measured at `N = 12`.
+
+Restricting a run's samples to `R² < c` samples the ensemble with the cut at
+`c`, so a stationary run can be checked against the cut without rerunning
+it. At `N = 10`, lowering `c` from 4.5 to 4.0 moves `E` by 0.003 at
+`T = 0.6` and by 0.020 at `T = 0.7`. Both are within the error.
+
+### The result
+
+Each row is the virial energy, with the error from its integrated
+autocorrelation time, about one trajectory. Rows with two cutoffs or two
+chains are combined, and where the two disagree the error is scaled by
+`√(χ²/dof)`. Both curves carry gravity's `1/N²` term at that row's `N`.
+
+| `T` | `N` | runs | `E/N²` here | Hanada et al. + `1/N²` | Berkowitz et al. + `1/N²` |
+|---|---|---|---|---|---|
+| 0.5 | 12 | two chains, 424 and 201 | 0.864 ± 0.030 | 0.803 (+7.5%) | 0.734 (+18%) |
+| 0.6 | 10 | `Λ = 6`, 700, and `Λ = 8`, 400 | 1.149 ± 0.016 | 1.193 (−3.6%) | 1.090 (+5.5%) |
+| 0.7 | 10 | `Λ = 6`, 700, and `Λ = 8`, 300 | 1.644 ± 0.018 | 1.597 (+3.0%) | 1.507 (+9.1%) |
+| 0.8 | 10 | `Λ = 6`, 500 | 2.119 ± 0.025 | outside its range | 1.974 (+7.4%) |
+| 1.0 | 10 | `Λ = 6`, 500 | 3.164 ± 0.027 | outside its range | 3.252 (−2.7%) |
+
+**Hanada et al.'s curve is reproduced to between 3 and 7.5% at each of the
+temperatures it was fitted over.** Their stringy coefficient comes back as
+well. With the leading term fixed at 7.41 and gravity's `1/N²` term
+removed, a fit of `−C T^(23/5)` over `T = 0.5` to `0.7` gives
+`C = 5.47 ± 0.23` against their `5.58(1)`.
+
+That fit is not a good one: `χ² = 17` for two degrees of freedom, and the
+error above is inflated by `√(χ²/dof)`. The points scatter about the curve
+by more than their statistical errors, which is a residual systematic of
+about 5%. The runs point to three sources:
+- **The next `1/N²` term.** Gravity's `B T^(11/5)/N²` has an unknown
+  coefficient.
+- **Metastability.** `E` falls whenever the bound state loosens, and `N = 12`
+  is only just enough at `T = 0.5`. There the two chains, seeded
+  differently and both stationary, differ by 2.2σ.
+- **The cutoff.** At `T = 0.6` and `0.7`, going from `Λ = 6` to `8` moves `E`
+  by `+0.016 ± 0.033` and `−0.046 ± 0.048`. Neither is significant.
+
+Against Berkowitz et al.'s lower curve the energies here are 3 to 18% high.
+The largest gap is at `T = 0.5`, where the two published fits already
+differ by 9%.
+
+The Polyakov loop is measured with the energy: 0.79 at `T = 0.5`, rising
+through 0.84, 0.88 and 0.89 to 0.92 at `T = 1`. Nothing here compares it
+with a published value.
+
+### What is not here
+
+- **The BMN deformation.** Its mass terms and Myers term would be a few lines
+  in the action. The issue's tasks and acceptance are about BFSS, and BMN is
+  not implemented.
+- **The Pfaffian's phase.** It is left out, as in both studies compared with.
+  How large it is has not been measured here.
+- **Large `N`.** The runs stop at `N = 12`, where a trajectory takes about a
+  minute. The finite-`N` correction is taken from gravity, not measured: at
+  `N = 10` and 12 the predicted difference, 0.014 at `T = 0.6`, is below the
+  statistical error.
+- **A registered plugin.** The model has no metric and no GR limit, so it is
+  a solver backend under `particlesim.solvers.matrix`, not an entry in the
+  theory registry. That registry's checks require every plugin to reduce to
+  General Relativity.
+
 ## Not implemented yet
 
 Grouped by the milestone that will add them. Each is named in Section 10 of
@@ -6842,5 +6997,8 @@ the design document.
   Candelas et al.'s, as exact integers. Donaldson's balanced metrics and a
   trained network reach `σ = 0.0126`, and the Kaluza–Klein scale comes from
   the Laplacian of a balanced metric. See "The quintic" above.
-- BFSS energy versus temperature at one coupling (issue #85)
+- BFSS energy versus temperature at one coupling (issue #85) — **done** at
+  `N = 10` and 12: Hanada et al.'s curve to 3 to 7.5% at `T = 0.5` to `0.7`,
+  and their stringy coefficient as `5.47 ± 0.23` against `5.58`. See "The
+  BFSS matrix model" above.
 - IKKT dimension-emergence observable (issue #86)

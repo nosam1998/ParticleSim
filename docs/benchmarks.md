@@ -4058,12 +4058,61 @@ and it is not implemented. `Evolution.build` and `ccz4.build` call
 - Any other plugin away from its limit is refused too. The 3-D solvers
   evolve vacuum GR, and would otherwise ignore it without a word.
 
+### Order reduction at leading order: the scalar on a fixed hole
+
+`particlesim.theories.decoupling` is the first evolution to use the
+`order_reduced` formulation. At leading order the metric is General
+Relativity's, and the scalar obeys `□φ = −(λ²/4) f′(φ) 𝒢` on it. This is
+the decoupling limit: the scalar feels the hole's Gauss–Bonnet invariant,
+and the hole does not feel the scalar. The equation is well posed for any
+coupling, because nothing of higher order acts on `φ`.
+
+On Schwarzschild, with `ψ = rφ` and the tortoise coordinate `r*`, it is a
+1+1 wave equation with the `l = 0` potential and a source. Both ends are
+characteristic: the horizon at `r* → −∞`, where the potential and the source
+vanish, and the outer edge.
+- The interior uses fourth-order differences, RK4 and sixth-difference
+  Kreiss–Oliger dissipation.
+- The dissipation's sign is the one to check. With it flipped, a free
+  scalar grew from round-off to 1e+14 in 200 M.
+- 600 M on 2001 points takes about 2.5 s.
+
+Each check compares the evolution with something computed another way.
+
+| check | evolution | other answer | agreement |
+|---|---|---|---|
+| linear coupling, `λ² = 0.1`: relaxes to the closed-form hair `(αλ²/2M)(1/r + M/r² + 4M²/3r³)` | from rest | closed form | 6.6e−4, 1.4e−4 and 6.2e−5 of the hair at 100, 200 and 300 M, over `r = 2.2` to 30 M |
+| scalarization threshold, the lowest eigenvalue of the linearised operator crossing zero | 0.586980 | `bifurcation_points`, from the full static equations: 0.5869723 | 7e−6 |
+| growth rate at `M/λ = 0.5`, a `10⁻³` pulse | 0.0406690 | `√(−E₀)`: 0.0406697 | 2e−5 |
+| saturation at `M/λ = 0.5`, scalarization coupling, 600 M | `φ_H ≈ 0.2909` | shooting the static decoupled equation: `φ_H = 0.290674` | 1.4e−5 from `r = 2.5` to 10 M |
+
+The threshold's eigenvalue problem needs Neumann ends. That is the
+condition the static zero mode obeys at both ends. Dirichlet ends demand a
+bound state inside the box, and put the threshold at 0.555. At `M/λ = 0.71`,
+above the threshold, the same pulse decays.
+
+**The dilatonic plugin runs through it unchanged.**
+`DecouplingLimit.from_theory(DilatonGaussBonnet(alpha=…))` takes
+`f = e^{−2φ}` and `λ² = α` from `string.eft4d.dgb`. To first order its hair
+is the linear one with `α = −2`, and the evolution departs from that by the
+size of `e^{−2φ} − 1`: 1.4% at `λ² = 0.01`, and 18% at 0.1.
+
+**What leading order leaves out is backreaction, and it is measured.** At
+the threshold the scalar is infinitesimal and does not bend the metric. So
+the onset is exact, and it matches the fully coupled static equations, as
+the table shows. The endpoint is not exact. At `M/λ = 0.5` the decoupled
+scalar settles at `φ_H = 0.291`. The fully coupled hole of the same mass,
+`r_H = 0.8993λ` from `static_black_hole`, has `φ_H = 0.406`, 40% more. That
+difference is what the next order would carry. It enters at second order
+in `φ`, and at this `φ_H` it is not small.
+
 ### What is not here
 
 - **Modified CCZ4, and any 3-D evolution of this theory.** The issue's first
   task stays open.
-- **An order-reduction scheme.** The plugin declares the formulation that
-  ADR-008 gates, but no evolution uses it yet.
+- **Order reduction beyond leading order.** The next order puts the
+  scalar's stress and its Gauss–Bonnet term back into the metric. The
+  measurement above says how large that correction is at `M/λ = 0.5`.
 - **Stability.** A scalarized branch can be linearly unstable, and the
   quadratic coupling's is. Radial perturbations are not computed here.
 

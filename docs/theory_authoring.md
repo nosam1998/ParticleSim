@@ -41,7 +41,7 @@ table before writing a plugin so you know which parts are exercised.
 | `reduced_equations(symmetry)`, `metric_family(params)` | Not called. There is no reduced (FLRW or spherical) solver yet, so the Tier B contract is declared but unconsumed |
 | `gr_limit()` | Not called. The design doc says the framework runs the GR limit automatically as a test; today you write that test yourself (Section 9 shows how) |
 | `regime_of_validity(state)`, `observable_predictions()` | Not called. No run monitors the regime of validity and there is no report card |
-| `formulation` as a gate (ADR-008) | Not enforced. Nothing refuses `order_reduced` plugins for strong-field runs because there are no evolution solvers |
+| `formulation` as a gate (ADR-008) | Enforced by the 3-D solvers: `Evolution.build` and `ccz4.build` refuse an `order_reduced` plugin away from its GR limit with `IllPosedRun`. `particlesim.theories.decoupling` evolves such a plugin at leading order, in spherical symmetry, when it has a `coupling_function` |
 
 In short: a Tier A plugin that defines `effective_stress_energy` changes what
 the warp analyzer reports as required matter and energy-condition violation.
@@ -117,7 +117,7 @@ code:
 | `fields` | `list[FieldSpec]` | `[]` | Field content. `FieldSpec(name, kind, rank=0, units="dimensionless")` with `kind` one of `metric`, `scalar`, `vector`, `pform`, `spinor`. Declarative only today. |
 | `couplings` | `list[Coupling]` | `[]` | Named constants with defaults, units and bounds (Section 3). |
 | `frame` | `"einstein"` or `"jordan"` | `"einstein"` | Which conformal frame the metric you hand to matter is in. `TheoryStack` requires gravity, EM and EOS plugins to agree. |
-| `formulation` | `"standard"`, `"modified_ccz4"` or `"order_reduced"` | `"standard"` | The declared hyperbolic formulation (design doc Section 4.2, ADR-008). Printed, not enforced. |
+| `formulation` | `"standard"`, `"modified_ccz4"` or `"order_reduced"` | `"standard"` | The declared hyperbolic formulation (design doc Section 4.2, ADR-008). Gates strong-field 3-D runs (Section 1). |
 | `provenance` | `str` | `""` | Which paper, truncation and frame this implements. Required in spirit for every string-family plugin (design doc Section 2). Printed by `particlesim theories` and stored in every report. |
 | `validity_statement` | `str` | `"unrestricted"` | Human-readable regime of validity, for example `"curvature invariants below 1/alpha_prime"`. Reported as `validity`. |
 

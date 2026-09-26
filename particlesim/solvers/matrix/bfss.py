@@ -56,7 +56,12 @@ the modes that are free:
     E = 3 T (<S_4> - Re <Tr L^-1 Y> / 4),
 
 with ``S_4`` the commutator term and ``Y`` the Yukawa part of ``L``, whose
-trace is estimated with noise vectors. The two must agree, and they do.
+trace is estimated with noise vectors. The two must agree. Over seven runs
+the primitive one is higher by 0.08 +- 0.04, with errors three to five
+times the virial one's.
+
+The measurements, and why a finite-``N`` black hole needs a cut, are in
+``docs/benchmarks.md``.
 """
 
 from __future__ import annotations

@@ -74,6 +74,63 @@ def puncture_state(coords, position, mass: float = 1.0, backend: str = "jax") ->
     return {name: module.asarray(value) for name, value in state.items()}
 
 
+def perturbed_puncture_state(
+    coords,
+    position,
+    amplitude: float,
+    width: float = 1.0,
+    time: float = -7.0,
+    mass: float = 1.0,
+    spacing: float | None = None,
+    backend: str = "jax",
+) -> dict[str, Any]:
+    """A puncture with a Teukolsky ``l = 2`` wave around it, for a ringdown (issue #136).
+
+    ``gamma_ij = psi^4 (delta_ij + h_ij)`` and ``K_ij = -psi^4 dh_ij/dt / 2``,
+    with ``psi = 1 + m/2r`` and ``h`` the flat-space wave of
+    :mod:`~particlesim.solvers.nr.teukolsky` at ``time``. At the default
+    ``time = -7`` the wave is an ingoing shell near ``r = 7``, so it barely
+    overlaps the hole when it starts. The superposition is not a solution of
+    the constraints. What it violates is the cross term between ``h`` and
+    the curvature of ``psi``, a few percent of the wave at the shell, which
+    is enough to excite the hole and small enough to read a frequency
+    through. ``Gammabar^i`` is differenced with ``spacing``.
+    """
+    from particlesim.core.grid import derivative
+    from particlesim.solvers.nr import teukolsky
+    from particlesim.symbolic.threeplusone import determinant, inverse_metric
+
+    module = _module(backend)
+    relative = [np.asarray(c) - p for c, p in zip(coords, position, strict=True)]
+    radius = np.sqrt(sum(r**2 for r in relative))
+    if float(np.min(radius)) <= 0.0:
+        raise ValueError("a grid point lands on the puncture: psi is infinite there")
+    if spacing is None:
+        axis = np.asarray(coords[0])[:, 0, 0]
+        spacing = float(axis[1] - axis[0])
+    psi = 1.0 + mass / (2 * radius)
+    h = teukolsky.perturbation(time, relative, amplitude, width)
+    rate = teukolsky.perturbation(time, relative, amplitude, width, rate=True)
+    metric = [[psi**4 * ((1.0 if i == j else 0.0) + h[i][j]) for j in INDICES] for i in INDICES]
+    curvature = [[-0.5 * psi**4 * rate[i][j] for j in INDICES] for i in INDICES]
+    phi = np.log(determinant(metric)) / 12.0
+    conformal = np.exp(-4.0 * phi)
+    inverse = inverse_metric(metric)
+    trace = sum(inverse[i][j] * curvature[i][j] for i in INDICES for j in INDICES)
+    tilde = [[conformal * metric[i][j] for j in INDICES] for i in INDICES]
+    tilde_inverse = inverse_metric(tilde)
+    state: dict[str, Any] = {"phi": phi, "trK": trace, "alpha": psi**-2}
+    zero = np.zeros_like(psi)
+    for i in INDICES:
+        state[f"beta{i}"] = zero
+        state[f"B{i}"] = zero
+        state[f"Gt{i}"] = -sum(derivative(tilde_inverse[i][j], j, spacing) for j in INDICES)
+        for j in range(i, DIMENSION):
+            state[f"gt{i}{j}"] = tilde[i][j]
+            state[f"At{i}{j}"] = conformal * (curvature[i][j] - metric[i][j] * trace / 3)
+    return {name: module.asarray(value) for name, value in state.items()}
+
+
 @dataclass(frozen=True, eq=False)
 class TwoLevelPuncture:
     """A puncture, a refinement box around it, and a radiative edge on the coarse level."""
@@ -232,4 +289,4 @@ class TwoLevelPuncture:
         }
 
 
-__all__ = ["TwoLevelPuncture", "puncture_state"]
+__all__ = ["TwoLevelPuncture", "perturbed_puncture_state", "puncture_state"]

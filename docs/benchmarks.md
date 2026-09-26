@@ -1948,6 +1948,73 @@ a binary's event horizon sweeps out. Finding those needs a representation
 that is not a radius per direction, and this does not have one.
 
 
+### Ψ₄ from a 3-D slice, and a ringdown the resolution does not yet allow
+
+Issue #136 asks for the two halves above to meet through an evolution.
+`particlesim.analysis.extraction` is the part in between: `Psi_4` on a
+slice, and its spin-weight `−2` modes on a sphere.
+
+**The extraction is held to things that are exact.**
+- **The Weyl tensor.** `E_ij = R_ij + K K_ij − K_ik K^k_j` and
+  `B_ij = ε_(i|kl| D^k K^l_j)` come from the same `grid_slice` algebra as the
+  constraint kernel. On Schwarzschild in isotropic coordinates, `E` in the
+  radial frame is `diag(−2M/R³, M/R³, M/R³)` to 1e−03 of `M/R³` at spacing
+  `M/3.2`, `B` is zero, and `Psi_4` is 5e−04 of the curvature scale.
+- **The tetrad and its sign.** A linear plane wave leaving along the
+  radial direction gives `Psi_4 = h''` to 0.5%, the stencil's error. The
+  same wave arriving gives zero to the same error.
+- **The harmonics.** Goldberg's formula matches the `l = 2` closed forms to
+  1e−14 and is orthonormal to 1e−12 on the Gauss–Legendre sphere.
+- **The mode projection.** A field built from two harmonics is decomposed
+  back into them to 2e−03.
+
+**A head-on merger at `M/4` is not resolved.** Two Brill–Lindquist punctures
+of mass `1/2`, `1 M` apart, on the two-level grid of the puncture section
+above (fine spacing `M/4`, outer boundary at `12 M`, the second-order
+condition), were run to 45 M. Ψ₄'s `l = 2` mode grows instead of ringing
+down: from 1.4e−03 at 9 M to about 8e−02 at 32 M at `r = 5`. The fine-level
+constraint over the same time goes from 0.02 to 0.4. It is not the grid:
+a single mass-1 puncture on it stays clean, with Ψ₄ at 1e−07 to 1e−06 and
+the constraint at 0.014. It is not the gauge either: advecting it fails the
+same way. Each half-mass hole is about two fine cells across its horizon.
+
+**A puncture struck by a Teukolsky wave is stable, and rings.** A mass-1
+puncture with an ingoing `l = 2` Teukolsky shell from `r ≈ 7`
+(`puncture.perturbed_puncture_state`, amplitude 1e−02, `λ = 1`) runs cleanly
+to 90 M. The fine-level constraint levels off near 0.02 to 0.03, and the
+lapse holds a trumpet. The superposition violates the constraints at a few
+percent of the wave where the shell starts.
+
+Ψ₄ carries a component near `ω = 2.8`, about four coarse cells per period,
+which a 2.25 M boxcar removes; a boxcar leaves any exponential's frequency
+unchanged. After that the dominant `l = 2` mode between 0.2 and 0.6 comes
+out consistently. It was fitted at `r = 5` to 8 M, over windows 30 to 50 M
+long starting at 10 to 18 M, with four and six modes (96 fits):
+
+| mass used | `Mω`, median | real | imaginary | 16–84%, real | 16–84%, imaginary |
+|---|---|---|---|---|---|
+| the initial mass, 1 | 0.280 − 0.044i | −25% | −50% | 0.266 to 0.307 | −0.060 to −0.026 |
+| the apparent horizon's, at each window | 0.333 − 0.052i | −11% | −41% | 0.314 to 0.361 | −0.072 to −0.030 |
+
+**#136's 5% is not met, and the reason is measured.** The hole gains mass.
+The apparent horizon is converged from 70 M on (residual 1e−03) and reads
+1.189, 1.256, 1.320 and 1.381 at t = 30, 50, 70 and 90 M, which is 0.32% per
+M. The first run, with a wave a hundred times weaker, read 1.354 at 80 M, so
+the growth is numerical, not the wave. The finder is not at fault: on exact
+Schwarzschild with the horizon eight cells from the puncture it returns
+0.9997. Two cells from it, as on the `M/4` level at `t = 0`, it does not
+converge, which is why the growth before 30 M is not measured. Using the late
+mass, 1.35, the real part happens to land within 1% of 0.3737. That is the
+wrong comparison, since the fits span 10 to 68 M. Scaled by the mass at each
+window's time, the real part is 11% low and the damping 41% weak.
+
+**What #136 needs.** The hole resolved at `M/16` or finer, which on the
+two-level hierarchy means a fine level a quarter the spacing, sixty-four
+times the points. That needs a third level. The mass drift is measured to
+come from there. The grid mode and the slow oscillation near `ω = 0.27`
+probably do too, but that is not measured. The extraction, the harmonics and
+the fit do not need changing.
+
 ## A scalar test field on a warp background: what can be evolved *on* one
 
 Issue #54. Before anything is evolved *with* a warp metric, there is a

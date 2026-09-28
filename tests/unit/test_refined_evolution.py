@@ -357,3 +357,71 @@ def test_a_nested_step_wants_one_state_per_level():
     nested = refined.Nested((hierarchy, _pair_inside(hierarchy, 16, 16)))
     with pytest.raises(ValueError, match="2 states for 3 levels"):
         nested.step([coarse_state, fine_state])
+
+
+@pytest.mark.slow
+def test_three_levels_converge_on_the_gauge_wave():
+    """A third level inside the second, both refined along x, at least fourth order.
+
+    The coarse grid is ``n x 4 x 4``, since the wave does not vary across,
+    and the boxes cover ``[1/8, 7/8]`` and ``[3/8, 5/8]`` of it with six-point
+    buffers. The finest level is measured over ``(0.43, 0.57)``, inside its
+    buffer at every ``n``:
+
+        n                  32         64         128
+        three levels       9.57e-5    2.48e-6    7.78e-8     ratios 38.6, 31.9
+        two, same window   8.66e-5    3.74e-7    1.86e-8     ratios 231, 20.1
+
+    **The third level is less accurate here, not more**, by 6.6 and 4.2 times.
+    Its error is what its edge is handed, and that is prolonged and
+    time-interpolated from a level that already resolves the wave; over the
+    quarter of a crossing time evolved, the edge's error reaches the middle
+    of a box this small. Refinement buys accuracy where the parent does not
+    resolve the solution, as at a puncture, and a gauge wave is not that. So
+    the claim is only that the recursion converges, checked to beat third
+    order. Handing every sub-step the time its parent step starts at, rather
+    than its own, fails that outright: 0.23 at ``n = 32`` and 0.60 at 64.
+    The faster-than-fourth ratios come from the window: two levels show them
+    in it too.
+    """
+    buffer = 6
+    errors = []
+    for n in (32, 64):
+        coarse_state, spacing = bssn.gauge_wave(shape=(n, 4, 4), amplitude=AMPLITUDE, extent=EXTENT)
+        coarse = bssn.Evolution.build(spacing, slicing="harmonic", shift_condition="frozen")
+        outer = refined.Hierarchy.build(
+            coarse,
+            mesh.Box(origin=(n // 8, 0, 0), shape=(3 * n // 4, 4, 4)),
+            (n, 4, 4),
+            buffer=buffer,
+        )
+        inner = _pair_inside(outer, n // 2, n // 2, buffer=buffer)
+        nested = refined.Nested((outer, inner))
+
+        # Exact data on every level. Level one is x in [n/4, 7n/4) of 2n and
+        # level two [3n/2, 5n/2) of 4n.
+        middle, _ = bssn.gauge_wave(shape=(2 * n, 8, 8), amplitude=AMPLITUDE, extent=EXTENT)
+        finest, _ = bssn.gauge_wave(shape=(4 * n, 16, 16), amplitude=AMPLITUDE, extent=EXTENT)
+        low, high = 3 * n // 2, 5 * n // 2
+        states = [
+            coarse_state,
+            {name: value[n // 4 : 7 * n // 4] for name, value in middle.items()},
+            {name: value[low:high] for name, value in finest.items()},
+        ]
+        steps = max(1, int(round(FINAL / nested.time_step)))
+        out = nested.run(states, steps, FINAL / steps)
+
+        exact, _ = bssn.gauge_wave(
+            shape=(4 * n, 16, 16), amplitude=AMPLITUDE, time=FINAL, extent=EXTENT
+        )
+        start = int(np.ceil(0.43 * 4 * n)) - low
+        stop = int(np.floor(0.57 * 4 * n)) - low
+        assert start >= buffer and stop <= (high - low) - buffer, (start, stop)
+        worst = 0.0
+        for name, value in exact.items():
+            got = np.asarray(out[2][name])[start:stop]
+            want = np.asarray(value[low:high])[start:stop]
+            worst = max(worst, float(np.sqrt(np.mean((got - want) ** 2))))
+        errors.append(worst)
+
+    assert errors[0] / errors[1] > 11.0, errors

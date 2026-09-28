@@ -91,6 +91,7 @@ which is seventy-two array passes a stage for BSSN and dominates the run at
 
 from __future__ import annotations
 
+import weakref
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -150,6 +151,31 @@ def edge_derivative(field, axis: int, step: float, order: int = 4) -> np.ndarray
         o[2] = (-a[4] + 8 * a[3] - 8 * a[1] + a[0]) / (12 * step)
         o[-3] = (a[-5] - 8 * a[-4] + 8 * a[-2] - a[-1]) / (12 * step)
     return out
+
+
+def _stacked_edge_derivative(module, stacked, axis: int, step: float):
+    """:func:`edge_derivative` at fourth order on every field of a stack at once.
+
+    ``stacked`` has the variables first, so ``axis`` is counted after them.
+    Written with slices and a concatenation rather than assignment, so that
+    JAX can compile it.
+    """
+    a = module.moveaxis(stacked, axis + 1, 1)
+    centred = (-a[:, 4:] + 8 * a[:, 3:-1] - 8 * a[:, 1:-3] + a[:, :-4]) / (12 * step)
+    first = (-25 * a[:, 0] + 48 * a[:, 1] - 36 * a[:, 2] + 16 * a[:, 3] - 3 * a[:, 4]) / (12 * step)
+    second = (-3 * a[:, 0] - 10 * a[:, 1] + 18 * a[:, 2] - 6 * a[:, 3] + a[:, 4]) / (12 * step)
+    before = (3 * a[:, -1] + 10 * a[:, -2] - 18 * a[:, -3] + 6 * a[:, -4] - a[:, -5]) / (12 * step)
+    last = (25 * a[:, -1] - 48 * a[:, -2] + 36 * a[:, -3] - 16 * a[:, -4] + 3 * a[:, -5]) / (
+        12 * step
+    )
+    parts = [first[:, None], second[:, None], centred, before[:, None], last[:, None]]
+    return module.moveaxis(module.concatenate(parts, axis=1), 1, axis + 1)
+
+
+#: Compiled condition kernels, per boundary and set of variables. Held weakly,
+#: so a boundary that is dropped takes its kernels with it; the kernels
+#: themselves hold arrays, not the boundary.
+_STACKED: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 
 #: Asymptotic speeds of the gauge variables, by slicing condition.
@@ -228,6 +254,52 @@ class Radiative:
             out |= edge.reshape([-1 if k == axis else 1 for k in range(len(shape))])
         return out
 
+    @property
+    def stacked(self) -> bool:
+        """Whether the compiled, all-variables-at-once path applies: JAX at fourth order."""
+        return self.backend == "jax" and self.order == 4
+
+    def _compiled(self, names: tuple[str, ...]):
+        """``(radial, sommerfeld)`` for this boundary and these variables, compiled once.
+
+        ``radial(stack)`` is ``(x^i/r) d_i`` of every field in ``stack``, with
+        :func:`edge_derivative`'s stencils. ``sommerfeld(stack)`` is the
+        condition's rate for each. Both run on the device, where the
+        variable-by-variable NumPy version cost more than the kernel: 0.24 s
+        of Sommerfeld against 0.50 s of BSSN at 64^3, and with the second
+        condition more than half the right-hand side.
+        """
+        cache = _STACKED.setdefault(self, {})
+        if names in cache:
+            return cache[names]
+        import jax
+        import jax.numpy as jnp
+
+        radius = np.maximum(self.radius, min(self.spacing))
+        direction = jnp.asarray(
+            np.stack([np.asarray(self.coords[axis]) / radius for axis in range(DIMENSION)])
+        )
+        inverse = jnp.asarray(1.0 / radius)
+        spacing = tuple(self.spacing)
+        column = (len(names),) + (1,) * DIMENSION
+        background = jnp.asarray([ASYMPTOTIC.get(name, 0.0) for name in names]).reshape(column)
+        table = self.speeds or {}
+        speeds = [table.get(name, self.speed) for name in names]
+        speed = jnp.asarray(speeds).reshape(column)
+
+        def radial(stack):
+            return sum(
+                direction[axis] * _stacked_edge_derivative(jnp, stack, axis, spacing[axis])
+                for axis in range(DIMENSION)
+            )
+
+        def sommerfeld(stack):
+            return -speed * (radial(stack) + (stack - background) * inverse)
+
+        compiled = (jax.jit(radial), jax.jit(sommerfeld), speed, inverse)
+        cache[names] = compiled
+        return compiled
+
     def rates(self, state) -> dict[str, Any]:
         """``d_t f`` from the Sommerfeld condition, everywhere.
 
@@ -238,10 +310,19 @@ class Radiative:
         wrapping matters, and slicing a slab out first would put the wrap
         back.
 
-        Three derivatives per variable per call is the cost, and it is the
-        reason this is worth restricting to a slab once it carries a
-        production run.
+        Three derivatives per variable per call is the cost. With JAX at
+        fourth order they are taken for every variable at once on the device
+        (:meth:`_compiled`), which cut this call from 0.24 s to 0.09 s at 64^3.
+        A slab would save less than it seems: with a zone a unit deep the six
+        faces are most of a 96^3 grid.
         """
+        if self.stacked:
+            import jax.numpy as jnp
+
+            names = tuple(state)
+            _, sommerfeld, _, _ = self._compiled(names)
+            rates = sommerfeld(jnp.stack([jnp.asarray(state[name]) for name in names]))
+            return {name: rates[index] for index, name in enumerate(names)}
         radius = np.maximum(self.radius, min(self.spacing))
         out = {}
         for name, value in state.items():
@@ -401,9 +482,41 @@ class SecondOrder(Bounded):
         )
         return gradient, radius
 
+    def _stacked_rates(self, geometry, auxiliary, rates) -> dict[str, Any]:
+        """The same rates as below, for every variable at once on the device."""
+        import jax
+        import jax.numpy as jnp
+
+        b = self.boundary
+        names = tuple(geometry)
+        radial, sommerfeld, speed, inverse = b._compiled(names)
+        cache = _STACKED.setdefault(b, {})
+        key = (names, "second")
+        if key not in cache:
+            zone = jnp.asarray(b.mask())
+
+            def combine(fields, kernel, carried_zone):
+                condition = sommerfeld(fields)
+                carried = jnp.where(zone, carried_zone, kernel - condition)
+                own = jnp.where(zone, condition + carried, kernel)
+                moved = -speed * (radial(carried) + 3.0 * carried * inverse)
+                return own, jnp.where(zone, moved, 0.0)
+
+            cache[key] = jax.jit(combine)
+        own, moved = cache[key](
+            jnp.stack([jnp.asarray(geometry[n]) for n in names]),
+            jnp.stack([jnp.asarray(rates[n]) for n in names]),
+            jnp.stack([jnp.asarray(auxiliary[AUXILIARY + n]) for n in names]),
+        )
+        out = {name: own[index] for index, name in enumerate(names)}
+        out.update({AUXILIARY + name: moved[index] for index, name in enumerate(names)})
+        return out
+
     def right_hand_side(self, state) -> dict[str, Any]:
         geometry, auxiliary = self._split(state)
         rates = self.evolution.right_hand_side(geometry)
+        if self.boundary.stacked:
+            return self._stacked_rates(geometry, auxiliary, rates)
         zone = self.boundary.mask()
         b = self.boundary
         out = {}
@@ -437,98 +550,6 @@ class SecondOrder(Bounded):
         return self.project(out) if self.evolution.enforce else out
 
 
-#: Prefix of the third condition's second auxiliary field, ``w = B2 u``.
-SECOND_AUXILIARY = "aux2:"
-
-
-class ThirdOrder(SecondOrder):
-    """Bayliss and Turkel's third condition: exact for ``1/r``, ``1/r^2`` and ``1/r^3``.
-
-    On a term ``g(t - r)/r^k`` each factor ``d_t + c d_r + (2j - 1) c / r``
-    multiplies by ``(j - k)`` and lowers the power by one, so ``B1`` leaves
-    ``(1 - k) g / r^(k+1)``, ``B2`` leaves ``(1 - k)(2 - k) g / r^(k+2)``, and
-
-        B3 = (d_t + c d_r + 5c/r)(d_t + c d_r + 3c/r)(d_t + c d_r + c/r)
-
-    annihilates ``k = 1``, 2 and 3 for any profile. A quadrupole Teukolsky
-    wave's metric components run to ``1/r^5``, and B2's ``1/r^3`` residual is
-    what the second condition could not absorb.
-
-    It is carried as :class:`SecondOrder` with a second auxiliary field
-    ``w = B2 u``:
-
-        d_t u = -c (d_r u + u / r) + v
-        d_t v = -c (d_r v + 3 v / r) + w
-        d_t w = -c (d_r w + 5 w / r)
-
-    Outside the zone ``v`` and ``w`` are what the interior makes of ``B1 u`` and
-    ``B2 u``. The second needs ``d_t^2 u``, which is the Jacobian of the
-    interior's right-hand side applied to its own rates. An evolution may
-    supply it as ``acceleration(state, rates)``. Otherwise it is taken with
-    ``jax.jvp``, which costs about two more evaluations of the right-hand
-    side per stage.
-    """
-
-    def start(self, state) -> dict[str, Any]:
-        """``state`` with both auxiliary fields, zero where they are missing."""
-        out = dict(state)
-        for name in state:
-            if name.startswith((AUXILIARY, SECOND_AUXILIARY)):
-                continue
-            for prefix in (AUXILIARY, SECOND_AUXILIARY):
-                if prefix + name not in out:
-                    out[prefix + name] = np.zeros(np.asarray(state[name]).shape)
-        return out
-
-    def _split(self, state):
-        prefixes = (AUXILIARY, SECOND_AUXILIARY)
-        geometry = {k: v for k, v in state.items() if not k.startswith(prefixes)}
-        return geometry, {k: v for k, v in state.items() if k.startswith(prefixes)}
-
-    def _acceleration(self, geometry, rates):
-        """``d_t^2 u`` of the interior: its right-hand side differentiated along its rates."""
-        supplied = getattr(self.evolution, "acceleration", None)
-        if supplied is not None:
-            return supplied(geometry, rates)
-        import jax
-
-        _, second = jax.jvp(self.evolution.right_hand_side, (dict(geometry),), (dict(rates),))
-        return second
-
-    def right_hand_side(self, state) -> dict[str, Any]:
-        geometry, auxiliary = self._split(state)
-        rates = self.evolution.right_hand_side(geometry)
-        second = self._acceleration(geometry, rates)
-        zone = self.boundary.mask()
-        b = self.boundary
-        out = {}
-        for name, value in geometry.items():
-            field = np.asarray(value)
-            speed = b.speed if b.speeds is None else b.speeds.get(name, b.speed)
-            gradient, radius = self._radial(field)
-            sommerfeld = -speed * (gradient + (field - ASYMPTOTIC.get(name, 0.0)) / radius)
-            kernel = np.asarray(rates[name])
-            # Outside the zone: v = B1 u from the interior's rate, and
-            # w = (d_t + c d_r + 3c/r) v with d_t v from its acceleration.
-            first = kernel - sommerfeld
-            kernel_gradient, _ = self._radial(kernel)
-            first_rate = np.asarray(second[name]) + speed * (kernel_gradient + kernel / radius)
-            first_gradient, _ = self._radial(first)
-            outer = first_rate + speed * (first_gradient + 3.0 * first / radius)
-            carried = np.where(zone, np.asarray(auxiliary[AUXILIARY + name]), first)
-            carried_second = np.where(zone, np.asarray(auxiliary[SECOND_AUXILIARY + name]), outer)
-            out[name] = np.where(zone, sommerfeld + carried, kernel)
-            carried_gradient, _ = self._radial(carried)
-            out[AUXILIARY + name] = np.where(
-                zone, -speed * (carried_gradient + 3.0 * carried / radius) + carried_second, 0.0
-            )
-            second_gradient, _ = self._radial(carried_second)
-            out[SECOND_AUXILIARY + name] = np.where(
-                zone, -speed * (second_gradient + 5.0 * carried_second / radius), 0.0
-            )
-        return out
-
-
 def interior(array, width: int, axes) -> np.ndarray:
     """The physical region, with the boundary zone cut off.
 
@@ -550,9 +571,7 @@ __all__ = [
     "GAUGE_SPEEDS",
     "Bounded",
     "Radiative",
-    "SECOND_AUXILIARY",
     "SecondOrder",
-    "ThirdOrder",
     "edge_derivative",
     "interior",
 ]

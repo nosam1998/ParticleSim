@@ -523,93 +523,42 @@ def test_the_second_condition_halves_what_the_teukolsky_wave_leaves_behind():
     assert max(amp for amp, _ in after) < initial / 200.0, samples
 
 
-class _ExactCubic(_Exact):
-    """``f = (a/r + b/r^2 + c/r^3) g(t - r)``, with its rate and acceleration."""
+def test_the_compiled_stack_gives_the_variable_by_variable_rates():
+    """On the device, all variables at once, to rounding: Sommerfeld's and the second condition's.
 
-    def __init__(self, mesh, cubic=40.0, **kwargs):
-        super().__init__(mesh, **kwargs)
-        self.c = cubic
-
-    def _powers(self, g):
-        r = self.radius
-        return self.a * g / r + self.b * g / r**2 + self.c * g / r**3
-
-    def profile(self, time=0.0):
-        r = self.radius
-        phase = (time - r + self.centre) / self.width
-        g = np.exp(-(phase**2))
-        dg = -2 * phase * g / self.width
-        ddg = (4 * phase**2 - 2) * g / self.width**2
-        # B1 u = sum (1 - k) g / r^(k+1); B2 u = sum (1 - k)(2 - k) g / r^(k+2).
-        v = -self.b * g / r**3 - 2 * self.c * g / r**4
-        w = 2 * self.c * g / r**5
-        dv = -self.b * dg / r**3 - 2 * self.c * dg / r**4
-        return self._powers(g), self._powers(dg), self._powers(ddg), v, w, dv
-
-    def right_hand_side(self, state):
-        return {"phi": self.profile()[1]}
-
-    def acceleration(self, state, rates):
-        return {"phi": self.profile()[2]}
-
-
-def test_the_third_condition_carries_what_the_second_drops():
-    """On ``(a/r + b/r^2 + c/r^3) g(t - r)``, B3 moves ``v = B1 u`` exactly; B2 misses ``w``.
-
-    B2 is exact for the first two powers only: it leaves ``2c g/r^5`` of the
-    third, which it would otherwise have carried as ``w = B2 u``. The third
-    condition carries ``w``, reads it from the interior's acceleration
-    outside the zone, and moves ``v`` at the field's own rate.
+    The JAX boundary at fourth order takes the compiled path; the NumPy one
+    takes the loop it replaced. Same state, same zone, same speeds.
     """
-    mesh, radiative = _second_order_setup()
-    exact = _ExactCubic(mesh)
-    field, rate, _, v, w, dv = exact.profile()
-    zone = radiative.mask()
-
-    second = boundary.SecondOrder(exact, radiative)
-    state = second.start({"phi": field})
-    state[boundary.AUXILIARY + "phi"] = np.where(zone, v, 0.0)
-    rates_second = second.right_hand_side(state)
-
-    third = boundary.ThirdOrder(exact, radiative)
-    state = third.start({"phi": field})
-    state[boundary.AUXILIARY + "phi"] = np.where(zone, v, 0.0)
-    state[boundary.SECOND_AUXILIARY + "phi"] = np.where(zone, w, 0.0)
-    rates_third = third.right_hand_side(state)
-
-    scale = np.abs(dv[zone]).max()
-    second_error = np.abs(rates_second[boundary.AUXILIARY + "phi"] - dv)[zone].max()
-    third_error = np.abs(rates_third[boundary.AUXILIARY + "phi"] - dv)[zone].max()
-    assert second_error > 0.05 * scale
-    assert third_error < second_error / 20
-    assert np.abs(rates_third["phi"] - rate)[zone].max() < 1e-3 * np.abs(rate[zone]).max()
-    # And w moves as B3 says: d_t w = 2c g'(t - r) / r^5.
-    phase = (exact.centre - exact.radius) / exact.width
-    dg = -2 * phase * np.exp(-(phase**2)) / exact.width
-    expected = 2 * exact.c * dg / exact.radius**5
-    moved = np.abs(rates_third[boundary.SECOND_AUXILIARY + "phi"] - expected)[zone].max()
-    assert moved < 0.05 * np.abs(expected[zone]).max()
-
-
-def test_the_third_condition_adds_both_fields_and_steps():
-    """A bare state steps with both auxiliary fields added."""
-    mesh, radiative = _second_order_setup(n=16, extent=16.0, width=3)
-    exact = _ExactCubic(mesh)
-    field, *_ = exact.profile()
-    third = boundary.ThirdOrder(exact, radiative)
-    stepped = third.step({"phi": field}, 0.1)
-    assert set(stepped) == {"phi", boundary.AUXILIARY + "phi", boundary.SECOND_AUXILIARY + "phi"}
-    assert all(np.all(np.isfinite(value)) for value in stepped.values())
-
-
-@pytest.mark.slow
-def test_the_third_condition_leaves_minkowski_alone_through_jvp():
-    """Flat space under the real BSSN evolution, its acceleration taken by ``jax.jvp``."""
-    state, spacing = bssn.gauge_wave(shape=(16, 16, 16), amplitude=0.0, extent=EXTENT)
-    axis = np.linspace(0.0, EXTENT, 16, endpoint=False) - EXTENT / 2
+    state, spacing = bssn.gauge_wave(shape=(20, 20, 20), amplitude=0.05, extent=EXTENT)
+    rng = np.random.default_rng(3)
+    state = {k: np.asarray(v) + 1e-3 * rng.normal(size=np.shape(v)) for k, v in state.items()}
+    axis = np.linspace(0.0, EXTENT, 20, endpoint=False) - EXTENT / 2
     mesh = tuple(np.meshgrid(axis, axis, axis, indexing="ij"))
-    evolution = bssn.Evolution.build(spacing)
-    radiative = boundary.Radiative(coords=mesh, spacing=spacing, axes=AXES, width=3)
-    third = boundary.ThirdOrder(evolution, radiative)
-    rates = third.right_hand_side(third.start(dict(state)))
-    assert max(float(np.abs(np.asarray(v)).max()) for v in rates.values()) < 1e-12
+    speeds = {"alpha": np.sqrt(2.0), "trK": np.sqrt(2.0)}
+
+    def radiative(backend):
+        return boundary.Radiative(
+            coords=mesh, spacing=spacing, axes=AXES, width=3, backend=backend, speeds=speeds
+        )
+
+    compiled, loop = radiative("jax"), radiative("numpy")
+    assert compiled.stacked and not loop.stacked
+    fast, slow = compiled.rates(state), loop.rates(state)
+    for name in state:
+        assert np.allclose(np.asarray(fast[name]), slow[name], rtol=1e-12, atol=1e-12), name
+
+    class _Kernel:
+        enforce = False
+
+        def right_hand_side(self, s):
+            return {name: 0.3 * np.sin(np.asarray(v)) for name, v in s.items()}
+
+    auxiliary = {
+        boundary.AUXILIARY + k: 1e-3 * rng.normal(size=np.shape(v)) for k, v in state.items()
+    }
+    full = {**state, **auxiliary}
+    fast = boundary.SecondOrder(_Kernel(), compiled).right_hand_side(full)
+    slow = boundary.SecondOrder(_Kernel(), loop).right_hand_side(full)
+    assert set(fast) == set(slow)
+    for name in slow:
+        assert np.allclose(np.asarray(fast[name]), slow[name], rtol=1e-12, atol=1e-12), name

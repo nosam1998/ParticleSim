@@ -1746,10 +1746,34 @@ Sommerfeld's 1.0. It is bounded at 0.7.
   constraint violation after the reflection stops converging past 72
   points. With the second condition it converges again, at about 2.6
   against the interior's 3.9.
-- **Not slab-restricted.** `Radiative.rates` takes three bounded-domain
-  derivatives per variable per stage over the *whole* array — seventy-two
-  array passes a stage for BSSN — and it dominates the run at 64³. The
-  obvious fix is to compute them only in the zone.
+- **Not slab-restricted, but compiled.** `Radiative.rates` took three
+  bounded-domain derivatives per variable per stage in NumPy, one variable
+  at a time. With the second condition that was more than half the
+  right-hand side at 64³: 0.65 s of 1.14 s. With JAX at fourth order both
+  conditions now take every variable at once on the device, to rounding.
+  They agree with the old loop to 1e−12, and a Teukolsky run at 48 points
+  reproduces the old one to a relative 1.3e−07. At 64³ Sommerfeld's rates
+  take 0.09 s against 0.24 s, and the second condition's right-hand side
+  0.77 s against 1.14 s. A slab would save less than it seems: a zone one
+  unit deep puts most of a 96³ grid in the six faces.
+- **The third condition, `B₃`, is not in.** It annihilates `g/r³` as well,
+  and a quadrupole wave's metric runs to `1/r⁵`, so it was the natural next
+  step. Carried like the second, it needs a second auxiliary field
+  `w = B₂u`. Outside the zone that is the interior's own `B₂u`, which takes
+  `∂_t²u`, and that came from the Jacobian of the right-hand side along its
+  rates. On the Teukolsky wave at 48 points it was unstable. It matched the
+  second condition to `t = 6`, then the error grew from 0.02 to 0.60 by
+  `t = 10.5`, as grid-scale noise in both auxiliary fields.
+  - Dissipation on the auxiliary fields did not help: 0.61.
+  - Taking `w = 0` outside the zone was stable but identical to `B₂` to every
+    digit. `w` only enters the zone through that inflow, so with none it
+    stays zero.
+  - The interior's rates next to the zone read the zone, and `∂_t²u` then
+    differentiates them twice more. That loop amplifies what the grid
+    cannot resolve.
+
+  A surface formulation, with the auxiliary fields on the boundary and
+  only tangential derivatives, avoids it, and is not attempted here.
 
 
 ## Quasinormal modes and horizons: the one number that is not a convergence test

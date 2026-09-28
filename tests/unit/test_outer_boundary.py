@@ -521,3 +521,44 @@ def test_the_second_condition_halves_what_the_teukolsky_wave_leaves_behind():
 
     assert max(err for _, err in after) < 0.7 * truncation, samples
     assert max(amp for amp, _ in after) < initial / 200.0, samples
+
+
+def test_the_compiled_stack_gives_the_variable_by_variable_rates():
+    """On the device, all variables at once, to rounding: Sommerfeld's and the second condition's.
+
+    The JAX boundary at fourth order takes the compiled path; the NumPy one
+    takes the loop it replaced. Same state, same zone, same speeds.
+    """
+    state, spacing = bssn.gauge_wave(shape=(20, 20, 20), amplitude=0.05, extent=EXTENT)
+    rng = np.random.default_rng(3)
+    state = {k: np.asarray(v) + 1e-3 * rng.normal(size=np.shape(v)) for k, v in state.items()}
+    axis = np.linspace(0.0, EXTENT, 20, endpoint=False) - EXTENT / 2
+    mesh = tuple(np.meshgrid(axis, axis, axis, indexing="ij"))
+    speeds = {"alpha": np.sqrt(2.0), "trK": np.sqrt(2.0)}
+
+    def radiative(backend):
+        return boundary.Radiative(
+            coords=mesh, spacing=spacing, axes=AXES, width=3, backend=backend, speeds=speeds
+        )
+
+    compiled, loop = radiative("jax"), radiative("numpy")
+    assert compiled.stacked and not loop.stacked
+    fast, slow = compiled.rates(state), loop.rates(state)
+    for name in state:
+        assert np.allclose(np.asarray(fast[name]), slow[name], rtol=1e-12, atol=1e-12), name
+
+    class _Kernel:
+        enforce = False
+
+        def right_hand_side(self, s):
+            return {name: 0.3 * np.sin(np.asarray(v)) for name, v in s.items()}
+
+    auxiliary = {
+        boundary.AUXILIARY + k: 1e-3 * rng.normal(size=np.shape(v)) for k, v in state.items()
+    }
+    full = {**state, **auxiliary}
+    fast = boundary.SecondOrder(_Kernel(), compiled).right_hand_side(full)
+    slow = boundary.SecondOrder(_Kernel(), loop).right_hand_side(full)
+    assert set(fast) == set(slow)
+    for name in slow:
+        assert np.allclose(np.asarray(fast[name]), slow[name], rtol=1e-12, atol=1e-12), name

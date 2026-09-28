@@ -383,6 +383,14 @@ def staggered_offset(levels: int) -> int:
     is one half-spacing, the quarter coarse cell :class:`TwoLevelPuncture`
     uses. For four it is five, which leaves ``5/16``, ``3/8``, ``1/4`` and
     ``1/2`` of a cell from the coarsest level to the finest.
+
+    **This is probably the wrong thing to maximise for many levels.** For
+    five it is eleven: 0.69 M off the boxes' common centre at a finest
+    spacing of ``M/8``. In the ringdown run the hole drifted back toward
+    that centre, 0.13 M by 90 M and 0.33 M by 120 M. The coarse levels are
+    overwritten by restriction wherever the puncture is, so how close it
+    comes to their points matters less than keeping it centred. The cause
+    is likely but not established; see ``docs/benchmarks.md``.
     """
     if levels < 1:
         raise ValueError(f"{levels} levels")

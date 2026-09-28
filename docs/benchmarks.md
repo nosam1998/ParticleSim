@@ -2109,6 +2109,114 @@ come from there. The grid mode and the slow oscillation near `ω = 0.27`
 probably do too, but that is not measured. The extraction, the harmonics and
 the fit do not need changing.
 
+Recomputed with each mode's size compared at its window's start rather
+than at `t = 0` (see below), the fit above reads 0.277 − 0.043i instead of
+0.280 − 0.044i. The conclusion does not change.
+
+### Nested levels and a wider shell: the fundamental to within 5%
+
+Five nested levels (`refined.Nested`, through `puncture.NestedPuncture`)
+put the hole at `M/8` and the outer boundary at 48 M for about the cost of
+three levels at 24 M. Each level is 48³, at spacings 2, 1, 1/2, 1/4 and 1/8
+M, with two coarse steps per M. The second-order boundary is on the
+coarsest level, and the gauge is the unadvected one. Ψ₄ is extracted every
+half M at r = 5, 6 and 7 on the `M/2` level, 10, 12 and 14 on the `M` level,
+and 20, 25 and 30 on the `2M` level. Running alone it takes about 107 s per
+M. The 120 M run took 4.4 hours, part of it shared with another run.
+
+**Resolving the hole stopped the mass growth.** Irreducible mass of the
+apparent horizon, measured on an `M/8` level where the run has one:
+
+| run | 10 | 20 | 30 | 50 | 70 | 90 | 110 |
+|---|---|---|---|---|---|---|---|
+| two levels, `M/4`, width-1 shell (above) | — | — | 1.189 | 1.256 | 1.320 | 1.381 | — |
+| three levels, `M/8`, width 1 | 1.004 | 1.018 | 1.012 | 1.004 | 0.994 | 0.984 | — |
+| four levels, `M/16`, width 1 (read on `M/8`) | 1.005 | 1.022 | 1.020 | 1.015 | — | — | — |
+| four levels, `M/4` finest, width 3 | 1.040 | 1.125 | 1.181 | 1.256 | 1.330 | — | — |
+| five levels, `M/8`, width 3 | 0.999 | 0.997 | 0.992 | 0.987 | 0.982 | 0.976 | 0.969 |
+
+At `M/4` the hole still gains more than a third of its mass by 80 M,
+whatever else changes. At `M/8` the gain is gone. What remains is a loss of about 0.03%
+per M, which is numerical, since an apparent horizon's area cannot shrink.
+
+**The width-1 shell was not measuring the linear ringdown.** At amplitude
+1e−02, a crude `∫ ḣ²` puts its energy at 2.4% of M, and the horizon above
+took up 1.6%. The two `M/4` runs a hundred times apart in amplitude differ
+by 99 times during the burst and by 250 to 5200 times after 15 M. So the
+late signal is mostly second order in the wave. The narrow profile also
+puts little of its spectrum near `Mω = 0.37`, and most of it falls in.
+Fitted as above, the nested width-1 runs read 0.339 − 0.030i at `M/8` and
+0.335 − 0.031i at `M/16`. Moving the extraction to 14 M and the boundary to
+48 M changed nothing: r·Ψ₄ agreed in retarded time up to `u = t − r = 30`.
+
+**A width-3 shell at amplitude 0.1** has a peak `|h|` of 4e−03 and about
+1.1e−03 M of energy, twenty times less. Its profile's spectrum at 0.37 is
+about two hundred times larger. It starts at `r = 12` (`time = −12`).
+
+**The start of the window decides the answer.** The scattered pulse leaves
+first, at frequencies above the fundamental, and the ringing settles onto
+the fundamental after it. `qnm.half_periods` shows this without a model.
+The gaps between zero crossings at `r = 10` from `u = 15` are 6.3, 6.7,
+7.8, 7.7 and 8.8 M, against `π/Re ω = 8.41`. `qnm.windowed_frequencies`
+fitted each radius with two, three and four modes. Each window ends at
+that radius's noise floor, taken as the first half period shorter than
+half the fundamental's (`u ≈ 75` on the finer levels), or 5 or 10 M
+before it. Each fit is scaled by the horizon's mass over its own window:
+
+| window start `u` | fits | `Mω`, median | real | imaginary |
+|---|---|---|---|---|
+| 20 | 81 | 0.437 − 0.057i | +16.8% | −36.3% |
+| 25 | 81 | 0.415 − 0.074i | +11.0% | −16.7% |
+| 30 | 75 | 0.397 − 0.083i | +6.1% | −6.5% |
+| 35 | 69 | 0.390 − 0.087i | +4.5% | −2.5% |
+| 40 | 63 | 0.381 − 0.091i | +2.0% | +2.6% |
+| 45 | 63 | 0.374 − 0.092i | +0.1% | +3.0% |
+| 50 | 48 | 0.373 − 0.093i | −0.1% | +4.1% |
+
+The half periods are within about 5% of the fundamental's from `u ≈ 40`.
+From there, every start gives both parts within 5%.
+
+**#136's number.** Windows starting at `u` = 40, 45 and 50, 174 fits at
+seven radii. The radii at 25 and 30 M, on the `2M` level at eight points
+per wavelength, reach their noise at `u ≈ 58` and have no window that late.
+
+| mass | `Mω`, median | real | imaginary | `|Δω|/|ω|` |
+|---|---|---|---|---|
+| the initial mass, 1 | 0.3841 − 0.0933i | +2.8% | +4.8% | 2.9% |
+| the horizon's, over each window | 0.3764 − 0.0915i | +0.7% | +2.9% | 1.0% |
+| the final converged horizon's, 0.9694 at 110 M | 0.3724 − 0.0904i | −0.3% | +1.6% | 0.5% |
+
+Over the fits, the middle row's 16–84% range is 0.368 to 0.383 for the real
+part and −0.097 to −0.085 for the imaginary. By radius, each median is
+within 5% except the damping at `r = 5` (+6.4%). The real part is 0.374 to
+0.379 at every radius. The frequency read with `M = 1` implies a mass of
+0.973, close to the horizon's over the windows, 0.976 to 0.988. So the
+waves see the same slow mass loss the horizon shows.
+
+**What this does not establish.**
+- **One resolution.** Only `M/8` was run with the wide shell. At `M/4` the
+  same shell gives fits scattered around 0.44 − 0.11i, and a horizon that
+  has grown by 37% at 80 M. `M/16` needs a larger finest box than 48 points: at
+  ±1.5 M the horizon sits in the buffer, which is what the width-1 `M/16`
+  run showed. That run was not done.
+- **The energy balance.** #136 asks for the final mass to be checked against
+  the radiated energy. The outgoing `l = 2` radiation carries about 1e−06 M
+  (the news at r = 10, 14 and 20 after `u = 5`). The horizon loses 3% to
+  numerical error, four orders of magnitude more. At this accuracy the
+  check cannot be made.
+- **The hole drifts.** Five levels put the puncture 0.69 M from the
+  boxes' common centre along the diagonal (`puncture.staggered_offset`). The
+  lapse's collapsed region moves back toward that centre, by 0.017 M at
+  50 M, 0.135 M at 90 M and 0.33 M at 120 M. That is what the horizon
+  finder's growing "distortion" is. By the end of the fit windows it is at
+  most 0.2 M against extraction radii of 5 to 20 M. The asymmetric
+  placement is the likely cause, but this is not established.
+
+**A bug found on the way.** `ringdown_fit`'s amplitudes refer to `t = 0`,
+so comparing them to pick the dominant mode in a late window favours
+heavily damped modes by `exp(Δγ t)`. `windowed_frequencies` compares them
+at the window's start.
+
 ## A scalar test field on a warp background: what can be evolved *on* one
 
 Issue #54. Before anything is evolved *with* a warp metric, there is a

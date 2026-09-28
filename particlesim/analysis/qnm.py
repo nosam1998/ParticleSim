@@ -366,6 +366,70 @@ def dominant_frequency(times, signal, modes: int = 2) -> complex:
     return max(oscillating, key=lambda value: value.imag)
 
 
+def half_periods(times, signal) -> tuple[np.ndarray, np.ndarray]:
+    """The gaps between successive zero crossings, and the times between which they fall.
+
+    A model-free check on a fit. A single damped sinusoid crosses zero every
+    ``pi / Re(omega)`` whatever its damping, so the gaps are constant; a
+    ringdown still mixed with the pulse that excited it has shorter gaps
+    first and lengthening ones after, and a fit over a window that includes
+    them reads a frequency between the two. Crossings are located by linear
+    interpolation between samples.
+    """
+    time = np.asarray(times, dtype=float)
+    data = np.asarray(signal, dtype=float)
+    if time.ndim != 1 or data.shape != time.shape:
+        raise ValueError(f"times {time.shape} and signal {data.shape} must be matching 1-D arrays")
+    change = np.nonzero(np.sign(data[:-1]) * np.sign(data[1:]) < 0)[0]
+    crossings = time[change] - data[change] * (time[change + 1] - time[change]) / (
+        data[change + 1] - data[change]
+    )
+    return np.diff(crossings), 0.5 * (crossings[1:] + crossings[:-1])
+
+
+def windowed_frequencies(
+    times,
+    signal,
+    starts,
+    lengths,
+    modes=(2, 3, 4),
+    band: tuple[float, float] = (0.0, np.inf),
+) -> list[tuple[float, float, int, complex]]:
+    """The dominant mode in ``band`` from every window and mode count.
+
+    ``(start, length, modes, frequency)`` for each window ``[start, start +
+    length]`` the samples cover, fitted with :func:`ringdown_fit` at each
+    count in ``modes``. The dominant mode is the damped one whose real part
+    lies in ``band`` and whose amplitude is largest *at the window's start*;
+    a fit with none is left out. The fit's amplitudes refer to ``t = 0``, and
+    compared there a mode damped twice as fast looks ``exp(0.1 t)`` times
+    bigger than it is by a late window.
+    The spread over windows is what a single number from one window hides.
+    #50's measurements are why the start matters: a single mode fitted to two
+    is wrong by 4.7e-2 at the start and 3.2e-5 forty ``M`` later.
+    """
+    time = np.asarray(times, dtype=float)
+    data = np.asarray(signal)
+    low, high = band
+    out = []
+    for start in starts:
+        for length in lengths:
+            inside = (time >= start) & (time <= start + length)
+            if not inside.any() or time[inside][-1] < start + length - 1e-9 - (time[1] - time[0]):
+                continue
+            for count in modes:
+                fit = ringdown_fit(time[inside], data[inside], modes=count)
+                candidates = [
+                    (value, amplitude * np.exp(-1j * value * start))
+                    for value, amplitude in zip(fit.frequencies, fit.amplitudes, strict=True)
+                    if low < value.real < high and value.imag < 0
+                ]
+                if candidates:
+                    value, _ = max(candidates, key=lambda pair: abs(pair[1]))
+                    out.append((float(start), float(length), int(count), complex(value)))
+    return out
+
+
 def quality_factor(frequency) -> float:
     """``|Re omega| / (2 |Im omega|)``: oscillations per e-folding, times pi.
 
@@ -385,9 +449,11 @@ __all__ = [
     "continued_fraction",
     "dominant_frequency",
     "eikonal_frequency",
+    "half_periods",
     "leaver_coefficients",
     "quality_factor",
     "quasinormal_frequency",
     "quasinormal_spectrum",
     "ringdown_fit",
+    "windowed_frequencies",
 ]

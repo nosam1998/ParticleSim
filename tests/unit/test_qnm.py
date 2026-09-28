@@ -345,3 +345,53 @@ def test_a_pure_decay_has_no_ringdown_frequency():
     times = np.linspace(0.0, 10.0, 200)
     with pytest.raises(ValueError, match="decay rather than a ringdown"):
         qnm.dominant_frequency(times, np.exp(-0.3 * times), modes=1)
+
+
+# --- reading a ringdown that is still mixed with its pulse ----------------
+
+
+def test_a_single_mode_crosses_zero_every_half_period_whatever_its_damping():
+    frequency = qnm.quasinormal_frequency()
+    times = np.arange(0.0, 60.0, 0.5)
+    signal = np.real(_ringdown(times, (np.exp(0.3j), frequency)))
+    gaps, where = qnm.half_periods(times, signal)
+    assert len(gaps) >= 5 and len(where) == len(gaps)
+    assert np.allclose(gaps, np.pi / frequency.real, rtol=5e-3), gaps
+
+
+def test_a_pulse_left_in_the_window_shortens_the_early_half_periods_and_biases_the_fit():
+    """What issue #136's evolution does, in miniature.
+
+    A wide Teukolsky shell scatters off the hole at frequencies above the
+    fundamental before the ringing settles onto it. Modelled here as a
+    faster, more damped oscillation on top of the fundamental. The half
+    periods lengthen toward ``pi / Re(omega)``, and a fit that starts early
+    reads the real part high while one that starts late recovers it.
+    """
+    frequency = qnm.quasinormal_frequency()
+    times = np.arange(0.0, 80.0, 0.5)
+    signal = np.real(_ringdown(times, (1.0, frequency), (6.0, 0.55 - 0.2j)))
+
+    gaps, _ = qnm.half_periods(times, signal)
+    assert gaps[0] < 0.9 * np.pi / frequency.real, gaps
+    assert gaps[-1] == pytest.approx(np.pi / frequency.real, rel=1e-2), gaps
+
+    band = (0.2, 0.6)
+    early = qnm.windowed_frequencies(times, signal, [0.0], [30.0], modes=[2], band=band)
+    assert len(early) == 1
+    assert early[0][3].real > 1.05 * frequency.real, early
+    # One physical mode fitted late is still pulled by what is left of the
+    # pulse, about 4% at t = 30. Fitting both, the dominant one is the
+    # fundamental to the fit's precision.
+    single = qnm.windowed_frequencies(times, signal, [30.0], [40.0], modes=[2], band=band)
+    both = qnm.windowed_frequencies(times, signal, [30.0, 35.0], [30.0, 40.0], modes=[4], band=band)
+    assert len(both) == 4
+    assert abs(single[0][3] - frequency) < abs(early[0][3] - frequency), (single, early)
+    for _, _, _, value in both:
+        assert abs(value - frequency) < 1e-6 * abs(frequency), value
+
+
+def test_a_window_the_samples_do_not_cover_is_left_out():
+    times = np.arange(0.0, 20.0, 0.5)
+    signal = np.real(_ringdown(times, (1.0, qnm.quasinormal_frequency())))
+    assert qnm.windowed_frequencies(times, signal, [10.0], [30.0]) == []

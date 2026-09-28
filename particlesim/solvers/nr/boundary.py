@@ -437,6 +437,98 @@ class SecondOrder(Bounded):
         return self.project(out) if self.evolution.enforce else out
 
 
+#: Prefix of the third condition's second auxiliary field, ``w = B2 u``.
+SECOND_AUXILIARY = "aux2:"
+
+
+class ThirdOrder(SecondOrder):
+    """Bayliss and Turkel's third condition: exact for ``1/r``, ``1/r^2`` and ``1/r^3``.
+
+    On a term ``g(t - r)/r^k`` each factor ``d_t + c d_r + (2j - 1) c / r``
+    multiplies by ``(j - k)`` and lowers the power by one, so ``B1`` leaves
+    ``(1 - k) g / r^(k+1)``, ``B2`` leaves ``(1 - k)(2 - k) g / r^(k+2)``, and
+
+        B3 = (d_t + c d_r + 5c/r)(d_t + c d_r + 3c/r)(d_t + c d_r + c/r)
+
+    annihilates ``k = 1``, 2 and 3 for any profile. A quadrupole Teukolsky
+    wave's metric components run to ``1/r^5``, and B2's ``1/r^3`` residual is
+    what the second condition could not absorb.
+
+    It is carried as :class:`SecondOrder` with a second auxiliary field
+    ``w = B2 u``:
+
+        d_t u = -c (d_r u + u / r) + v
+        d_t v = -c (d_r v + 3 v / r) + w
+        d_t w = -c (d_r w + 5 w / r)
+
+    Outside the zone ``v`` and ``w`` are what the interior makes of ``B1 u`` and
+    ``B2 u``. The second needs ``d_t^2 u``, which is the Jacobian of the
+    interior's right-hand side applied to its own rates. An evolution may
+    supply it as ``acceleration(state, rates)``. Otherwise it is taken with
+    ``jax.jvp``, which costs about two more evaluations of the right-hand
+    side per stage.
+    """
+
+    def start(self, state) -> dict[str, Any]:
+        """``state`` with both auxiliary fields, zero where they are missing."""
+        out = dict(state)
+        for name in state:
+            if name.startswith((AUXILIARY, SECOND_AUXILIARY)):
+                continue
+            for prefix in (AUXILIARY, SECOND_AUXILIARY):
+                if prefix + name not in out:
+                    out[prefix + name] = np.zeros(np.asarray(state[name]).shape)
+        return out
+
+    def _split(self, state):
+        prefixes = (AUXILIARY, SECOND_AUXILIARY)
+        geometry = {k: v for k, v in state.items() if not k.startswith(prefixes)}
+        return geometry, {k: v for k, v in state.items() if k.startswith(prefixes)}
+
+    def _acceleration(self, geometry, rates):
+        """``d_t^2 u`` of the interior: its right-hand side differentiated along its rates."""
+        supplied = getattr(self.evolution, "acceleration", None)
+        if supplied is not None:
+            return supplied(geometry, rates)
+        import jax
+
+        _, second = jax.jvp(self.evolution.right_hand_side, (dict(geometry),), (dict(rates),))
+        return second
+
+    def right_hand_side(self, state) -> dict[str, Any]:
+        geometry, auxiliary = self._split(state)
+        rates = self.evolution.right_hand_side(geometry)
+        second = self._acceleration(geometry, rates)
+        zone = self.boundary.mask()
+        b = self.boundary
+        out = {}
+        for name, value in geometry.items():
+            field = np.asarray(value)
+            speed = b.speed if b.speeds is None else b.speeds.get(name, b.speed)
+            gradient, radius = self._radial(field)
+            sommerfeld = -speed * (gradient + (field - ASYMPTOTIC.get(name, 0.0)) / radius)
+            kernel = np.asarray(rates[name])
+            # Outside the zone: v = B1 u from the interior's rate, and
+            # w = (d_t + c d_r + 3c/r) v with d_t v from its acceleration.
+            first = kernel - sommerfeld
+            kernel_gradient, _ = self._radial(kernel)
+            first_rate = np.asarray(second[name]) + speed * (kernel_gradient + kernel / radius)
+            first_gradient, _ = self._radial(first)
+            outer = first_rate + speed * (first_gradient + 3.0 * first / radius)
+            carried = np.where(zone, np.asarray(auxiliary[AUXILIARY + name]), first)
+            carried_second = np.where(zone, np.asarray(auxiliary[SECOND_AUXILIARY + name]), outer)
+            out[name] = np.where(zone, sommerfeld + carried, kernel)
+            carried_gradient, _ = self._radial(carried)
+            out[AUXILIARY + name] = np.where(
+                zone, -speed * (carried_gradient + 3.0 * carried / radius) + carried_second, 0.0
+            )
+            second_gradient, _ = self._radial(carried_second)
+            out[SECOND_AUXILIARY + name] = np.where(
+                zone, -speed * (second_gradient + 5.0 * carried_second / radius), 0.0
+            )
+        return out
+
+
 def interior(array, width: int, axes) -> np.ndarray:
     """The physical region, with the boundary zone cut off.
 
@@ -458,7 +550,9 @@ __all__ = [
     "GAUGE_SPEEDS",
     "Bounded",
     "Radiative",
+    "SECOND_AUXILIARY",
     "SecondOrder",
+    "ThirdOrder",
     "edge_derivative",
     "interior",
 ]

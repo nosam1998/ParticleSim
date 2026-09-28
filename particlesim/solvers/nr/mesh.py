@@ -185,19 +185,22 @@ class Box:
 def extract(coarse: Any, box: Box, order: int = 4) -> np.ndarray:
     """The fine-grid values of a box, prolonged from its parent.
 
-    Prolongs the *whole* parent and then cuts the box out, rather than
-    cutting first. Interpolating a cut-out array would use its wrapped edge
-    as if it were data; interpolating first uses the parent's real
-    neighbours, which is what the box's edge points are entitled to.
-    Wasteful on a small box and correct, and the alternative is a
-    stencil-radius of quiet error exactly where the buffer is supposed to be
-    trustworthy.
+    A bare cut-out would be interpolated across its own wrapped edge, as if
+    that were data. So the box is cut out with a margin of the midpoint
+    stencil's radius, taken periodically where the box meets the parent's
+    edge as the parent itself is. Every fine point in the box then sees the
+    parent's real neighbours, in the same order as prolonging the whole
+    parent would, and the result is that one bit for bit. With four levels
+    the whole-parent version was most of a coarse step.
     """
-    refined = prolong(np.asarray(coarse), order=order)
-    slices = tuple(
-        slice(RATIO * start, RATIO * (start + count))
-        for start, count in zip(box.origin, box.shape, strict=True)
-    )
+    array = np.asarray(coarse)
+    margin = len(MIDPOINT[order]) // 2
+    indices = [
+        np.arange(start - margin, start + count + margin) % size
+        for start, count, size in zip(box.origin, box.shape, array.shape, strict=True)
+    ]
+    refined = prolong(array[np.ix_(*indices)], order=order)
+    slices = tuple(slice(RATIO * margin, RATIO * (margin + count)) for count in box.shape)
     return refined[slices]
 
 

@@ -311,6 +311,113 @@ class Hierarchy:
         return coarse, fine
 
 
+@dataclass(frozen=True)
+class Nested:
+    """Any number of levels, each a box inside the one before: Berger-Oliger, recursively.
+
+    ``pairs[k]`` is the :class:`Hierarchy` between level ``k`` and level
+    ``k + 1``. Its ``fine`` evolution is the ``coarse`` one of ``pairs[k + 1]``,
+    and ``pairs[0].coarse`` is whatever evolves the coarsest level, a
+    bounded evolution included. Level ``k`` takes ``RATIO^k`` steps for each
+    coarse one.
+
+    One step of level ``k``:
+    - advance it, its buffer filled at every stage from its parent's Hermite
+      interpolant, exactly as in :meth:`Hierarchy.step`;
+    - build its own interpolant from its rates before and after;
+    - take ``RATIO`` steps of level ``k + 1`` inside it, recursively;
+    - restrict level ``k + 1`` back into it.
+
+    With two levels this *is* :meth:`Hierarchy.step`, operation for
+    operation, and the tests hold it to that.
+    """
+
+    pairs: tuple[Hierarchy, ...]
+
+    def __post_init__(self) -> None:
+        """Each box must chain onto the last and stay clear of its buffer.
+
+        A middle level's rates are wrong within a stencil of its own edge,
+        where its differences wrap, and its buffer holds parent data rather
+        than its own evolution. The box inside it is filled by interpolating
+        those values and rates, so along every axis the middle level does not
+        span, the box plus the interpolation stencil's reach has to stay a
+        buffer in from that edge.
+        """
+        for outer, inner in zip(self.pairs, self.pairs[1:], strict=False):
+            if tuple(inner.parent_shape) != outer.box.fine_shape:
+                raise ValueError(
+                    f"level shapes do not chain: a box of fine shape {outer.box.fine_shape} "
+                    f"is the parent of one indexed against {inner.parent_shape}"
+                )
+            margin = len(mesh.MIDPOINT[inner.interpolation]) // 2
+            for axis in outer.buffered_axes:
+                below = inner.box.origin[axis]
+                above = inner.parent_shape[axis] - below - inner.box.shape[axis]
+                if min(below, above) - margin < outer.buffer:
+                    raise ValueError(
+                        f"the box at {inner.box.origin} of shape {inner.box.shape} comes "
+                        f"within {outer.buffer} points of its parent's edge along axis "
+                        f"{axis}, where the parent is interpolated rather than evolved"
+                    )
+
+    @property
+    def depth(self) -> int:
+        """How many levels, the coarsest included."""
+        return len(self.pairs) + 1
+
+    @property
+    def time_step(self) -> float:
+        return self.pairs[0].coarse.time_step
+
+    def _advance(self, level: int, states: list, step: float, boundary_at, start, span):
+        """Advance ``states[level]`` and everything inside it by ``step``, in place."""
+        before = states[level]
+        if level == 0:
+            after = self.pairs[0].coarse.step(before, step)
+        else:
+            after = self.pairs[level - 1]._fine_step(before, step, boundary_at, start, span)
+        if level == len(self.pairs):
+            states[level] = after
+            return
+        pair = self.pairs[level]
+        evolution = pair.coarse
+        rate_before = evolution.right_hand_side(before)
+        rate_after = evolution.right_hand_side(after)
+        cache: dict[float, dict[str, Any]] = {}
+
+        def inner_boundary(theta: float):
+            key = round(float(theta), 12)
+            if key not in cache:
+                values = hermite(before, rate_before, after, rate_after, key, step)
+                cache[key] = {
+                    name: mesh.extract(np.asarray(value), pair.box, pair.interpolation)
+                    for name, value in values.items()
+                }
+            return cache[key]
+
+        sub = 1.0 / RATIO
+        for index in range(RATIO):
+            self._advance(level + 1, states, step / RATIO, inner_boundary, index * sub, sub)
+        states[level] = pair._restrict_into(after, states[level + 1])
+
+    def step(self, states, time_step: float | None = None) -> list:
+        """One coarse step, and ``RATIO^k`` steps of each level ``k`` inside it."""
+        step = self.time_step if time_step is None else float(time_step)
+        out = [dict(state) for state in states]
+        if len(out) != self.depth:
+            raise ValueError(f"{len(out)} states for {self.depth} levels")
+        self._advance(0, out, step, None, 0.0, 1.0)
+        return out
+
+    def run(self, states, steps: int, time_step: float | None = None) -> list:
+        """Integrate ``steps`` coarse steps."""
+        current = list(states)
+        for _ in range(steps):
+            current = self.step(current, time_step)
+        return current
+
+
 def constraint_norms(state, spacing, width: int, axes, order: int = 4, backend: str = "jax"):
     """``(|H|, |M|)`` over a fine box's interior, with the buffer excluded.
 
@@ -355,4 +462,4 @@ def interior(array, width: int, axes) -> np.ndarray:
     return out[tuple(slices)]
 
 
-__all__ = ["Hierarchy", "constraint_norms", "hermite", "interior"]
+__all__ = ["Hierarchy", "Nested", "constraint_norms", "hermite", "interior"]

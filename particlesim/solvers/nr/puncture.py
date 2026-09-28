@@ -39,15 +39,22 @@ metric at 60 M, with ``B`` near ``2e-3`` instead of 0.2.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
 
 from particlesim.solvers.nr import bssn, mesh
-from particlesim.solvers.nr.boundary import GAUGE_SPEEDS, Bounded, Radiative, SecondOrder, interior
+from particlesim.solvers.nr.boundary import (
+    AUXILIARY,
+    GAUGE_SPEEDS,
+    Bounded,
+    Radiative,
+    SecondOrder,
+    interior,
+)
 from particlesim.solvers.nr.bssn import DIMENSION, INDICES, _module
-from particlesim.solvers.nr.refined import Hierarchy
+from particlesim.solvers.nr.refined import Hierarchy, Nested
 
 
 def puncture_state(coords, position, mass: float = 1.0, backend: str = "jax") -> dict[str, Any]:
@@ -365,10 +372,218 @@ class TwoLevelPuncture:
         }
 
 
+def staggered_offset(levels: int) -> int:
+    """How far off the coarse grid to put a puncture, in half the finest spacing.
+
+    Every level's points sit on the finest level's lattice, so any whole
+    number of finest spacings lands on one of them and ``psi`` is infinite
+    there. An odd number of half-spacings avoids them all. Among those, this
+    picks the one whose nearest sample is furthest away on the level that
+    has it worst, as a fraction of that level's spacing. For two levels that
+    is one half-spacing, the quarter coarse cell :class:`TwoLevelPuncture`
+    uses. For four it is five, which leaves ``5/16``, ``3/8``, ``1/4`` and
+    ``1/2`` of a cell from the coarsest level to the finest.
+    """
+    if levels < 1:
+        raise ValueError(f"{levels} levels")
+    finest = levels - 1
+
+    def worst(multiple: int) -> float:
+        distances = []
+        for level in range(levels):
+            fraction = (multiple * 2**level / 2 ** (finest + 1)) % 1.0
+            distances.append(min(fraction, 1.0 - fraction))
+        return min(distances)
+
+    return max(range(1, 2 ** (finest + 1), 2), key=lambda m: (worst(m), -m))
+
+
+@dataclass(frozen=True, eq=False)
+class NestedPuncture:
+    """A puncture inside any number of nested boxes, with a radiative edge on the coarsest.
+
+    Every level is ``n`` points across when ``box`` is ``n / 2``. Each box is
+    centred in its parent and refines it by two, so ``levels`` of them
+    resolve the hole at ``extent / n / 2^(levels - 1)``: four levels of 48
+    points over 24 M reach ``M/16`` with 442,368 points, where a single
+    grid at that spacing would need 56.6 million. Like
+    :class:`TwoLevelPuncture`, every level is given the closed-form data on
+    its own grid rather than an interpolant of ``1/r``.
+    """
+
+    nested: Nested
+    position: tuple[float, ...]
+    axes: tuple[np.ndarray, ...]
+    zone: int
+    mass: float = 1.0
+
+    @classmethod
+    def build(
+        cls,
+        n: int = 48,
+        extent: float = 24.0,
+        levels: int = 4,
+        box: int | None = None,
+        zone: float = 2.0,
+        mass: float = 1.0,
+        upwind: bool = True,
+        dissipation: float = bssn.DISSIPATION,
+        buffer: int = 6,
+        advect: bool | str = False,
+        backend: str = "jax",
+        second_order: bool = True,
+        data: str = "brill_lindquist",
+        wave: dict[str, float] | None = None,
+    ) -> tuple[NestedPuncture, list[dict[str, Any]]]:
+        """The setup and one initial state per level, coarsest first.
+
+        ``box`` is how many points of its parent each box covers, ``n / 2``
+        by default. ``wave`` puts an ingoing Teukolsky shell around the hole
+        (:func:`perturbed_puncture_state`, with these keyword arguments)
+        instead of ``data``. Everything else is as in
+        :meth:`TwoLevelPuncture.build`, except that the second-order boundary
+        is on by default.
+        """
+        if levels < 2:
+            raise ValueError("a nested puncture needs at least two levels")
+        box = n // 2 if box is None else int(box)
+        if box % 2:
+            raise ValueError(f"a box of {box} points has no centre point to share with its parent")
+        spacing = extent / n
+        finest = spacing / mesh.RATIO ** (levels - 1)
+        position = ((n // 2) * spacing + staggered_offset(levels) * finest / 2,) * DIMENSION
+
+        axes = [np.arange(n) * spacing]
+        sizes = [n]
+        regions = []
+        for _ in range(1, levels):
+            origin = sizes[-1] // 2 - box // 2
+            regions.append(mesh.Box(origin=(origin,) * DIMENSION, shape=(box,) * DIMENSION))
+            step = (axes[-1][1] - axes[-1][0]) / mesh.RATIO
+            axes.append(axes[-1][origin] + np.arange(mesh.RATIO * box) * step)
+            sizes.append(mesh.RATIO * box)
+
+        evolution = bssn.Evolution.build(
+            (spacing,) * DIMENSION,
+            backend=backend,
+            dissipation=dissipation,
+            upwind=upwind,
+            advect=advect,
+        )
+        width = max(3, int(round(zone / spacing)))
+        coarse_mesh = np.meshgrid(axes[0], axes[0], axes[0], indexing="ij")
+        relative = tuple(m - p for m, p in zip(coarse_mesh, position, strict=True))
+        edge = (SecondOrder if second_order else Bounded)(
+            evolution,
+            Radiative(
+                coords=relative,
+                spacing=(spacing,) * DIMENSION,
+                axes=tuple(INDICES),
+                width=width,
+                backend=backend,
+                speeds=GAUGE_SPEEDS[evolution.slicing],
+            ),
+        )
+        pairs = []
+        parent = evolution
+        for region, size in zip(regions, sizes, strict=False):
+            pair = Hierarchy.build(parent, region, (size,) * DIMENSION, buffer=buffer)
+            pairs.append(pair)
+            parent = pair.fine
+        pairs[0] = replace(pairs[0], coarse=edge)
+        setup = cls(
+            nested=Nested(tuple(pairs)),
+            position=position,
+            axes=tuple(axes),
+            zone=width,
+            mass=mass,
+        )
+
+        states = []
+        for axis in axes:
+            grid = np.meshgrid(axis, axis, axis, indexing="ij")
+            if wave is not None:
+                state = perturbed_puncture_state(
+                    grid,
+                    position,
+                    mass=mass,
+                    spacing=float(axis[1] - axis[0]),
+                    backend=backend,
+                    **wave,
+                )
+            else:
+                initial = {"brill_lindquist": puncture_state, "trumpet": trumpet_state}[data]
+                state = initial(grid, position, mass, backend)
+            states.append(state)
+        if second_order:
+            states[0] = edge.start(states[0])
+        return setup, states
+
+    @property
+    def levels(self) -> int:
+        return self.nested.depth
+
+    @property
+    def time_step(self) -> float:
+        return self.nested.time_step
+
+    def spacing(self, level: int) -> float:
+        return float(self.axes[level][1] - self.axes[level][0])
+
+    def step(self, states, time_step: float | None = None) -> list:
+        return self.nested.step(states, time_step)
+
+    def diagnostics(self, states, excise: float = 1.0) -> dict[str, Any]:
+        """What says whether the run is healthy, as plain numbers.
+
+        The Hamiltonian constraint is given per level, each measured where
+        that level and nothing else is responsible: inside its own buffer,
+        outside the next box, outside ``r = excise``, and on the coarsest
+        level inside the radiative zone. A level with nothing left to
+        measure reports ``nan``.
+        """
+        kernel = bssn.constraint_kernel(order=self.nested.pairs[0].fine.order)
+        buffer = self.nested.pairs[0].buffer
+        axes = tuple(INDICES)
+        norms = []
+        for level, state in enumerate(states):
+            fields = {k: v for k, v in state.items() if not k.startswith(AUXILIARY)}
+            h = np.asarray(
+                kernel(bssn.physical_slice_arrays(fields), (self.spacing(level),) * 3)[
+                    "hamiltonian"
+                ]
+            )
+            grid = np.meshgrid(*(self.axes[level],) * DIMENSION, indexing="ij")
+            radius = np.sqrt(sum((g - p) ** 2 for g, p in zip(grid, self.position, strict=True)))
+            keep = radius > excise
+            if level + 1 < self.levels:
+                keep[self.nested.pairs[level].box.slices()] = False
+            if level == 0:
+                h, keep = interior(h, self.zone, axes), interior(keep, self.zone, axes)
+            else:
+                h, keep = interior(h, buffer, axes), interior(keep, buffer, axes)
+            norms.append(float(np.sqrt(np.mean(h[keep] ** 2))) if keep.any() else float("nan"))
+        finest = states[-1]
+        finite = all(
+            np.all(np.isfinite(np.asarray(value))) for state in states for value in state.values()
+        )
+        return {
+            "lapse_min": float(np.min(np.asarray(finest["alpha"]))),
+            "phi_max": float(np.max(np.asarray(finest["phi"]))),
+            "hamiltonian": norms,
+            "shift_max": float(
+                max(np.max(np.abs(np.asarray(finest[f"beta{i}"]))) for i in INDICES)
+            ),
+            "finite": bool(finite),
+        }
+
+
 __all__ = [
+    "NestedPuncture",
     "TwoLevelPuncture",
     "perturbed_puncture_state",
     "puncture_state",
+    "staggered_offset",
     "trumpet_areal_radius",
     "trumpet_isotropic_radius",
     "trumpet_state",

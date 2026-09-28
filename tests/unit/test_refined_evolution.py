@@ -298,3 +298,62 @@ def test_a_hierarchy_steps_with_the_second_order_boundary_on_its_coarse_level():
     assert boundary.AUXILIARY + "alpha" in coarse
     assert not any(name.startswith(boundary.AUXILIARY) for name in fine)
     assert all(np.all(np.isfinite(np.asarray(v))) for v in {**coarse, **fine}.values())
+
+
+# --- more than two levels -------------------------------------------------
+
+
+def test_two_nested_levels_are_the_hierarchy_exactly():
+    """The recursion with one pair is :meth:`Hierarchy.step`, bit for bit.
+
+    Same stages, same interpolant, same restriction, in the same order: so
+    anything more levels do differently is the recursion's, not a drift in
+    how one pair is stepped.
+    """
+    hierarchy, coarse_state, fine_state, _ = _hierarchy(32)
+    coarse, fine = hierarchy.run(coarse_state, fine_state, 2)
+    nested = refined.Nested((hierarchy,))
+    assert nested.depth == 2
+    assert nested.time_step == hierarchy.coarse.time_step
+    out = nested.run([coarse_state, fine_state], 2)
+    for name in coarse_state:
+        assert np.array_equal(np.asarray(out[0][name]), np.asarray(coarse[name])), name
+        assert np.array_equal(np.asarray(out[1][name]), np.asarray(fine[name])), name
+
+
+def _pair_inside(outer, origin: int, count: int, buffer: int = 6):
+    """A box ``count`` points long along x at ``origin``, inside ``outer``'s fine level."""
+    shape = outer.box.fine_shape
+    box = mesh.Box(origin=(origin, 0, 0), shape=(count, *shape[1:]))
+    return refined.Hierarchy.build(outer.fine, box, shape, buffer=buffer)
+
+
+def test_levels_that_do_not_chain_are_refused():
+    hierarchy, _, _, _ = _hierarchy(32)
+    stray = refined.Hierarchy.build(
+        hierarchy.coarse, mesh.Box(origin=(8, 0, 0), shape=(8, 8, 8)), (32, 8, 8)
+    )
+    with pytest.raises(ValueError, match="do not chain"):
+        refined.Nested((hierarchy, stray))
+
+
+def test_a_box_in_its_parents_buffer_is_refused():
+    """Its edge would be interpolated from values the parent did not evolve.
+
+    The parent here is 48 fine points long with a twelve-point buffer, and
+    fourth-order interpolation reaches two points past the box. So a box
+    may start at 14 and no sooner, and end 14 short of the far edge.
+    """
+    hierarchy, _, _, _ = _hierarchy(32)
+    assert hierarchy.box.fine_shape[0] == 48 and hierarchy.buffer == 12
+    assert refined.Nested((hierarchy, _pair_inside(hierarchy, 14, 20))).depth == 3
+    for origin, count in ((13, 20), (14, 21)):
+        with pytest.raises(ValueError, match="interpolated rather than evolved"):
+            refined.Nested((hierarchy, _pair_inside(hierarchy, origin, count)))
+
+
+def test_a_nested_step_wants_one_state_per_level():
+    hierarchy, coarse_state, fine_state, _ = _hierarchy(32)
+    nested = refined.Nested((hierarchy, _pair_inside(hierarchy, 16, 16)))
+    with pytest.raises(ValueError, match="2 states for 3 levels"):
+        nested.step([coarse_state, fine_state])

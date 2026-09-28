@@ -175,3 +175,28 @@ def test_a_round_trip_through_a_box_is_the_identity_on_that_box():
     box = mesh.Box(origin=(8, 0, 0), shape=(8, 4, 4))
     out = mesh.inject(parent, mesh.extract(parent, box), box)
     assert np.allclose(out, parent, atol=1e-15)
+
+
+@pytest.mark.parametrize("order", [4, 6])
+@pytest.mark.parametrize(
+    ("origin", "shape"),
+    [((4, 0, 0), (8, 8, 8)), ((0, 2, 0), (6, 4, 8)), ((26, 1, 3), (6, 6, 5))],
+    ids=["inside", "from-the-low-edge", "to-the-high-edge"],
+)
+def test_extract_cuts_a_margin_first_and_is_still_the_whole_prolonged(order, origin, shape):
+    """The padded cut-out is the whole-parent answer, bit for bit.
+
+    Only a stencil's radius of the parent is prolonged rather than all of
+    it, which is what four levels need to be affordable. Checked where that
+    margin is inside the parent and where it wraps across the parent's low
+    and high edges, which is where a padded cut could go wrong.
+    """
+    rng = np.random.default_rng(order)
+    parent = rng.standard_normal((32, 8, 8))
+    box = mesh.Box(origin=origin, shape=shape)
+    whole = mesh.prolong(parent, order=order)
+    indices = [
+        np.arange(mesh.RATIO * start, mesh.RATIO * (start + count)) % (mesh.RATIO * size)
+        for start, count, size in zip(origin, shape, parent.shape, strict=True)
+    ]
+    assert np.array_equal(mesh.extract(parent, box, order), whole[np.ix_(*indices)])

@@ -1292,6 +1292,43 @@ sixteen times larger at the same spacing. Consistent with the numbers, **not
 established** — order six at `n = 256` was not run, and that is the
 measurement that would settle it.
 
+### More than two levels
+
+`refined.Nested` chains `Hierarchy` pairs and steps them by recursive
+Berger–Oliger. Each level is advanced with its buffer refilled from its
+parent's Hermite interpolant at every stage. It then builds its own
+interpolant, takes two steps of the level inside it, and has that level
+restricted back. With one pair it reproduces `Hierarchy.step` bit for bit.
+
+A box must stay a buffer plus the interpolation stencil's reach in from its
+parent's edge, or it is refused. That is where the parent's own rates wrap
+and its values are its parent's rather than its own.
+
+`mesh.extract` used to prolong the whole parent and cut the box out. It now
+prolongs a cut-out padded by the stencil's radius, wrapped as the parent is,
+which is the same result bit for bit at orders four and six. With four
+levels the old way was most of a coarse step.
+
+On the gauge wave, three levels (boxes over `[1/8, 7/8]` and `[3/8, 5/8]`,
+six-point buffers) are measured on the finest level over `(0.43, 0.57)`:
+
+| n | three levels | ratio | two levels, same window | ratio |
+|---|---|---|---|---|
+| 32 | 9.57e−05 | — | 8.66e−05 | — |
+| 64 | 2.48e−06 | 38.6 | 3.74e−07 | 231 |
+| 128 | 7.78e−08 | 31.9 | 1.86e−08 | 20.1 |
+
+**The recursion converges, and the third level is less accurate, not more.**
+Its error is what its edge is handed: data prolonged and interpolated in
+time from a level that already resolves the wave. Over a quarter of a
+crossing time, the error from the edge reaches the middle of a box this
+small. Refinement pays where the parent does not resolve the solution, as
+at a puncture, and a smooth wave is not that case. The ratios faster than
+fourth order belong to the window, since two levels show them there too.
+The test asserts only that the first halving beats third order. Handing
+every sub-step the time its parent step starts at, instead of its own, fails
+it outright: the error is 0.23 at `n = 32` and 0.60 at `n = 64`.
+
 ### What issue #48's acceptance criterion needs, and it is not refinement
 
 "Schwarzschild puncture stable to `t = 1000 M` with two levels" is not

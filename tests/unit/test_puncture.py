@@ -140,3 +140,69 @@ def test_the_trumpet_is_stationary_under_the_unadvected_gauge():
         worst.append(max(float(np.max(np.abs(np.asarray(v)[shell]))) for v in rates.values()))
     assert worst[0] < 2e-3
     assert worst[0] / worst[1] > 10
+
+
+# --- more than two levels (issue #136) -------------------------------------
+
+
+@pytest.mark.parametrize(("levels", "multiple"), [(1, 1), (2, 1), (3, 3), (4, 5), (5, 11)])
+def test_the_puncture_is_put_where_no_level_samples_it(levels, multiple):
+    """An odd number of the finest half-spacings, chosen so every level stays clear.
+
+    Every level's points lie on the finest lattice, which makes any even
+    multiple a grid point somewhere. Among the odd ones the choice is the one
+    whose worst level is furthest from a sample, and that is at least a
+    quarter of a cell on every level for every depth tested.
+    """
+    assert puncture.staggered_offset(levels) == multiple
+    for level in range(levels):
+        cells = multiple * 2**level / 2**levels
+        distance = min(cells % 1.0, 1.0 - cells % 1.0)
+        assert distance >= 0.25 - 1e-12, (level, distance)
+
+
+def test_nested_levels_share_a_centre_and_halve_the_spacing():
+    """Three levels of 32 points over 16 M: ``M/2``, ``M/4``, ``M/8``, each centred in its parent.
+
+    Thirty-two is the fewest that fit: each box starts eight points in, and
+    fourth-order interpolation reaching two past it leaves exactly the six
+    points of buffer its parent needs.
+    """
+    setup, states = puncture.NestedPuncture.build(n=32, extent=16.0, levels=3)
+    assert setup.levels == len(states) == 3
+    assert [setup.spacing(level) for level in range(3)] == pytest.approx([0.5, 0.25, 0.125])
+    for level, state in enumerate(states):
+        assert np.shape(state["alpha"]) == (32, 32, 32), level
+        assert setup.axes[level][16] == pytest.approx(8.0), level
+        cells = (setup.position[0] - setup.axes[level][0]) / setup.spacing(level)
+        assert abs(cells - round(cells)) >= 0.25 - 1e-12, level
+    # The second-order edge's auxiliary fields are on the coarsest level only.
+    assert any(name.startswith("aux:") for name in states[0])
+    assert not any(name.startswith("aux:") for state in states[1:] for name in state)
+    # Each level is the closed form on its own grid, not an interpolant:
+    # the lapse at the sample nearest the puncture is psi^-2 there. (Levels
+    # one and two both sit a sixteenth of M off it along each axis.)
+    for level, state in enumerate(states):
+        offsets = np.abs(setup.axes[level] - setup.position[0])
+        nearest = np.sqrt(3.0) * float(np.min(offsets))
+        expected = (1.0 + 1.0 / (2.0 * nearest)) ** -2
+        assert float(np.min(np.asarray(state["alpha"]))) == pytest.approx(expected), level
+    with pytest.raises(ValueError, match="interpolated rather than evolved"):
+        puncture.NestedPuncture.build(n=24, extent=12.0, levels=3)
+
+
+def test_a_nested_puncture_is_refused_what_it_cannot_centre():
+    with pytest.raises(ValueError, match="at least two levels"):
+        puncture.NestedPuncture.build(n=16, extent=8.0, levels=1)
+    with pytest.raises(ValueError, match="no centre point"):
+        puncture.NestedPuncture.build(n=16, extent=8.0, levels=2, box=7)
+
+
+def test_a_wave_goes_onto_every_level():
+    """``wave`` swaps the data for the perturbed puncture, on each level's own grid."""
+    wave = {"amplitude": 1e-3, "width": 1.0, "time": -3.0}
+    _, plain = puncture.NestedPuncture.build(n=16, extent=8.0, levels=2, zone=1.0)
+    _, struck = puncture.NestedPuncture.build(n=16, extent=8.0, levels=2, zone=1.0, wave=wave)
+    for level in range(2):
+        change = np.asarray(struck[level]["gt00"]) - np.asarray(plain[level]["gt00"])
+        assert 1e-5 < float(np.max(np.abs(change))) < 1e-2, level

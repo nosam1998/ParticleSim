@@ -1627,7 +1627,7 @@ itself.
 
 | t / M | 40 | 80 | 120 | 160 | 200 | 240 | 280 | 320 | 340 |
 |---|---|---|---|---|---|---|---|---|---|
-| horizon mass | 1.006 | 1.019 | 1.040 | 1.069 | 1.107 | 1.159 | 1.228 | 1.327 | — |
+| horizon mass | 1.006 | 1.019 | 1.040 | 1.069 | 1.107 | 1.159 | 1.228 | 1.327 | not found |
 | the run above | 1.020 | 1.060 | 1.107 | 1.165 | 1.231 | not found | | | |
 | hole's offset per axis, M | 0.000 | −0.012 | −0.040 | −0.062 | −0.024 | +0.135 | +0.269 | −0.269 | −1.015 |
 | the run above | −0.004 | −0.048 | −0.161 | −0.193 | +0.338 | +1.418 | | | |
@@ -1640,7 +1640,8 @@ itself.
 - **The same oscillation.** The hole's coordinate position still
   oscillates, and the oscillation still grows. It reaches −0.062 per axis
   near 160 M and +0.27 near 280 M. Then it swings to −1.0 by 340 M, which
-  carries the hole out of the finest box's middle as in the run above.
+  carries the hole out of the finest box's middle as in the run above. The
+  finder does not find it at 340 M, and the run was stopped there.
 - **The mass error still accelerates:** 0.03% per M near 50 M, 0.1% at
   200 M, 0.26% at 320 M. Its mass at 280 M is the run above's at 200 M.
 

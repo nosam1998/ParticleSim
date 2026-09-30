@@ -1078,7 +1078,11 @@ def gauge_rhs(
 
     ``advect`` adds the ``beta^j d_j`` terms. They belong in a run with a
     moving shift and vanish identically when the shift does, so the gauge
-    wave is unaffected either way. ``"lapse"`` advects the lapse alone:
+    wave is unaffected either way. The driver's own, ``beta^j d_j (B^i -
+    Gammabar^i)``, is not here: it needs derivatives of ``B^i`` the kernel
+    does not take, and :meth:`~particlesim.solvers.nr.bssn.Evolution.right_hand_side`
+    adds it outside the kernel, which completes the ``d_0`` form.
+    ``"lapse"`` advects the lapse alone:
     ``d_t alpha = beta^j d_j alpha - 2 alpha K`` with the shift and its
     driver unadvected, the combination of Campanelli et al. (2006). The
     lapse needs its advection term for 1+log to have a stationary trumpet

@@ -24,16 +24,17 @@ options term by term:
 - Kreiss-Oliger ``sigma`` *is* ParticleSim's ``dissipation``: both add
   ``sigma delta^6 u / (64 dx)`` per direction at fourth order;
 - ParticleSim's CCZ4 is GRChombo's ``formulation = 0`` with
-  ``covariantZ4 = 0`` and ``kappa3 = 1``: both damp with ``kappa1 * lapse``.
+  ``covariantZ4 = 0`` and ``kappa3 = 1``: both damp with ``kappa1 * lapse``;
+- the advected gauge, ``advect=True``, is ``lapse_advec_coeff = 1`` with
+  ``shift_advec_coeff = 1``: both advect the lapse and the shift, and add
+  ``beta^j d_j (B^i - Gammahat^i)`` to the driver, the ``d_0`` form.
 
-Two things do not translate, and :func:`particlesim_options` and
-:func:`from_particlesim` refuse them rather than approximating.
-ParticleSim's ``advect=True`` advects the lapse and shift but not the
-driver ``B^i``; GRChombo's one ``shift_advec_coeff`` also adds
-``beta^j d_j (B^i - Gammahat^i)`` to it, so the two are different systems
-(the mix :mod:`~particlesim.solvers.nr.puncture` documents). And
-``covariantZ4 = 1``, which GRChombo's own binary example uses, damps with
-``kappa1`` alone, which ParticleSim's CCZ4 does not implement.
+Some things do not translate, and :func:`particlesim_options` and
+:func:`from_particlesim` refuse them rather than approximating. An advected
+shift with an unadvected lapse, or a fractional advection coefficient, has
+no ParticleSim counterpart. And ``covariantZ4 = 1``, which GRChombo's own
+binary example uses, damps with ``kappa1`` alone, which ParticleSim's CCZ4
+does not implement.
 
 **Results.** Weyl-scalar mode integrals are read from, and written to,
 exactly the ASCII layout GRChombo's ``SmallDataIO`` produces. Plot and
@@ -375,13 +376,7 @@ def from_particlesim(
     for CCZ4, :func:`particlesim.solvers.nr.ccz4.build`'s ``damping`` and
     ``damping_mix`` as ``ccz4_damping`` and ``ccz4_damping_mix``.
     """
-    if advect is True:
-        raise NotTranslatable(
-            "advect=True advects the lapse and shift but not B^i; GRChombo's "
-            "shift_advec_coeff advects B^i - Gammahat^i as well, which is a "
-            "different system. Use advect=False or advect='lapse'."
-        )
-    if advect not in (False, "lapse"):
+    if advect not in (True, False, "lapse"):
         raise NotTranslatable(f"unknown advect option {advect!r}")
     slicings = {"one_plus_log": (2.0, 1.0), "harmonic": (1.0, 2.0)}
     if slicing not in slicings:
@@ -398,10 +393,10 @@ def from_particlesim(
         kappa2=ccz4_damping_mix if ccz4 else 0.0,
         kappa3=1.0 if ccz4 else 0.0,
         covariantZ4=False,
-        lapse_advec_coeff=1.0 if advect == "lapse" else 0.0,
+        lapse_advec_coeff=0.0 if advect is False else 1.0,
         lapse_coeff=lapse_coeff,
         lapse_power=lapse_power,
-        shift_advec_coeff=0.0,
+        shift_advec_coeff=1.0 if advect is True else 0.0,
         shift_Gamma_coeff=0.75 if shift_condition == "gamma_driver" else 0.0,
         eta=damping,
         sigma=dissipation,
@@ -417,9 +412,12 @@ def particlesim_options(evolution: Evolution) -> dict[str, object]:
     ParticleSim has.
     """
     reasons = []
-    if evolution.shift_advec_coeff != 0.0:
+    if evolution.shift_advec_coeff not in (0.0, 1.0):
+        reasons.append(f"shift_advec_coeff = {evolution.shift_advec_coeff} is neither off nor on")
+    elif evolution.shift_advec_coeff == 1.0 and evolution.lapse_advec_coeff != 1.0:
         reasons.append(
-            "shift_advec_coeff != 0 also advects B^i - Gammahat^i, which ParticleSim does not"
+            "shift_advec_coeff = 1 with the lapse unadvected; ParticleSim advects the "
+            "shift only together with the lapse"
         )
     if evolution.lapse_advec_coeff not in (0.0, 1.0):
         reasons.append(f"lapse_advec_coeff = {evolution.lapse_advec_coeff} is neither off nor on")
@@ -449,7 +447,11 @@ def particlesim_options(evolution: Evolution) -> dict[str, object]:
         "slicing": slicing,
         "shift_condition": "gamma_driver" if evolution.shift_Gamma_coeff else "frozen",
         "damping": evolution.eta,
-        "advect": "lapse" if evolution.lapse_advec_coeff else False,
+        "advect": (
+            True
+            if evolution.shift_advec_coeff
+            else ("lapse" if evolution.lapse_advec_coeff else False)
+        ),
         "dissipation": evolution.sigma,
         "courant": evolution.dt_multiplier,
         "order": evolution.max_spatial_derivative_order,

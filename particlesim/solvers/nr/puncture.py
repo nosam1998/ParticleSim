@@ -35,6 +35,13 @@ The original one advects neither -- ``d_t alpha = -2 alpha K``, ``d_t beta =
 3B/4``, ``d_t B = d_t Gammabar - eta B`` -- which a puncture that does not
 move loses nothing by, and in it the same run reads 1.38 for the conformal
 metric at 60 M, with ``B`` near ``2e-3`` instead of 0.2.
+
+``advect=True`` is now the other published form, ``d_0`` throughout, with
+``B^i`` advected too (:meth:`~particlesim.solvers.nr.bssn.Evolution.right_hand_side`).
+On current code the mix was NaN by 50 M. The ``d_0`` form reads 2.03 at
+60 M and 3.18 at 80 M for the conformal metric, keeps ``B`` under 0.08 to
+85 M, and is NaN by 100 M. That is twice as long, and still not a stable
+advected puncture, so the unadvected gauge stays the default here.
 """
 
 from __future__ import annotations

@@ -159,7 +159,7 @@ def test_the_lapse_coefficients_are_particlesims_slicing(slicing):
 
 @pytest.mark.parametrize("formulation", ["bssn", "ccz4"])
 @pytest.mark.parametrize("slicing", ["one_plus_log", "harmonic"])
-@pytest.mark.parametrize("advect", [False, "lapse"])
+@pytest.mark.parametrize("advect", [False, "lapse", True])
 @pytest.mark.parametrize("shift_condition", ["gamma_driver", "frozen"])
 def test_particlesim_options_round_trip_through_grchombo(
     formulation, slicing, advect, shift_condition
@@ -184,13 +184,13 @@ def test_particlesim_options_round_trip_through_grchombo(
 
 
 def test_what_does_not_translate_is_refused_with_the_reason():
-    with pytest.raises(NotTranslatable, match="B\\^i"):
-        from_particlesim(advect=True)
     binary = GRChomboSetup.from_params(read_params(DATA / "BinaryBH_params.txt"))
     with pytest.raises(NotTranslatable, match="covariantZ4"):
         particlesim_options(binary.evolution)
     with pytest.raises(NotTranslatable, match="shift_advec_coeff"):
-        particlesim_options(Evolution(formulation=1, shift_advec_coeff=1.0))
+        particlesim_options(Evolution(formulation=1, shift_advec_coeff=1.0, lapse_advec_coeff=0.0))
+    with pytest.raises(NotTranslatable, match="shift_advec_coeff"):
+        particlesim_options(Evolution(formulation=1, shift_advec_coeff=0.5))
     with pytest.raises(NotTranslatable, match="lapse_power"):
         particlesim_options(Evolution(formulation=1, lapse_power=1.5))
     kerr = GRChomboSetup.from_params(read_params(DATA / "KerrBH_params.txt"))

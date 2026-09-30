@@ -185,3 +185,52 @@ def test_the_linear_part_converges_at_fourth_order():
     fine = _interior_constraints(96, 1e-8, time=1.0)
     for before, after in zip(coarse, fine, strict=True):
         assert np.log2(before / after) > 3.7, (coarse, fine)
+
+
+# --- evolved, not just set up (issue #51) ----------------------------------
+
+
+def _evolved_constraint(n: int, times, amplitude: float = 1e-6):
+    """``|H| / a`` over the central half of a periodic box, as the wave evolves."""
+    state, spacing = teukolsky.teukolsky_wave(
+        shape=(n, n, n), amplitude=amplitude, width=1.0, extent=EXTENT
+    )
+    evolution = bssn.Evolution.build(spacing, slicing="harmonic", shift_condition="frozen")
+    inner = (slice(n // 4, n - n // 4),) * 3
+    out, current, clock = [], dict(state), 0.0
+    for target in times:
+        steps = max(1, int(round((target - clock) / evolution.time_step)))
+        step = (target - clock) / steps
+        for _ in range(steps):
+            current = evolution.step(current, step)
+        clock = target
+        rates = evolution.constraint_kernel(bssn.physical_slice_arrays(current), tuple(spacing))
+        hamiltonian = np.asarray(rates["hamiltonian"])[inner]
+        out.append(float(np.sqrt(np.mean(hamiltonian**2))) / amplitude)
+    return out
+
+
+@pytest.mark.slow
+@pytest.mark.benchmark
+def test_the_evolved_wave_keeps_its_constraint_at_fourth_order():
+    """The design document's 3-D benchmark for the Teukolsky wave, evolved.
+
+    Harmonic slicing, frozen shift, a periodic box of 8, ``a = 1e-6``, so the
+    quadratic violation is far below the stencils'. Measured over the central
+    half at 32 and 48 points:
+
+        t        0.5     1       2       3       4
+        n = 32   0.230   0.172   0.195   0.110   0.0310
+        n = 48   0.0474  0.0373  0.0403  0.0223  0.00631
+        order    3.89    3.77    3.89    3.94    3.92
+
+    Over ``|x| <= 2.5`` instead, the order stays between 3.6 and 4.1 at every
+    half unit to ``t = 12``, long after the wave has wrapped around the box.
+    The solution itself cannot be compared past ``t ≈ 3``, when the periodic
+    images arrive, but the constraint is measured against zero and can.
+    """
+    times = (1.0, 2.0)
+    coarse = _evolved_constraint(32, times)
+    fine = _evolved_constraint(48, times)
+    orders = [float(np.log(c / f) / np.log(1.5)) for c, f in zip(coarse, fine, strict=True)]
+    assert all(order > 3.5 for order in orders), (coarse, fine, orders)

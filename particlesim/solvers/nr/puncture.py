@@ -460,10 +460,13 @@ class NestedPuncture:
         ``conformal="W"`` evolves ``W = e^(-2 phi)``, which vanishes at the
         puncture like the distance to it, in place of ``phi``, which diverges
         like its logarithm (:func:`~particlesim.solvers.nr.bssn.with_conformal`).
+        On trumpet data at ``M/8`` it halves the horizon's mass error at 45 M.
 
         ``formulation="ccz4"`` evolves CCZ4 instead, with ``Theta`` starting
         at zero and ``constraint_damping`` as its ``kappa_1`` (the module's
-        default if not given). It carries ``phi`` only.
+        default if not given). It carries ``phi`` only. Measured on trumpet
+        data at ``M/8`` with the unadvected gauge, it is not an improvement:
+        the lapse goes negative by 30 M. See ``docs/benchmarks.md``.
 
         ``offset`` is how far the puncture sits from the boxes' common centre
         along each axis, in half the finest spacing. It must be odd, so that

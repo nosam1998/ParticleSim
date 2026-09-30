@@ -1708,6 +1708,19 @@ falling with the amplitude, a hundred times larger at `a = 1e−3`. At
 `t = 1`, where `K_ij` is not zero, the linear part converges at 3.82, 3.91,
 3.96 and 3.97 from 32 to 128 points for `H`, and at 3.81 to 3.98 for `M`.
 
+**Evolved, the constraint keeps fourth order** (#51's benchmark for the
+wave). This uses harmonic slicing, a frozen shift, a periodic box of 8 and
+`a = 1e−6`. Over the central half, `|H|/a` at 32 and 48 points:
+
+| t | 0.5 | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|---|
+| n = 32 | 0.230 | 0.172 | 0.195 | 0.110 | 0.0310 |
+| n = 48 | 0.0474 | 0.0373 | 0.0403 | 0.0223 | 0.00631 |
+| order | 3.89 | 3.77 | 3.89 | 3.94 | 3.92 |
+
+Over `|x| ≤ 2.5` the order stays between 3.6 and 4.1 at every half unit to
+`t = 12`, long after the wave has wrapped around the periodic box.
+
 **The formula cancels at the origin**, where each of its terms goes as
 `a/r⁴`. Near `r = 0` it is evaluated from its Taylor series instead. Each
 of `A`, `B` and `C` is `Σ c_q g⁽q⁾(t) r^(q−5)`, and the coefficients below

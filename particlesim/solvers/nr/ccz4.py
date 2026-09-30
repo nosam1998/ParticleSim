@@ -167,11 +167,15 @@ def build(
     jit: bool = True,
     enforce: bool = True,
     theory=None,
+    advect: bool = True,
+    upwind: bool = False,
 ) -> Evolution:
     """An :class:`~particlesim.solvers.nr.bssn.Evolution` running CCZ4.
 
     ``theory``, if given, is checked by
     :func:`~particlesim.solvers.nr.bssn.admit_theory` before anything is built.
+    ``advect`` and ``upwind`` are as for
+    :meth:`~particlesim.solvers.nr.bssn.Evolution.build`.
     """
     admit_theory(theory, dimensions=len(spacing))
     return Evolution(
@@ -188,6 +192,7 @@ def build(
             gauge_damping=gauge_damping,
             damping=damping,
             damping_mix=damping_mix,
+            advect=advect,
             jit=jit,
         ),
         constraint_kernel=constraint_kernel(order=order, backend=backend, jit=jit),
@@ -195,6 +200,8 @@ def build(
         shift_condition=shift_condition,
         damping=gauge_damping,
         enforce=enforce,
+        upwind=upwind,
+        advect=advect,
     )
 
 

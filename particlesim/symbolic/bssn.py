@@ -804,7 +804,36 @@ def _index_pair(i: int, j: int) -> str:
     return f"{low}{high}"
 
 
-def abstract_state():
+#: The conformal variables a state can carry in place of ``phi``.
+#:
+#: ``W = e^(-2 phi) = (det gamma)^(-1/6)`` goes to zero at a puncture like
+#: the distance to it, where ``phi`` goes to infinity like its logarithm.
+#: Differencing ``W`` is differencing something smooth; the equations are
+#: unchanged, because :func:`from_state` rebuilds ``phi``'s derivatives
+#: from ``W``'s exactly and the rate goes back as ``d_t W = -2 W d_t phi``.
+CONFORMAL_VARIABLES = ("phi", "W")
+
+
+def state_names(conformal: str = "phi") -> tuple[str, ...]:
+    """:data:`STATE_NAMES` with ``conformal`` in place of ``phi``."""
+    _check_conformal(conformal)
+    return tuple(conformal if name == "phi" else name for name in STATE_NAMES)
+
+
+def derivative_orders(conformal: str = "phi") -> dict[str, int]:
+    """:data:`DERIVATIVE_ORDERS` with ``conformal`` in place of ``phi``."""
+    _check_conformal(conformal)
+    return {
+        (conformal if name == "phi" else name): order for name, order in DERIVATIVE_ORDERS.items()
+    }
+
+
+def _check_conformal(conformal: str) -> None:
+    if conformal not in CONFORMAL_VARIABLES:
+        raise ValueError(f"conformal variable {conformal!r} is not one of {CONFORMAL_VARIABLES}")
+
+
+def abstract_state(conformal: str = "phi"):
     """Symbols for the evolved BSSN state and the derivatives it needs.
 
     Returns ``(state, derivatives, registry)``: the state symbols keyed by
@@ -818,11 +847,11 @@ def abstract_state():
     emitter and a reader of the generated source should not have to hold
     two conventions at once.
     """
-    state = {name: sp.Symbol(name, real=True) for name in STATE_NAMES}
+    state = {name: sp.Symbol(name, real=True) for name in state_names(conformal)}
     derivatives: dict[str, Any] = {}
     registry: dict[Any, tuple[str, tuple[int, ...]]] = {}
 
-    for name, order in DERIVATIVE_ORDERS.items():
+    for name, order in derivative_orders(conformal).items():
         for axis in INDICES:
             symbol = sp.Symbol(f"d_{name}_{axis}", real=True)
             derivatives[symbol.name] = symbol
@@ -860,13 +889,12 @@ def from_state(state, derivatives) -> BSSNVariables:
     gamma_ij K/3``, and the same product rule for the derivatives -- so one
     pass of finite differences over the state supplies everything, and the
     physical metric is never differenced.
+
+    A state carrying ``W = e^(-2 phi)`` instead of ``phi`` is read the same
+    way: ``e^(4 phi) = W^(-2)``, ``d_i phi = -d_i W / 2W`` and
+    ``d_i d_j phi = -(d_i d_j W / W - d_i W d_j W / W^2) / 2``, all exact,
+    so everything downstream sees the same ``phi`` and its derivatives.
     """
-    factor = (
-        sp.exp(4 * _lookup(state, "phi"))
-        if isinstance(_lookup(state, "phi"), sp.Basic)
-        else np.exp(4 * _lookup(state, "phi"))
-    )
-    inverse_factor = 1 / factor
 
     def first(name, axis):
         return _lookup(derivatives, f"d_{name}_{axis}")
@@ -874,15 +902,31 @@ def from_state(state, derivatives) -> BSSNVariables:
     def second(name, axis, other):
         return _lookup(derivatives, f"dd_{name}_{_index_pair(axis, other)}")
 
+    if "W" in state and "phi" not in state:
+        w = _lookup(state, "W")
+        factor = w**-2
+        d_w = [first("W", k) for k in INDICES]
+        dd_w = [[second("W", k, m) for m in INDICES] for k in INDICES]
+        d_phi = [-d_w[k] / (2 * w) for k in INDICES]
+        dd_phi = [
+            [-(dd_w[k][m] / w - d_w[k] * d_w[m] / w**2) / 2 for m in INDICES] for k in INDICES
+        ]
+    else:
+        factor = (
+            sp.exp(4 * _lookup(state, "phi"))
+            if isinstance(_lookup(state, "phi"), sp.Basic)
+            else np.exp(4 * _lookup(state, "phi"))
+        )
+        d_phi = [first("phi", k) for k in INDICES]
+        dd_phi = [[second("phi", k, m) for m in INDICES] for k in INDICES]
+    inverse_factor = 1 / factor
+
     lapse = _lookup(state, "alpha")
     shift = [_lookup(state, f"beta{i}") for i in INDICES]
     d_lapse = [first("alpha", k) for k in INDICES]
     dd_lapse = [[second("alpha", k, m) for m in INDICES] for k in INDICES]
     d_shift = [[first(f"beta{i}", k) for i in INDICES] for k in INDICES]
     dd_shift = [[[second(f"beta{i}", k, m) for i in INDICES] for m in INDICES] for k in INDICES]
-
-    d_phi = [first("phi", k) for k in INDICES]
-    dd_phi = [[second("phi", k, m) for m in INDICES] for k in INDICES]
 
     def tensor(prefix):
         return [[_lookup(state, f"{prefix}{_index_pair(i, j)}") for j in INDICES] for i in INDICES]
@@ -1091,6 +1135,7 @@ def algebraic_constraints(variables: BSSNVariables):
 
 
 __all__ = [
+    "CONFORMAL_VARIABLES",
     "DERIVATIVE_ORDERS",
     "DIMENSION",
     "SLICINGS",
@@ -1103,10 +1148,12 @@ __all__ = [
     "conformal_connection_ricci",
     "conformal_factor",
     "conformal_ricci_correction",
+    "derivative_orders",
     "from_adm",
     "from_state",
     "gauge_rhs",
     "phi_derivatives",
     "physical_ricci",
+    "state_names",
     "to_adm",
 ]

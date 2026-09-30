@@ -147,6 +147,7 @@ def rhs_expressions(
     shift_condition: str = "gamma_driver",
     damping: float = 2.0,
     advect: bool | str = True,
+    conformal: str = "phi",
 ):
     """The twenty-four right-hand sides, symbolically, keyed by state name.
 
@@ -154,8 +155,12 @@ def rhs_expressions(
     rebuilds the physical slice from the evolved variables and
     :func:`particlesim.symbolic.bssn.bssn_rhs` supplies the seventeen
     geometric equations, with the gauge on top.
+
+    ``conformal="W"`` evolves ``W = e^(-2 phi)`` in place of ``phi``. The
+    equations are the same ones: ``phi``'s derivatives are rebuilt from
+    ``W``'s, and the rate goes back as ``d_t W = -2 W d_t phi``.
     """
-    state, derivatives, registry = symbolic_bssn.abstract_state()
+    state, derivatives, registry = symbolic_bssn.abstract_state(conformal)
     variables, d_connection, dd_shift = symbolic_bssn.from_state(state, derivatives)
     geometry = symbolic_bssn.bssn_rhs(
         variables,
@@ -173,7 +178,11 @@ def rhs_expressions(
         advect=advect,
     )
 
-    expressions: dict[str, Any] = {"phi": geometry["phi"], "trK": geometry["mean_curvature"]}
+    if conformal == "W":
+        expressions: dict[str, Any] = {"W": -2 * state["W"] * geometry["phi"]}
+    else:
+        expressions = {"phi": geometry["phi"]}
+    expressions["trK"] = geometry["mean_curvature"]
     for i in INDICES:
         expressions[f"Gt{i}"] = geometry["connection"][i]
         expressions[f"beta{i}"] = dt_shift[i]
@@ -194,19 +203,25 @@ def rhs_kernel(
     advect: bool | str = True,
     jit: bool = True,
     use_cache: bool = True,
+    conformal: str = "phi",
 ) -> codegen.Kernel:
     """The compiled right-hand side, from cache when possible.
 
     Three layers, because the elimination is a minute and the compile is
     microseconds: an in-process dictionary, then the on-disk source cache,
-    then the derivation.
+    then the derivation. ``conformal`` joins the cache key only when it is
+    not ``phi``, so the kernels already derived keep their keys.
     """
     signature = (KERNEL_VERSION, order, backend, slicing, shift_condition, damping, advect, jit)
+    if conformal != "phi":
+        signature = (*signature, conformal)
     if signature in _RHS_CACHE:
         return _RHS_CACHE[signature]
 
     def build() -> str:
-        expressions, registry = rhs_expressions(slicing, shift_condition, damping, advect)
+        expressions, registry = rhs_expressions(
+            slicing, shift_condition, damping, advect, conformal
+        )
         return codegen.build_source(
             expressions, registry, order=order, backend=backend, name="bssn_rhs"
         )
@@ -403,6 +418,33 @@ def brill_lindquist(
 # --- diagnostics --------------------------------------------------------
 
 
+def with_conformal(
+    state: Mapping[str, Any], conformal: str, backend: str = "jax"
+) -> dict[str, Any]:
+    """The same state carrying ``conformal``, ``phi`` or ``W = e^(-2 phi)``.
+
+    Initial data is written with ``phi``; an evolution built with
+    ``conformal="W"`` wants ``W``. Converting twice is the identity to
+    rounding.
+    """
+    module = _module(backend)
+    out = dict(state)
+    if conformal == "W" and "phi" in out:
+        out["W"] = module.exp(-2 * out.pop("phi"))
+    elif conformal == "phi" and "W" in out:
+        out["phi"] = -0.5 * module.log(out.pop("W"))
+    elif conformal not in ("phi", "W"):
+        raise ValueError(f"conformal variable {conformal!r} is not 'phi' or 'W'")
+    return out
+
+
+def conformal_exponent(state: Mapping[str, Any], backend: str = "jax"):
+    """``phi``, whichever of ``phi`` and ``W`` the state carries."""
+    if "W" in state:
+        return -0.5 * _module(backend).log(state["W"])
+    return state["phi"]
+
+
 def physical_slice_arrays(state: Mapping[str, Any], backend: str = "jax") -> dict[str, Any]:
     """``gamma_ij`` and ``K_ij`` as the constraint kernel's input fields.
 
@@ -412,7 +454,7 @@ def physical_slice_arrays(state: Mapping[str, Any], backend: str = "jax") -> dic
     differencing.
     """
     module = _module(backend)
-    factor = module.exp(4 * state["phi"])
+    factor = state["W"] ** -2 if "W" in state else module.exp(4 * state["phi"])
     fields: dict[str, Any] = {"alpha": state["alpha"]}
     for i in INDICES:
         fields[f"beta{i}"] = state[f"beta{i}"]
@@ -559,8 +601,13 @@ class Evolution:
         upwind: bool = False,
         advect: bool | str = True,
         theory=None,
+        conformal: str = "phi",
     ) -> Evolution:
-        """Build the kernels. ``theory``, if given, is checked by :func:`admit_theory` first."""
+        """Build the kernels. ``theory``, if given, is checked by :func:`admit_theory` first.
+
+        ``conformal="W"`` evolves ``W = e^(-2 phi)`` in place of ``phi``; the
+        state must carry it (:func:`with_conformal`).
+        """
         admit_theory(theory, dimensions=len(spacing))
         kernel = rhs_kernel(
             order=order,
@@ -570,6 +617,7 @@ class Evolution:
             damping=damping,
             advect=advect,
             jit=jit,
+            conformal=conformal,
         )
         return cls(
             spacing=tuple(float(value) for value in spacing),
@@ -846,6 +894,7 @@ __all__ = [
     "Evolution",
     "History",
     "brill_lindquist",
+    "conformal_exponent",
     "constraint_kernel",
     "constraints",
     "dissipation_operator",
@@ -854,4 +903,5 @@ __all__ = [
     "rhs_expressions",
     "rhs_kernel",
     "solution_error",
+    "with_conformal",
 ]

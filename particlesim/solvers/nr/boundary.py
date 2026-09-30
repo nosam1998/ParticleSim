@@ -110,6 +110,7 @@ from particlesim.solvers.nr.bssn import DIMENSION, INDICES, Evolution, _module
 ASYMPTOTIC: dict[str, float] = {
     "alpha": 1.0,
     "phi": 0.0,
+    "W": 1.0,
     "trK": 0.0,
     "Theta": 0.0,
     **{f"beta{i}": 0.0 for i in INDICES},

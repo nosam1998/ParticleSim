@@ -384,13 +384,14 @@ def staggered_offset(levels: int) -> int:
     uses. For four it is five, which leaves ``5/16``, ``3/8``, ``1/4`` and
     ``1/2`` of a cell from the coarsest level to the finest.
 
-    **This is probably the wrong thing to maximise for many levels.** For
-    five it is eleven: 0.69 M off the boxes' common centre at a finest
+    **It is the wrong thing to maximise for many levels**, and
+    :meth:`NestedPuncture.build` no longer uses it by default. For five
+    levels it is eleven: 0.69 M off the boxes' common centre at a finest
     spacing of ``M/8``. In the ringdown run the hole drifted back toward
     that centre, 0.13 M by 90 M and 0.33 M by 120 M. The coarse levels are
     overwritten by restriction wherever the puncture is, so how close it
-    comes to their points matters less than keeping it centred. The cause
-    is likely but not established; see ``docs/benchmarks.md``.
+    comes to their points matters less than keeping it centred. The build
+    now puts it one half-spacing off; see ``docs/benchmarks.md``.
     """
     if levels < 1:
         raise ValueError(f"{levels} levels")
@@ -442,6 +443,10 @@ class NestedPuncture:
         second_order: bool = True,
         data: str = "brill_lindquist",
         wave: dict[str, float] | None = None,
+        conformal: str = "phi",
+        formulation: str = "bssn",
+        constraint_damping: float | None = None,
+        offset: int = 1,
     ) -> tuple[NestedPuncture, list[dict[str, Any]]]:
         """The setup and one initial state per level, coarsest first.
 
@@ -451,15 +456,42 @@ class NestedPuncture:
         instead of ``data``. Everything else is as in
         :meth:`TwoLevelPuncture.build`, except that the second-order boundary
         is on by default.
+
+        ``conformal="W"`` evolves ``W = e^(-2 phi)``, which vanishes at the
+        puncture like the distance to it, in place of ``phi``, which diverges
+        like its logarithm (:func:`~particlesim.solvers.nr.bssn.with_conformal`).
+        On trumpet data at ``M/8`` it halves the horizon's mass error at 45 M.
+
+        ``formulation="ccz4"`` evolves CCZ4 instead, with ``Theta`` starting
+        at zero and ``constraint_damping`` as its ``kappa_1`` (the module's
+        default if not given). It carries ``phi`` only. Measured on trumpet
+        data at ``M/8`` with the unadvected gauge, it is not an improvement:
+        the lapse goes negative by 30 M. See ``docs/benchmarks.md``.
+
+        ``offset`` is how far the puncture sits from the boxes' common centre
+        along each axis, in half the finest spacing. It must be odd, so that
+        no level samples it, and one keeps the hole as close to centred as
+        that allows. :func:`staggered_offset` gives the multiple that keeps it
+        furthest from every level's points instead, which for five levels is
+        eleven, 0.69 M off centre at ``M/8``.
         """
+        if formulation not in ("bssn", "ccz4"):
+            raise ValueError(f"formulation {formulation!r} is not 'bssn' or 'ccz4'")
+        if formulation == "ccz4" and conformal != "phi":
+            raise ValueError("the CCZ4 kernel carries phi only")
         if levels < 2:
             raise ValueError("a nested puncture needs at least two levels")
+        if offset % 2 == 0:
+            raise ValueError(
+                f"an offset of {offset} half-spacings puts the puncture on a grid point: "
+                "it must be an odd number"
+            )
         box = n // 2 if box is None else int(box)
         if box % 2:
             raise ValueError(f"a box of {box} points has no centre point to share with its parent")
         spacing = extent / n
         finest = spacing / mesh.RATIO ** (levels - 1)
-        position = ((n // 2) * spacing + staggered_offset(levels) * finest / 2,) * DIMENSION
+        position = ((n // 2) * spacing + offset * finest / 2,) * DIMENSION
 
         axes = [np.arange(n) * spacing]
         sizes = [n]
@@ -471,13 +503,27 @@ class NestedPuncture:
             axes.append(axes[-1][origin] + np.arange(mesh.RATIO * box) * step)
             sizes.append(mesh.RATIO * box)
 
-        evolution = bssn.Evolution.build(
-            (spacing,) * DIMENSION,
-            backend=backend,
-            dissipation=dissipation,
-            upwind=upwind,
-            advect=advect,
-        )
+        if formulation == "ccz4":
+            from particlesim.solvers.nr import ccz4
+
+            extra = {} if constraint_damping is None else {"damping": constraint_damping}
+            evolution = ccz4.build(
+                (spacing,) * DIMENSION,
+                backend=backend,
+                dissipation=dissipation,
+                upwind=upwind,
+                advect=advect,
+                **extra,
+            )
+        else:
+            evolution = bssn.Evolution.build(
+                (spacing,) * DIMENSION,
+                backend=backend,
+                dissipation=dissipation,
+                upwind=upwind,
+                advect=advect,
+                conformal=conformal,
+            )
         width = max(3, int(round(zone / spacing)))
         coarse_mesh = np.meshgrid(axes[0], axes[0], axes[0], indexing="ij")
         relative = tuple(m - p for m, p in zip(coarse_mesh, position, strict=True))
@@ -522,6 +568,11 @@ class NestedPuncture:
             else:
                 initial = {"brill_lindquist": puncture_state, "trumpet": trumpet_state}[data]
                 state = initial(grid, position, mass, backend)
+            state = bssn.with_conformal(state, conformal, backend)
+            if formulation == "ccz4":
+                from particlesim.solvers.nr import ccz4
+
+                state = ccz4.with_theta(state, backend)
             states.append(state)
         if second_order:
             states[0] = edge.start(states[0])
@@ -577,7 +628,7 @@ class NestedPuncture:
         )
         return {
             "lapse_min": float(np.min(np.asarray(finest["alpha"]))),
-            "phi_max": float(np.max(np.asarray(finest["phi"]))),
+            "phi_max": float(np.max(np.asarray(bssn.conformal_exponent(finest)))),
             "hamiltonian": norms,
             "shift_max": float(
                 max(np.max(np.abs(np.asarray(finest[f"beta{i}"]))) for i in INDICES)

@@ -1519,6 +1519,80 @@ everywhere by 40 M at both `M/2` and `M/4`. So what ends the two-level run
 is not the initial gauge pulse. At this resolution, `M/4`, something at the
 hole drives a slow drift of the slicing.
 
+### Five nested levels: the hole at `M/8`, and what fails next
+
+With `refined.Nested`, the hole can be at `M/8` and the boundary at 40 M for
+about 50 s of computing per M when the run has the machine to itself. The run: `NestedPuncture.build(n=40,
+extent=80, levels=5, data="trumpet")`, spacings 2 to 1/8 M, the
+second-order edge, the unadvected gauge, the puncture half a finest cell
+off the boxes' centre. The finest box is ±2.5 M.
+
+| t / M | 20 | 60 | 100 | 140 | 180 | 200 | 240 |
+|---|---|---|---|---|---|---|---|
+| horizon mass | 1.004 | 1.039 | 1.083 | 1.134 | 1.201 | ≈ 1.24 | not found |
+| hole's offset per axis, M | 0.000 | −0.017 | −0.097 | −0.211 | −0.030 | +0.338 | +1.418 |
+| finest `‖H‖` outside 1 M | 3.7e−03 | 1.1e−02 | 1.6e−02 | 2.3e−02 | 3.2e−02 | 3.9e−02 | 6.0e−02 |
+
+The horizon finder returns 0.9998 on the initial data at this spacing, so
+the mass is measured to about 2e−04. The offset is the centroid of the
+region where the lapse is below 0.3.
+
+**It does not reach 1000 M.** Two things go wrong, and the second ends it.
+- **The mass grows**, by about 0.11% per M. For any spherical slicing of
+  Schwarzschild, the marginally trapped round sphere is on the event
+  horizon at `R = 2M`, so this is numerical error. It grows with the
+  finest level's constraint. Brill–Lindquist data at the same spacing
+  *lose* about 0.03% per M, and at `M/16` too.
+- **The hole's coordinate position oscillates, and the oscillation grows.**
+  It moves along the diagonal to −0.21 M per axis at 140 M, turns back, and
+  is at +1.4 M per axis by 240 M. The hole has then left the middle of the
+  finest box, and the finder cannot find it.
+
+**What the drift is not.** Three levels of 32 points at `M/8` over 16 M,
+trumpet data, 45 M each, measuring the offset per axis at 35 M:
+
+| change | offset at 35 M |
+|---|---|
+| none | −0.0195 |
+| upwinding off | −0.0191 |
+| the coarse grid odd, so symmetric about the puncture | −0.0098 at 30 M, against −0.0101 |
+| every box one parent cell further along +(1,1,1), on 36 points over 18 M | −0.0258 |
+| the finest box symmetric about the puncture | −0.0153 |
+| one more buffer point at each box's low end | −0.0111 |
+| the puncture three half-cells off centre, not one | −0.053 |
+
+The right-hand side on one periodic level, with a puncture at the centre of
+a cell, is mirror-symmetric to 1e−13 with and without upwinding and
+dissipation. So the asymmetry comes from the refinement. A box with an even
+number of fine points starts on a parent point and ends half a cell past
+one. So its first buffer point in from each edge is interpolated in space
+at the low end and a parent value at the high end. Evening that out halves
+the drift. The puncture's distance from the boxes' centre matters more:
+three half-cells drifts three times as far as one. That is why
+`NestedPuncture.build` now takes an `offset`, one by default.
+`staggered_offset` put it eleven half-cells off for five levels.
+
+**Three remedies, measured on the same probe to 45 M.**
+- **`W = e^(−2φ)` in place of `φ`** (`conformal="W"`). `W` vanishes at the
+  puncture like the distance to it, so the stencils beside it difference
+  something smooth. On the trumpet away from the puncture, its rates match
+  the `φ` kernel's to truncation: 3.4e−05 at `M/4`, 2.5e−06 at `M/8`.
+  - With the puncture three half-cells off, the horizon mass at 45 M is
+    1.018 against 1.036 with `φ`, half the error.
+  - The finest constraint is 1.4e−02 against 2.0e−02.
+  - The drift is about the same: −0.143 against −0.161 per axis.
+  - Both horizon fits stopped at the finder's iteration limit, with
+    residuals of 7e−03 and 8e−03.
+- **The advected gauge** (`advect=True`, Brill–Lindquist data). The
+  finest constraint reaches 7.0 by 45 M.
+- **CCZ4 with `κ₁ = 0.1`** (`formulation="ccz4"`, unadvected, upwinded).
+  The constraint is three times lower at 10 M. Then the lapse goes negative
+  at 30 M, and the constraint reaches 2.3 by 35 M.
+
+So none of these makes a puncture stable to 1000 M here, and #48's
+acceptance stays unmet. `W` is the one that helps: it halves the mass
+error. The coordinate oscillation is the gauge's, driven by an asymmetry
+in the refinement that a centred puncture reduces but does not remove.
 
 ## A radiative outer boundary: letting a pulse leave
 

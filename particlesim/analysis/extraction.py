@@ -235,7 +235,7 @@ def sphere_modes(
 
 def bssn_weyl(state, spacing, order: int = 4):
     """``(E, B, gamma)`` from a BSSN state, via its physical slice."""
-    factor = np.exp(4 * np.asarray(state["phi"]))
+    factor = np.asarray(state["W"]) ** -2 if "W" in state else np.exp(4 * np.asarray(state["phi"]))
     trace_k = np.asarray(state["trK"])
     metric = [[None] * 3 for _ in INDICES]
     curvature = [[None] * 3 for _ in INDICES]

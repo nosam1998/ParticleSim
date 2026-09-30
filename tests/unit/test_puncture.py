@@ -174,14 +174,15 @@ def test_nested_levels_share_a_centre_and_halve_the_spacing():
     for level, state in enumerate(states):
         assert np.shape(state["alpha"]) == (32, 32, 32), level
         assert setup.axes[level][16] == pytest.approx(8.0), level
-        cells = (setup.position[0] - setup.axes[level][0]) / setup.spacing(level)
-        assert abs(cells - round(cells)) >= 0.25 - 1e-12, level
+    # The puncture sits half a finest cell off the common centre along each
+    # axis: as centred as it can be while no level has a point on it.
+    assert np.array(setup.position) - 8.0 == pytest.approx([0.0625] * 3)
     # The second-order edge's auxiliary fields are on the coarsest level only.
     assert any(name.startswith("aux:") for name in states[0])
     assert not any(name.startswith("aux:") for state in states[1:] for name in state)
     # Each level is the closed form on its own grid, not an interpolant:
-    # the lapse at the sample nearest the puncture is psi^-2 there. (Levels
-    # one and two both sit a sixteenth of M off it along each axis.)
+    # the lapse at the sample nearest the puncture is psi^-2 there. (That
+    # sample is the common centre on every level.)
     for level, state in enumerate(states):
         offsets = np.abs(setup.axes[level] - setup.position[0])
         nearest = np.sqrt(3.0) * float(np.min(offsets))
@@ -189,6 +190,17 @@ def test_nested_levels_share_a_centre_and_halve_the_spacing():
         assert float(np.min(np.asarray(state["alpha"]))) == pytest.approx(expected), level
     with pytest.raises(ValueError, match="interpolated rather than evolved"):
         puncture.NestedPuncture.build(n=24, extent=12.0, levels=3)
+
+
+def test_the_offset_can_be_chosen_but_never_onto_a_grid_point():
+    """``staggered_offset`` is still available, and an even multiple is refused."""
+    setup, _ = puncture.NestedPuncture.build(
+        n=32, extent=16.0, levels=3, offset=puncture.staggered_offset(3)
+    )
+    assert np.array(setup.position) - 8.0 == pytest.approx([3 * 0.0625] * 3)
+    for bad in (0, 2, -4):
+        with pytest.raises(ValueError, match="must be an odd number"):
+            puncture.NestedPuncture.build(n=32, extent=16.0, levels=3, offset=bad)
 
 
 def test_a_nested_puncture_is_refused_what_it_cannot_centre():

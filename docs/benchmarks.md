@@ -1628,7 +1628,7 @@ itself.
 | t / M | 40 | 80 | 120 | 160 | 200 | 240 | 280 | 320 | 340 |
 |---|---|---|---|---|---|---|---|---|---|
 | horizon mass | 1.006 | 1.019 | 1.040 | 1.069 | 1.107 | 1.159 | 1.228 | 1.327 | not found |
-| the run above | 1.020 | 1.060 | 1.107 | 1.165 | 1.231 | not found | | | |
+| the run above | 1.020 | 1.060 | 1.107 | 1.165 | ≈ 1.23 | not found | | | |
 | hole's offset per axis, M | 0.000 | −0.012 | −0.040 | −0.062 | −0.024 | +0.135 | +0.269 | −0.269 | −1.015 |
 | the run above | −0.004 | −0.048 | −0.161 | −0.193 | +0.338 | +1.418 | | | |
 | finest `‖H‖` outside 1 M | 1.6e−03 | 3.5e−03 | 5.9e−03 | 9.2e−03 | 1.35e−02 | 1.93e−02 | 2.74e−02 | 4.1e−02 | 5.5e−02 |
@@ -1644,6 +1644,8 @@ itself.
   finder does not find it at 340 M, and the run was stopped there.
 - **The mass error still accelerates:** 0.03% per M near 50 M, 0.1% at
   200 M, 0.26% at 320 M. Its mass at 280 M is the run above's at 200 M.
+  From 260 M the horizon fits stop at the finder's iteration limit, with
+  residuals of 3e−03 to 4e−03.
 
 **How the mass error converges.** The probe uses three levels over 16 M,
 finest box ±2 M, with the same data and `W`. It compares `M/8` (32 points

@@ -443,6 +443,8 @@ class NestedPuncture:
         data: str = "brill_lindquist",
         wave: dict[str, float] | None = None,
         conformal: str = "phi",
+        formulation: str = "bssn",
+        constraint_damping: float | None = None,
     ) -> tuple[NestedPuncture, list[dict[str, Any]]]:
         """The setup and one initial state per level, coarsest first.
 
@@ -456,7 +458,15 @@ class NestedPuncture:
         ``conformal="W"`` evolves ``W = e^(-2 phi)``, which vanishes at the
         puncture like the distance to it, in place of ``phi``, which diverges
         like its logarithm (:func:`~particlesim.solvers.nr.bssn.with_conformal`).
+
+        ``formulation="ccz4"`` evolves CCZ4 instead, with ``Theta`` starting
+        at zero and ``constraint_damping`` as its ``kappa_1`` (the module's
+        default if not given). It carries ``phi`` only.
         """
+        if formulation not in ("bssn", "ccz4"):
+            raise ValueError(f"formulation {formulation!r} is not 'bssn' or 'ccz4'")
+        if formulation == "ccz4" and conformal != "phi":
+            raise ValueError("the CCZ4 kernel carries phi only")
         if levels < 2:
             raise ValueError("a nested puncture needs at least two levels")
         box = n // 2 if box is None else int(box)
@@ -476,14 +486,27 @@ class NestedPuncture:
             axes.append(axes[-1][origin] + np.arange(mesh.RATIO * box) * step)
             sizes.append(mesh.RATIO * box)
 
-        evolution = bssn.Evolution.build(
-            (spacing,) * DIMENSION,
-            backend=backend,
-            dissipation=dissipation,
-            upwind=upwind,
-            advect=advect,
-            conformal=conformal,
-        )
+        if formulation == "ccz4":
+            from particlesim.solvers.nr import ccz4
+
+            extra = {} if constraint_damping is None else {"damping": constraint_damping}
+            evolution = ccz4.build(
+                (spacing,) * DIMENSION,
+                backend=backend,
+                dissipation=dissipation,
+                upwind=upwind,
+                advect=advect,
+                **extra,
+            )
+        else:
+            evolution = bssn.Evolution.build(
+                (spacing,) * DIMENSION,
+                backend=backend,
+                dissipation=dissipation,
+                upwind=upwind,
+                advect=advect,
+                conformal=conformal,
+            )
         width = max(3, int(round(zone / spacing)))
         coarse_mesh = np.meshgrid(axes[0], axes[0], axes[0], indexing="ij")
         relative = tuple(m - p for m, p in zip(coarse_mesh, position, strict=True))
@@ -528,7 +551,12 @@ class NestedPuncture:
             else:
                 initial = {"brill_lindquist": puncture_state, "trumpet": trumpet_state}[data]
                 state = initial(grid, position, mass, backend)
-            states.append(bssn.with_conformal(state, conformal, backend))
+            state = bssn.with_conformal(state, conformal, backend)
+            if formulation == "ccz4":
+                from particlesim.solvers.nr import ccz4
+
+                state = ccz4.with_theta(state, backend)
+            states.append(state)
         if second_order:
             states[0] = edge.start(states[0])
         return setup, states

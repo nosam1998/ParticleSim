@@ -1617,6 +1617,54 @@ acceptance stays unmet. `W` is the one that helps: it halves the mass
 error. The coordinate oscillation is the gauge's, driven by an asymmetry
 in the refinement that a centred puncture reduces but does not remove.
 
+### `W` and a wider finest box, run long: the same failure, 100 M later
+
+The same five levels at `M/8`, with `W` and the puncture one half-cell off
+centre. The finest box is wider, ±3 M against ±2.5 M, and the boundary is
+at 48 M: `NestedPuncture.build(n=48, extent=96, levels=5, data="trumpet",
+conformal="W", offset=1)`. It costs about 72 s per M with the machine to
+itself.
+
+| t / M | 40 | 80 | 120 | 160 | 200 | 240 | 280 | 320 | 340 |
+|---|---|---|---|---|---|---|---|---|---|
+| horizon mass | 1.006 | 1.019 | 1.040 | 1.069 | 1.107 | 1.159 | 1.228 | 1.327 | not found |
+| the run above | 1.020 | 1.060 | 1.107 | 1.165 | ≈ 1.23 | not found | | | |
+| hole's offset per axis, M | 0.000 | −0.012 | −0.040 | −0.062 | −0.024 | +0.135 | +0.269 | −0.269 | −1.015 |
+| the run above | −0.004 | −0.048 | −0.161 | −0.193 | +0.338 | +1.418 | | | |
+| finest `‖H‖` outside 1 M | 1.6e−03 | 3.5e−03 | 5.9e−03 | 9.2e−03 | 1.35e−02 | 1.93e−02 | 2.74e−02 | 4.1e−02 | 5.5e−02 |
+| the run above | 7.1e−03 | 1.34e−02 | 1.95e−02 | 2.73e−02 | 3.86e−02 | 6.0e−02 | | | |
+
+**It fails the same way, about 100 M later.**
+- **Smaller errors.** At every time the constraint is three to four times
+  smaller, and the hole's offset three to ten times smaller.
+- **The same oscillation.** The hole's coordinate position still
+  oscillates, and the oscillation still grows. It reaches −0.062 per axis
+  near 160 M and +0.27 near 280 M. Then it swings to −1.0 by 340 M, which
+  carries the hole out of the finest box's middle as in the run above. The
+  finder does not find it at 340 M, and the run was stopped there.
+- **The mass error still accelerates:** 0.03% per M near 50 M, 0.1% at
+  200 M, 0.26% at 320 M. Its mass at 280 M is the run above's at 200 M.
+  From 260 M the horizon fits stop at the finder's iteration limit, with
+  residuals of 3e−03 to 4e−03.
+
+**How the mass error converges.** The probe uses three levels over 16 M,
+finest box ±2 M, with the same data and `W`. It compares `M/8` (32 points
+per level) with `M/12` (48 points), and gives the horizon mass less its
+value at `t = 0`:
+
+| | 15 M | 30 M | 15 → 30 M |
+|---|---|---|---|
+| `M/8` | 2.23e−03 | 5.58e−03 | 3.35e−03 |
+| `M/12` | 5.8e−04 | 2.02e−03 | 1.45e−03 |
+| order | 3.3 | 2.5 | 2.1 |
+
+The finest constraint at 30 M converges faster, at order 4.5 (1.43e−02
+against 2.33e−03), and the horizon's distortion faster again. The mass
+drift's own rate converges at about second order, so its source is an
+error of that order. It is not identified here. At second order, holding
+the mass to 1% over 1000 M would take ten times finer spacing at the
+hole or more, which is beyond this machine.
+
 ## A radiative outer boundary: letting a pulse leave
 
 Issue [#132](https://github.com/nosam1998/ParticleSim/issues/132), in

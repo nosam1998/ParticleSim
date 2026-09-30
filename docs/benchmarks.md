@@ -1647,23 +1647,42 @@ itself.
   From 260 M the horizon fits stop at the finder's iteration limit, with
   residuals of 3e−03 to 4e−03.
 
-**How the mass error converges.** The probe uses three levels over 16 M,
-finest box ±2 M, with the same data and `W`. It compares `M/8` (32 points
-per level) with `M/12` (48 points), and gives the horizon mass less its
-value at `t = 0`:
+**How the mass error converges.** Three levels with the same data and `W`,
+at `M/8` and `M/12`, give the horizon mass less its value at `t = 0`.
+- **A 16 M box is too small.** Its boundary is 6 M from the hole, and what
+  the boundary sends back reaches the horizon. There the mass stays flat
+  to 10 M, then steps by 2e−03 by 15 M.
+- **So the comparison is repeated in a 32 M box.** It adds a fourth level
+  outside, with the same finest grid (±2 M).
 
-| | 15 M | 30 M | 15 → 30 M |
-|---|---|---|---|
-| `M/8` | 2.23e−03 | 5.58e−03 | 3.35e−03 |
-| `M/12` | 5.8e−04 | 2.02e−03 | 1.45e−03 |
-| order | 3.3 | 2.5 | 2.1 |
+| | box | 15 M | 30 M | 15 → 30 M |
+|---|---|---|---|---|
+| `M/8` | 16 M | 2.23e−03 | 5.58e−03 | 3.35e−03 |
+| `M/12` | 16 M | 5.8e−04 | 2.02e−03 | 1.45e−03 |
+| order | | 3.3 | 2.5 | 2.1 |
+| `M/8` | 32 M | 1.61e−03 | 4.14e−03 | 2.53e−03 |
+| `M/12` | 32 M | 1.85e−04 | 7.07e−04 | 5.22e−04 |
+| order | | 5.3 | 4.4 | 3.9 |
 
-The finest constraint at 30 M converges faster, at order 4.5 (1.43e−02
-against 2.33e−03), and the horizon's distortion faster again. The mass
-drift's own rate converges at about second order, so its source is an
-error of that order. It is not identified here. At second order, holding
-the mass to 1% over 1000 M would take ten times finer spacing at the
-hole or more, which is beyond this machine.
+- **In the wider box the mass converges at about fourth order**, the
+  interior's. The small box's lower orders were its boundary's reflection,
+  which does not shrink with the spacing.
+- **The drift's late rate is less settled.** Between 25 and 30 M it is
+  1.6e−04 per M at `M/8` and 5.3e−05 at `M/12`, only three times smaller,
+  and the `M/12` rate is still rising.
+- **The fits.** At `M/8` they stop at the finder's iteration limit. With
+  6000 iterations instead of 1000 the masses are the same to every digit
+  printed, so the residual of about 2e−03 is the finder's floor at that
+  spacing, not an unfinished fit.
+
+**The dissipation moves the mass by as much as the drift.** In the 16 M box
+at `M/8`, doubling the Kreiss–Oliger strength from 0.1 to 0.2 leaves the
+mass within 5e−04 of the other to 20 M. After that it falls below its start: 0.997 at 40 M,
+against 1.009 with 0.1. Halving it to 0.05 changes the 30 M value by 10%.
+Kreiss–Oliger dissipation is formally fifth order. Near the puncture,
+though, the fields are not smooth, and that is where it acts. Tuning the
+strength until the two effects cancel would balance one error against
+another, not remove either.
 
 ## A radiative outer boundary: letting a pulse leave
 

@@ -442,6 +442,7 @@ class NestedPuncture:
         second_order: bool = True,
         data: str = "brill_lindquist",
         wave: dict[str, float] | None = None,
+        conformal: str = "phi",
     ) -> tuple[NestedPuncture, list[dict[str, Any]]]:
         """The setup and one initial state per level, coarsest first.
 
@@ -451,6 +452,10 @@ class NestedPuncture:
         instead of ``data``. Everything else is as in
         :meth:`TwoLevelPuncture.build`, except that the second-order boundary
         is on by default.
+
+        ``conformal="W"`` evolves ``W = e^(-2 phi)``, which vanishes at the
+        puncture like the distance to it, in place of ``phi``, which diverges
+        like its logarithm (:func:`~particlesim.solvers.nr.bssn.with_conformal`).
         """
         if levels < 2:
             raise ValueError("a nested puncture needs at least two levels")
@@ -477,6 +482,7 @@ class NestedPuncture:
             dissipation=dissipation,
             upwind=upwind,
             advect=advect,
+            conformal=conformal,
         )
         width = max(3, int(round(zone / spacing)))
         coarse_mesh = np.meshgrid(axes[0], axes[0], axes[0], indexing="ij")
@@ -522,7 +528,7 @@ class NestedPuncture:
             else:
                 initial = {"brill_lindquist": puncture_state, "trumpet": trumpet_state}[data]
                 state = initial(grid, position, mass, backend)
-            states.append(state)
+            states.append(bssn.with_conformal(state, conformal, backend))
         if second_order:
             states[0] = edge.start(states[0])
         return setup, states
@@ -577,7 +583,7 @@ class NestedPuncture:
         )
         return {
             "lapse_min": float(np.min(np.asarray(finest["alpha"]))),
-            "phi_max": float(np.max(np.asarray(finest["phi"]))),
+            "phi_max": float(np.max(np.asarray(bssn.conformal_exponent(finest)))),
             "hamiltonian": norms,
             "shift_max": float(
                 max(np.max(np.abs(np.asarray(finest[f"beta{i}"]))) for i in INDICES)

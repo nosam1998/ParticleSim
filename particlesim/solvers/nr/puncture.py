@@ -384,13 +384,14 @@ def staggered_offset(levels: int) -> int:
     uses. For four it is five, which leaves ``5/16``, ``3/8``, ``1/4`` and
     ``1/2`` of a cell from the coarsest level to the finest.
 
-    **This is probably the wrong thing to maximise for many levels.** For
-    five it is eleven: 0.69 M off the boxes' common centre at a finest
+    **It is the wrong thing to maximise for many levels**, and
+    :meth:`NestedPuncture.build` no longer uses it by default. For five
+    levels it is eleven: 0.69 M off the boxes' common centre at a finest
     spacing of ``M/8``. In the ringdown run the hole drifted back toward
     that centre, 0.13 M by 90 M and 0.33 M by 120 M. The coarse levels are
     overwritten by restriction wherever the puncture is, so how close it
-    comes to their points matters less than keeping it centred. The cause
-    is likely but not established; see ``docs/benchmarks.md``.
+    comes to their points matters less than keeping it centred. The build
+    now puts it one half-spacing off; see ``docs/benchmarks.md``.
     """
     if levels < 1:
         raise ValueError(f"{levels} levels")
@@ -445,6 +446,7 @@ class NestedPuncture:
         conformal: str = "phi",
         formulation: str = "bssn",
         constraint_damping: float | None = None,
+        offset: int = 1,
     ) -> tuple[NestedPuncture, list[dict[str, Any]]]:
         """The setup and one initial state per level, coarsest first.
 
@@ -462,6 +464,13 @@ class NestedPuncture:
         ``formulation="ccz4"`` evolves CCZ4 instead, with ``Theta`` starting
         at zero and ``constraint_damping`` as its ``kappa_1`` (the module's
         default if not given). It carries ``phi`` only.
+
+        ``offset`` is how far the puncture sits from the boxes' common centre
+        along each axis, in half the finest spacing. It must be odd, so that
+        no level samples it, and one keeps the hole as close to centred as
+        that allows. :func:`staggered_offset` gives the multiple that keeps it
+        furthest from every level's points instead, which for five levels is
+        eleven, 0.69 M off centre at ``M/8``.
         """
         if formulation not in ("bssn", "ccz4"):
             raise ValueError(f"formulation {formulation!r} is not 'bssn' or 'ccz4'")
@@ -469,12 +478,17 @@ class NestedPuncture:
             raise ValueError("the CCZ4 kernel carries phi only")
         if levels < 2:
             raise ValueError("a nested puncture needs at least two levels")
+        if offset % 2 == 0:
+            raise ValueError(
+                f"an offset of {offset} half-spacings puts the puncture on a grid point: "
+                "it must be an odd number"
+            )
         box = n // 2 if box is None else int(box)
         if box % 2:
             raise ValueError(f"a box of {box} points has no centre point to share with its parent")
         spacing = extent / n
         finest = spacing / mesh.RATIO ** (levels - 1)
-        position = ((n // 2) * spacing + staggered_offset(levels) * finest / 2,) * DIMENSION
+        position = ((n // 2) * spacing + offset * finest / 2,) * DIMENSION
 
         axes = [np.arange(n) * spacing]
         sizes = [n]

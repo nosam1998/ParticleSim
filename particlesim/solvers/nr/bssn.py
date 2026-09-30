@@ -113,12 +113,24 @@ _DISSIPATORS: dict[Any, Callable] = {}
 #: Compiled upwinding corrections, keyed the same way.
 _UPWINDERS: dict[Any, Callable] = {}
 
-#: The variables with an advection term ``beta^k d_k f`` in their equation.
+#: Compiled centred advection operators, keyed the same way.
+_ADVECTORS: dict[Any, Callable] = {}
+
+#: The variables whose advection term ``beta^k d_k f`` is not in the kernel.
 #:
-#: Everything but the Gamma-driver's ``B^i``, whose equation here has none.
+#: The Gamma-driver's ``B^i``. With ``advect=True`` its advection is added
+#: outside the kernel (:meth:`Evolution.right_hand_side`, the ``d_0`` form),
+#: upwinded there when upwinding is on; otherwise its equation has none.
 #: Theta is CCZ4's and is advected there; a state without it simply does not
 #: carry it.
 UNADVECTED = frozenset(f"B{i}" for i in INDICES)
+
+#: Centred first-derivative stencils as ``(offset, weight)``, by order.
+CENTRED_FIRST = {
+    2: ((-1, -1 / 2), (1, 1 / 2)),
+    4: ((-2, 1 / 12), (-1, -8 / 12), (1, 8 / 12), (2, -1 / 12)),
+    6: ((-3, -1 / 60), (-2, 9 / 60), (-1, -45 / 60), (1, 45 / 60), (2, -9 / 60), (3, 1 / 60)),
+}
 
 #: The fourth-order lopsided first derivative minus the centred one, for a
 #: shift pointing along ``+k``: offsets ``-2 .. 3``.
@@ -746,7 +758,63 @@ class Evolution:
                     driver = f"B{name[2:]}"
                     if driver in rates:
                         rates[driver] = rates[driver] + corrections[index]
+        if self.advect is True and self.shift_condition == "gamma_driver" and "B0" in rates:
+            rates = self._advect_driver(state, rates)
         return rates
+
+    def _advector(self):
+        """``sum_k beta^k D_k f`` with the kernel's centred stencil, compiled once per evolution."""
+        cached = _ADVECTORS.get(self)
+        if cached is not None:
+            return cached
+        if self.order not in CENTRED_FIRST:
+            raise ValueError(f"no centred first derivative of order {self.order}")
+        module = _module(self.backend)
+        spacing = self.spacing
+        stencil = CENTRED_FIRST[self.order]
+
+        def apply(stacked, shift):
+            total = None
+            for axis, step in enumerate(spacing):
+                derivative = None
+                for offset, weight in stencil:
+                    term = weight * module.roll(stacked, -offset, axis=axis + 1)
+                    derivative = term if derivative is None else derivative + term
+                contribution = shift[axis] * derivative / step
+                total = contribution if total is None else total + contribution
+            return total
+
+        if self.backend == "jax":
+            import jax
+
+            apply = jax.jit(apply)
+        _ADVECTORS[self] = apply
+        return apply
+
+    def _advect_driver(self, state, rates):
+        """Add ``beta^k d_k (B^i - Gammabar^i)`` to ``B^i``'s rate: the driver in ``d_0`` form.
+
+        With ``d_0 = d_t - beta^k d_k``, the moving-puncture driver is
+        ``d_0 beta^i = (3/4) B^i`` and ``d_0 B^i = d_0 Gammabar^i - eta B^i``,
+        as BAM and GRChombo (``shift_advec_coeff = 1``) write it. The kernel
+        advects ``beta^i`` and, through ``d_t Gammabar^i``, feeds ``B^i`` the
+        connection's advection, but not ``B^i``'s own. That mix of two
+        published forms is what this completes. Upwinding, when on, applies
+        to both terms, so the connection's advection cancels exactly.
+
+        On a two-level puncture at ``M/4`` (``TwoLevelPuncture``, ``n = 32``,
+        box 18) the mix is NaN by 50 M, with ``B`` at 0.63 at 40 M. The
+        ``d_0`` form holds ``B`` under 0.08 to 85 M and is NaN by 100 M. It
+        is the published form and it doubles the run, but it does not make
+        an advected puncture stable on this grid.
+        """
+        module = _module(self.backend)
+        difference = module.stack([state[f"B{i}"] - state[f"Gt{i}"] for i in INDICES])
+        shift = module.stack([state[f"beta{i}"] for i in INDICES])
+        advection = self._advector()(difference, shift)
+        if self.upwind:
+            advection = advection + self._upwinder()(difference, shift)
+        return {**rates, **{f"B{i}": rates[f"B{i}"] + advection[i] for i in INDICES}}
 
     def _raw_step(self, state, step):
         names = list(state)

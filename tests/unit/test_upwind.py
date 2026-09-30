@@ -119,23 +119,75 @@ def test_upwinding_is_refused_at_other_orders():
         replace(upwinded, order=2).right_hand_side(state)
 
 
-@pytest.mark.slow
-def test_the_gamma_driver_sees_the_upwinded_connection_rate():
-    """``d_t B^i = d_t Gammabar^i - eta B^i``, so ``B^i`` gets exactly ``Gammabar^i``'s correction.
+def _driver_state(n: int):
+    """The shift along ``x`` varies along ``y``; ``B^x`` and ``Gammabar^x`` vary along ``x``."""
+    state, spacing = _state(n)
+    x = (np.arange(n)[:, None, None] / n) * np.ones((1, n, 4))
+    state["B0"] = 0.01 * np.sin(2 * np.pi * x)
+    state["Gt0"] = 0.02 * np.cos(2 * np.pi * x)
+    return state, spacing, x
 
-    The driver is fed the rate ``Gammabar^i`` actually has, which is what a
-    code that upwinds inside its kernel does automatically. Leaving ``B^i``
-    on the kernel's centred rate would drive it by minus the correction
-    whenever ``Gammabar^i`` is stationary.
+
+_DRIVER = dict(slicing="one_plus_log", shift_condition="gamma_driver", dissipation=0.0)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("advect", [True, False])
+def test_the_gamma_driver_sees_the_upwinded_connection_rate(advect):
+    """What upwinding does to ``B^i``'s rate, in either form of the driver.
+
+    Unadvected, ``d_t B^i = d_t Gammabar^i - eta B^i``, so ``B^i`` gets
+    exactly ``Gammabar^i``'s correction: the rate the connection actually
+    has, which is what a code that upwinds inside its kernel does. In the
+    ``d_0`` form the connection's advection cancels out of ``B^i``'s rate,
+    so ``B^i`` gets its own correction instead.
     """
-    state, spacing = _state(16)
-    x = np.arange(16)[:, None, None] / 16
-    state["Gt0"] = 0.01 * np.sin(2 * np.pi * x) * np.ones((1, 16, 4))
-    kwargs = dict(slicing="one_plus_log", shift_condition="gamma_driver", dissipation=0.0)
-    centred = bssn.Evolution.build(spacing, **kwargs)
-    upwinded = bssn.Evolution.build(spacing, upwind=True, **kwargs)
+    state, spacing, _ = _driver_state(16)
+    centred = bssn.Evolution.build(spacing, advect=advect, **_DRIVER)
+    upwinded = bssn.Evolution.build(spacing, upwind=True, advect=advect, **_DRIVER)
     plain, corrected = centred.right_hand_side(state), upwinded.right_hand_side(state)
     connection = np.asarray(corrected["Gt0"]) - np.asarray(plain["Gt0"])
     driver = np.asarray(corrected["B0"]) - np.asarray(plain["B0"])
     assert np.max(np.abs(connection)) > 1e-6
-    assert np.max(np.abs(driver - connection)) < 1e-12
+    if advect:
+        shift = np.stack([state[f"beta{i}"] for i in range(3)])
+        own = np.asarray(upwinded._upwinder()(np.stack([state["B0"]]), shift))[0]
+        assert np.max(np.abs(own)) > 1e-6
+        assert np.max(np.abs(driver - own)) < 1e-12
+    else:
+        assert np.max(np.abs(driver - connection)) < 1e-12
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("upwind", [False, True])
+def test_the_advected_driver_is_in_d0_form(upwind):
+    """``(d_t - beta.d) B^i = (d_t - beta.d) Gammabar^i - eta B^i``, to fourth order.
+
+    The kernel's rates for ``B^i`` and ``Gammabar^i`` differ by exactly
+    ``-eta B^i``. What is left of ``d_t B^x - d_t Gammabar^x + eta B^x`` is
+    therefore the driver's own advection, ``beta^x d_x (B^x - Gammabar^x)``.
+    It is compared with the exact derivative, and the error falls by 16 when
+    the spacing halves. Unadvected, it is zero.
+    """
+    errors = []
+    for n in (16, 32):
+        state, spacing, x = _driver_state(n)
+        evolution = bssn.Evolution.build(spacing, upwind=upwind, **_DRIVER)
+        rates = evolution.right_hand_side(state)
+        left = np.asarray(rates["B0"]) - np.asarray(rates["Gt0"]) + evolution.damping * state["B0"]
+        exact = (
+            state["beta0"]
+            * 2
+            * np.pi
+            * (0.01 * np.cos(2 * np.pi * x) + 0.02 * np.sin(2 * np.pi * x))
+        )
+        assert np.max(np.abs(exact)) > 0.01
+        errors.append(np.max(np.abs(left - exact)))
+    assert errors[1] < 1e-5
+    assert 12.0 < errors[0] / errors[1] < 20.0, errors
+    state, spacing, _ = _driver_state(16)
+    rates = bssn.Evolution.build(spacing, upwind=upwind, advect=False, **_DRIVER).right_hand_side(
+        state
+    )
+    left = np.asarray(rates["B0"]) - np.asarray(rates["Gt0"]) + 2.0 * state["B0"]
+    assert np.max(np.abs(left)) < 1e-12

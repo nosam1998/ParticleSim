@@ -1411,6 +1411,28 @@ advected gauge failed at 50 M instead of 90. In the unadvected gauge the two
 agree to three figures. The driver keeps the correction, since it is the rate
 `Γ̃` actually has.
 
+**The `d_0` form, measured.** `advect=True` now completes the other
+published form. With `d_0 = ∂_t − β^k∂_k`, it is `d_0 β = ¾B` and
+`d_0 B = d_0 Γ̃ − ηB`, as BAM and GRChombo write it
+(`shift_advec_coeff = 1`). The driver's own advection, `β^k∂_k(B − Γ̃)`, is
+added outside the kernel, because the kernel takes no derivatives of `B`.
+When upwinding is on it is upwinded too, so the connection's advection
+cancels out of `B`'s rate exactly. On current code, the same two-level run
+(`n = 32` over 16 M, box 18, Brill–Lindquist data) gives:
+
+| t / M | 20 | 40 | 60 | 80 | 90 | 100 |
+|---|---|---|---|---|---|---|
+| conformal metric, mix | 1.76 | 3.33 | NaN by 50 | | | |
+| conformal metric, `d_0` | 1.35 | 1.60 | 2.03 | 3.18 | 3.62 | NaN |
+| `max \|B\|`, mix | 0.088 | 0.63 | | | | |
+| `max \|B\|`, `d_0` | 0.057 | 0.074 | 0.065 | 0.076 | 0.25 | |
+
+The mix fails sooner here than the 90 M above. That was measured before
+the upwind correction reached `B`, which the previous paragraph says costs
+it 40 M. The `d_0` form keeps `B` small for twice as long and doubles the
+run. It is still not a stable advected puncture on this grid, so the
+unadvected gauge stays the default for the punctures here.
+
 **Where the long run stands: it fails at 150 M, from the coarse level.**
 The unadvected run settles near the hole. The constraint outside `2 M` on the
 fine level peaks at 0.050 at 85 M and falls back to 0.038 by 125 M. The lapse
@@ -1583,8 +1605,9 @@ three half-cells drifts three times as far as one. That is why
   - The drift is about the same: −0.143 against −0.161 per axis.
   - Both horizon fits stopped at the finder's iteration limit, with
     residuals of 7e−03 and 8e−03.
-- **The advected gauge** (`advect=True`, Brill–Lindquist data). The
-  finest constraint reaches 7.0 by 45 M.
+- **The advected gauge** (`advect=True`, Brill–Lindquist data), in the
+  mixed form that `advect=True` then was. The finest constraint reaches 7.0
+  by 45 M.
 - **CCZ4 with `κ₁ = 0.1`** (`formulation="ccz4"`, unadvected, upwinded).
   The constraint is three times lower at 10 M. Then the lapse goes negative
   at 30 M, and the constraint reaches 2.3 by 35 M.

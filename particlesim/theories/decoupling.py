@@ -45,7 +45,8 @@ sixth-difference Kreiss-Oliger dissipation.
 threshold the scalar is infinitesimal, so the onset is exact, and it is the
 same ``M/lambda`` the fully coupled static equations give. The endpoint is
 not: at ``M/lambda = 0.5`` the decoupled scalar settles at ``phi_H = 0.291``,
-and the backreacted hole of the same mass has 0.406.
+and the backreacted hole of the same mass has 0.406. The next order, for
+couplings with ``f'(0) != 0``, is :mod:`~particlesim.theories.backreaction`.
 
 The measurements are in ``docs/benchmarks.md``.
 """
@@ -180,6 +181,17 @@ class DecouplingLimit:
             rate[0], rate[1], rate[-2], rate[-1] = left0, left1, -right1, -right0
         return d_psi, d_pi
 
+    def step(self, psi, pi, dt: float):
+        """One classical Runge-Kutta step of :meth:`rates`."""
+        a1, b1 = self.rates(psi, pi)
+        a2, b2 = self.rates(psi + dt / 2 * a1, pi + dt / 2 * b1)
+        a3, b3 = self.rates(psi + dt / 2 * a2, pi + dt / 2 * b2)
+        a4, b4 = self.rates(psi + dt * a3, pi + dt * b3)
+        return (
+            psi + dt / 6 * (a1 + 2 * a2 + 2 * a3 + a4),
+            pi + dt / 6 * (b1 + 2 * b2 + 2 * b3 + b4),
+        )
+
     def evolve(
         self, initial, final: float, probes=(0.0,), every: float = 1.0, courant: float = 0.25
     ):
@@ -198,12 +210,7 @@ class DecouplingLimit:
         index = [int(np.argmin(np.abs(grid - p))) for p in probes]
         times, samples = [0.0], [psi[index].copy()]
         for count in range(1, steps + 1):
-            a1, b1 = self.rates(psi, pi)
-            a2, b2 = self.rates(psi + step / 2 * a1, pi + step / 2 * b1)
-            a3, b3 = self.rates(psi + step / 2 * a2, pi + step / 2 * b2)
-            a4, b4 = self.rates(psi + step * a3, pi + step * b3)
-            psi = psi + step / 6 * (a1 + 2 * a2 + 2 * a3 + a4)
-            pi = pi + step / 6 * (b1 + 2 * b2 + 2 * b3 + b4)
+            psi, pi = self.step(psi, pi, step)
             if count % stride == 0:
                 times.append(count * step)
                 samples.append(psi[index].copy())

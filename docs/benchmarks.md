@@ -4395,13 +4395,120 @@ scalar settles at `φ_H = 0.291`. The fully coupled hole of the same mass,
 difference is what the next order would carry. It enters at second order
 in `φ`, and at this `φ_H` it is not small.
 
+### Order reduction at second order: the hair's pull on the hole
+
+`particlesim.theories.backreaction` is the next order. It applies to
+couplings with `f′(0) ≠ 0`, among them the dilatonic `e^{−2φ}` of
+`string.eft4d.dgb` and the linear coupling. The small parameter is
+`λ²/M²`. The scalar is first order, and the metric's correction is second.
+
+**No new evolution is needed.** Spherical symmetry has no gravitational
+waves, so the correction is not dynamical. At each instant two radial
+equations fix it: the Hamiltonian constraint and the polar slicing
+condition. The gauge is
+`ds² = −e^{2δ}(1 − 2m/r)dt² + dr²/(1 − 2m/r) + r²dΩ²`, with `m = M + μ`.
+`m` is the Misner–Sharp mass, which is geometric. With
+`k = 4Mλ²f′(0)`:
+
+```
+∂_r* μ = (r²/2)(φ_r*² + φ_t²) + (k/r³)[r² φ_r*r* − (r − M) φ_r*]
+∂_r δ  = r(φ_r² + φ_t²/N²) + (k/r²)(φ_rr + φ_tt/N²)
+∂_t μ  = r² φ_t φ_r* + k[φ_tr*/r − M φ_t/r³]
+```
+
+- **The first two, and the scalar's equation,** are derived from the
+  action. `second_order_equations` reduces it to `(t, r)`, varies it and
+  expands in the coupling, in 20 s. Below second order the metric
+  equations vanish identically, and the `f(0)𝒢` term drops out as a total
+  derivative.
+- **The third is the energy flux.** It follows from the other two and the
+  scalar's equation, by the contracted Bianchi identity, and a fast test
+  checks that. Varying `g_tr` in the action gives the flux directly. That
+  derivation took 14 minutes, too long for the suite, and it agreed
+  exactly.
+
+**The static hole in closed form.** On the static hair, with `μ(2M) = 0`:
+
+- `M = r_H/2 + (49/40) f′(0)² λ⁴ / r_H³`
+- `T = (1/4πr_H)(1 − f′(0)² λ⁴ / 60 r_H⁴)`
+
+**Against the full nonlinear hole.** `static_black_hole` shoots the full
+static equations nonlinearly, from the horizon. The table gives its mass
+correction over this one, with `λ = 1` and `f′(0) = −2`.
+
+| `r_H/λ` | 4 | 5.66 | 8 | 11.3 | 16 | 22.6 |
+|---|---|---|---|---|---|---|
+| linear, `f = −2φ` | 1.0475 | 1.0108 | 1.0027 | 1.00067 | 1.00017 | 1.00006 |
+| dilatonic, `f = e^{−2φ}` | no hole | 1.60 | 1.22 | 1.10 | 1.047 | 1.023 |
+
+- **The leftover falls at the rate the counting says.** For the linear
+  coupling `f″ = 0`, so nothing enters at `λ⁶`. The excess over one is
+  about `11/r_H⁴` from `r_H = 5.66` to 16: the `λ⁸` term. At 22.6 it is at
+  the full solver's floor. For the dilatonic
+  coupling `f″ = 4`, and the excess times `r_H²` settles near 12: the `λ⁶`
+  term.
+- **At `r_H = 4` there is no dilatonic hole.** It needs
+  `r_H⁴ > 24 f′(φ_H)²`, and `φ_H < 0` makes `f′` larger.
+
+**The temperature is checked by the first law instead.** At `r_H = 16` its
+second-order shift is 5e−9. That is below the full solver's accuracy,
+which is set by extrapolating `Φ` to infinity. So the check is instead
+`dM = T dS` with Wald's entropy `πr_H² + 4πλ² f(φ_H)`. It holds
+identically at this order, and it fails with the bare area or with
+Schwarzschild's temperature. It is a sharp check, because the
+temperature's coefficient is a cancellation of 441 against 440, in
+sixtieths.
+
+**Growing hair.** `SecondOrder.run` starts `φ = 0` on Schwarzschild, lets
+the hair grow, and books the energy through both ends. The results are in
+units of `f′(0)²λ⁴/M³`, to 700 M.
+
+| | |
+|---|---|
+| radiated to infinity | 0.02639 |
+| horizon mass change | −0.17952 |
+| static hair, `49/320` | 0.153125 |
+| their sum | < 1e−6 |
+| horizon area change, in `f′(0)²λ⁴/M²` | −18.05 |
+| Wald entropy change, in `f′(0)²λ⁴/M²` | +1.248 |
+
+- **Conservation.** The energy between the ends must change only by the
+  fluxes through them. It does:
+  - At 1001, 2001 and 4001 points, the worst mismatch is 3.6e−6, 1.1e−6
+    and 2.9e−7. It happens as the front crosses the inner end.
+  - At the end of the run, the mismatch is 7.8e−7, 6.8e−8 and 6.2e−9.
+  - Every number in the table is the same at all three resolutions, to
+    2e−7.
+- **Extraction radius.** The radiated energy measured at `r = 290` and at
+  141 is 0.026392 and 0.026401. The difference comes from the outer end,
+  whose characteristic condition the hair's `1/r²` part does not satisfy.
+  It lets in a constant offset in `φ` of 8e−6 at 290, which carries no
+  energy.
+- **The static hole.** The energy inside settles on the static hair's,
+  less its tail beyond the outer end. `φ_H` settles on `11/24`.
+
+**The hole ends lighter, and its area shrinks.** The Gauss–Bonnet part of
+the flux through the horizon is a total time derivative. It integrates to
+`−λ²f′(0)φ_H/2M = −(11/48) f′(0)²λ⁴/M³`: −0.22917, measured −0.22917. The
+scalar's own flux adds +0.04965. The area theorem needs the null energy
+condition, which the Gauss–Bonnet term does not keep. Wald's entropy is
+the one the first law pairs with `T`, and it rises. The coupling term,
+`4πλ²f′(0)φ_H = (11/6)π f′(0)²λ⁴/M² = 5.760`, outweighs the area's
+quarter, −4.512.
+
+**Scalarization is outside this expansion.** With `f′(0) = 0` the
+first-order scalar has no source, so the expansion gives no hair at any
+order, and `SecondOrder` refuses it. The 40% gap in `φ_H` at
+`M/λ = 0.5`, above, is not perturbative in `λ`.
+
 ### What is not here
 
 - **Modified CCZ4, and any 3-D evolution of this theory.** The issue's first
   task stays open.
-- **Order reduction beyond leading order.** The next order puts the
-  scalar's stress and its Gauss–Bonnet term back into the metric. The
-  measurement above says how large that correction is at `M/λ = 0.5`.
+- **Order reduction past second order, and for scalarization couplings.**
+  The first needs the scalar's `λ⁶` correction, which the second-order
+  metric sources. Scalarization needs the full equations, which
+  `static_black_hole` solves statically and nothing here evolves.
 - **Stability.** A scalarized branch can be linearly unstable, and the
   quadratic coupling's is. Radial perturbations are not computed here.
 

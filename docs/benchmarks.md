@@ -1684,6 +1684,49 @@ though, the fields are not smooth, and that is where it acts. Tuning the
 strength until the two effects cancel would balance one error against
 another, not remove either.
 
+### At `M/12` the mass holds, and the hole still drifts
+
+The same five levels, spaced down to `M/12`: `NestedPuncture.build(n=48,
+extent=64, levels=5, data="trumpet", conformal="W", offset=1)`. With
+`n = 48` the finest box is ±2 M, against ±3 M at `M/8`. It costs about
+100 s per M.
+
+| t / M | 40 | 80 | 120 | 140 | 160 |
+|---|---|---|---|---|---|
+| horizon mass, `M/12` | 1.0009 | 1.0019 | 1.0031 | ≈ 1.006 | not found |
+| horizon mass, `M/8` | 1.0058 | 1.0190 | 1.0397 | 1.0531 | 1.0687 |
+| hole's offset per axis, `M/12` | −0.003 | −0.035 | −0.134 | −0.216 | −0.322 |
+| hole's offset per axis, `M/8` | 0.000 | −0.012 | −0.040 | −0.054 | −0.062 |
+| finest `‖H‖`, `M/12` | 2.4e−03 | 2.4e−03 | 2.6e−03 | 2.9e−03 | 3.3e−03 |
+| finest `‖H‖`, `M/8` | 1.6e−03 | 3.5e−03 | 5.9e−03 | 7.5e−03 | 9.2e−03 |
+
+- **The mass error is 10 to 15 times smaller** at equal times through
+  120 M, and the constraint barely grows.
+- **The offset is not smaller.** From 60 to 160 M both offsets grow by e
+  about every 32 M, but at `M/12` it is three to five times larger
+  throughout, which matches its smaller finest box. The `M/8` run's offset
+  turned at 160 M. This one had not, and by 160 M the finder no longer
+  finds the hole: its fit stops with a residual of 0.13.
+
+So the spacing controls the mass, and the hole's coordinate drift is
+what ends the run. The obvious next step is a wider finest box at
+`M/12`. `box=32` gives ±2.67 M at about 2.2 times the cost.
+
+**Two things that do not touch the drift.** Both were measured on the
+three-level probe in the 16 M box at `M/8`.
+- **The Gamma-driver's `η`.** At 2, 4 and 8 the offset at 15 M is the
+  same to 1e−04. In the unadvected gauge `B` stays near zero, so there is
+  nothing for `η` to damp. The shift keeps its initial trumpet profile
+  while the hole moves under it.
+- **The advected gauge,** in the `d_0` form, on four levels over 32 M with
+  `W`.
+  - It runs cleanly: the finest constraint is 2–3e−02 at 45 M, where the
+    old mixed form with `φ` had reached 7.0 on the three-level probe.
+  - The offset grows faster, though, doubling about every 5 M: −0.060
+    from trumpet data and +0.043 from Brill–Lindquist data at 45 M.
+  - The mass drifts by about 1%, upward from the trumpet and downward
+    from Brill–Lindquist data.
+
 ## A radiative outer boundary: letting a pulse leave
 
 Issue [#132](https://github.com/nosam1998/ParticleSim/issues/132), in

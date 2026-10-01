@@ -112,11 +112,57 @@ def test_upwinding_is_off_by_default_and_leaves_the_driver_alone():
 
 
 def test_upwinding_is_refused_at_other_orders():
-    """Only the fourth-order correction is written down; any other order is refused, not guessed."""
+    """Fourth and sixth order are written down; any other order is refused, not guessed."""
     state, spacing = _state(16)
     _, upwinded = _evolutions(spacing)
-    with pytest.raises(ValueError, match="order 4 only"):
+    with pytest.raises(ValueError, match=r"orders \[4, 6\] only"):
         replace(upwinded, order=2).right_hand_side(state)
+
+
+def _lopsided6(field, axis, step, sign):
+    """The sixth-order lopsided first derivative on offsets ``-2 .. 4``, written out directly."""
+
+    def at(offset):
+        return np.roll(field, -sign * offset, axis=axis)
+
+    weights = (2, -24, -35, 80, -30, 8, -1)
+    return sign * sum(w * at(o) for o, w in zip(range(-2, 5), weights, strict=True)) / (60 * step)
+
+
+def _centred6(field, axis, step):
+    weights = (-1, 9, -45, 0, 45, -9, 1)
+    return sum(
+        w * np.roll(field, -o, axis=axis) for o, w in zip(range(-3, 4), weights, strict=True)
+    ) / (60 * step)
+
+
+def _sixth(n: int):
+    """The sixth-order upwinder alone: a field along ``x``, a shift changing sign along ``y``."""
+    spacing = (1.0 / n,) * 3
+    evolution = bssn.Evolution(spacing=spacing, order=6, backend="numpy", upwind=True)
+    axis = np.arange(n) / n
+    x, y, _ = np.meshgrid(axis, axis, np.arange(4) / 4, indexing="ij")
+    field = 0.01 * np.sin(2 * np.pi * x)
+    shift = np.stack([0.3 * np.cos(2 * np.pi * y), 0 * x, 0 * x])
+    correction = np.asarray(evolution._upwinder()(np.stack([field]), shift))[0]
+    return field, shift, spacing[0], correction
+
+
+def test_the_sixth_order_correction_is_the_lopsided_stencil_less_the_centred():
+    """``beta^x (D6_lopsided - D6_centred) f``, leaning the way the shift points, to rounding."""
+    field, shift, step, correction = _sixth(16)
+    lean = np.where(shift[0] > 0, _lopsided6(field, 0, step, +1), _lopsided6(field, 0, step, -1))
+    expected = shift[0] * (lean - _centred6(field, 0, step))
+    assert np.max(np.abs(expected)) > 1e-8
+    assert np.max(np.abs(correction - expected)) < 1e-13 * np.max(np.abs(field)) / step
+
+
+def test_the_sixth_order_correction_is_sixth_order_small():
+    """A seventh difference over ``60 h``: sixty-four per halving on smooth data."""
+    sizes = [float(np.max(np.abs(_sixth(n)[3]))) for n in (16, 32, 64)]
+    ratios = [coarse / fine for coarse, fine in zip(sizes, sizes[1:], strict=False)]
+    for ratio in ratios:
+        assert 56.0 < ratio < 68.0, ratios
 
 
 def _driver_state(n: int):

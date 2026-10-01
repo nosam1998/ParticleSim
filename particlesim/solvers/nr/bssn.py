@@ -150,6 +150,18 @@ UPWIND_CORRECTION = (
     (3, 1 / 12),
 )
 
+#: The same at sixth order. The lopsided stencil on offsets ``-2 .. 4``,
+#: ``(2, -24, -35, 80, -30, 8, -1) / 60``, less the centred one on ``-3 .. 3``,
+#: is a single seventh difference, ``(1, -7, 21, -35, 35, -21, 7, -1) / 60``
+#: on ``-3 .. 4``.
+UPWIND_CORRECTIONS = {
+    4: UPWIND_CORRECTION,
+    6: tuple(
+        (offset, weight / 60)
+        for offset, weight in zip(range(-3, 5), (1, -7, 21, -35, 35, -21, 7, -1), strict=True)
+    ),
+}
+
 _RHS_CACHE: dict[tuple, codegen.Kernel] = {}
 _CONSTRAINT_CACHE: dict[tuple, codegen.Kernel] = {}
 
@@ -697,17 +709,20 @@ class Evolution:
         cached = _UPWINDERS.get(self)
         if cached is not None:
             return cached
-        if self.order != 4:
-            raise ValueError("upwinded advection is implemented for order 4 only")
+        if self.order not in UPWIND_CORRECTIONS:
+            raise ValueError(
+                f"upwinded advection is implemented for orders {sorted(UPWIND_CORRECTIONS)} only"
+            )
         module = _module(self.backend)
         spacing = self.spacing
+        correction = UPWIND_CORRECTIONS[self.order]
 
         def apply(stacked, shift):
             total = None
             for axis, step in enumerate(spacing):
                 ahead = None
                 behind = None
-                for offset, weight in UPWIND_CORRECTION:
+                for offset, weight in correction:
                     term = weight * module.roll(stacked, -offset, axis=axis + 1)
                     ahead = term if ahead is None else ahead + term
                     # The mirror image: offset -> -offset, weight -> -weight.

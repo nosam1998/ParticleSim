@@ -1740,6 +1740,7 @@ edge. The table gives the offset of the region where the lapse is below
 | a quarter cell off along (1,1,1) | −0.0022 | +0.0123 | +0.089 | +0.273 | +0.586 |
 | the same, centred advection | −0.0035 | +0.122 | | | |
 | the same, dissipation 0.3 | −0.0013 | +0.0083 | +0.043 | | |
+| the same, sixth order | −0.0026 | +0.0175 | | | |
 
 - **Not the refinement.** There is none here, and the hole still moves.
 - **Not the gauge in the continuum.** With the puncture at a cell centre the
@@ -1753,6 +1754,10 @@ edge. The table gives the offset of the region where the lapse is below
   - Upwinding cuts it about tenfold: centred advection is ten times worse
     by 20 M.
   - Three times the dissipation halves it.
+  - Sixth-order differencing, upwinded at sixth order too, does not help.
+    It is worse: +0.072 at 25 M against +0.041. Next to the
+    puncture the fields are not smooth, and a higher order buys nothing
+    there.
   - Finer spacing weakens it. The nested runs at `M/8` and `M/12` move
     hundredths of an M by 100 M, where this one has moved half an M by
     40 M.

@@ -1727,6 +1727,43 @@ three-level probe in the 16 M box at `M/8`.
   - The mass drifts by about 1%, upward from the trumpet and downward
     from Brill–Lindquist data.
 
+### What pushes the hole: one level, no refinement
+
+The drift survives on a single uniform level: 64³ points at `M/4` over
+16 M, with trumpet data, `W`, the unadvected gauge and the second-order
+edge. The table gives the offset of the region where the lapse is below
+0.5, per axis.
+
+| t / M | 10 | 20 | 30 | 40 | 50 |
+|---|---|---|---|---|---|
+| puncture at a cell centre | 0.0000 | 0.0000 | 0.0000 | | |
+| a quarter cell off along (1,1,1) | −0.0022 | +0.0123 | +0.089 | +0.273 | +0.586 |
+| the same, centred advection | −0.0035 | +0.122 | | | |
+| the same, dissipation 0.3 | −0.0013 | +0.0083 | +0.043 | | |
+
+- **Not the refinement.** There is none here, and the hole still moves.
+- **Not the gauge in the continuum.** With the puncture at a cell centre the
+  grid is mirror-symmetric about it, and the hole stays put to 1e−04.
+- **The discretization around an off-centre puncture.** Moved a quarter
+  cell, the hole runs away. Its offset grows like a steady acceleration:
+  0.029, 0.048, 0.076 and 0.108 per 5 M from 20 to 40 M. So the stencils'
+  error on either side of the puncture does not cancel, and it pushes the
+  hole.
+- **What changes the push.**
+  - Upwinding cuts it about tenfold: centred advection is ten times worse
+    by 20 M.
+  - Three times the dissipation halves it.
+  - Finer spacing weakens it. The nested runs at `M/8` and `M/12` move
+    hundredths of an M by 100 M, where this one has moved half an M by
+    40 M.
+
+A nested hierarchy cannot put the puncture at a symmetric point on every
+level, because 2:1 nesting of vertex-centred grids does not allow it. Making
+the finest box symmetric about the puncture cut the drift by only 20% in the
+three-level probe above. So the push has to be made smaller rather than
+cancelled: by resolving the puncture's neighbourhood, or by differencing
+that does less there.
+
 ## A radiative outer boundary: letting a pulse leave
 
 Issue [#132](https://github.com/nosam1998/ParticleSim/issues/132), in

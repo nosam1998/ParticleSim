@@ -1769,6 +1769,32 @@ three-level probe above. So the push has to be made smaller rather than
 cancelled: by resolving the puncture's neighbourhood, or by differencing
 that does less there.
 
+## Explicitly bounded generated stencils
+
+Issue [#132](https://github.com/nosam1998/ParticleSim/issues/132)'s codegen
+path supports `nonperiodic_axes=(0, 1, 2)` in `codegen.emit` and
+`codegen.build_source`. Unselected axes remain periodic. Boundary topology
+is stored in generated source and `Kernel.nonperiodic_axes`, including
+after loading the source from a cache.
+
+The bounded path uses off-centred differences at the edges and centred
+differences inside, with the requested order (two, four or six) throughout.
+An off-centred second derivative needs one more sample than a first
+derivative for the same accuracy. Kernels reject an undersized axis instead
+of silently reducing the order. Fields used only through derivatives are
+also bound correctly in generated source.
+
+`tests/unit/test_bounded_codegen.py` checks polynomial exactness at every
+point on both NumPy and JAX, whole-domain convergence against the derivatives
+of `exp(x)`, mixed periodic/bounded derivatives, and independence of one edge
+from a disturbance at the opposite edge. `boundary.edge_derivative` shares
+these stencils; its sixth-order path previously fell back to fourth order.
+
+These are spatial operators, not constraint-preserving boundary conditions.
+The BSSN/CCZ4 evolution wrappers retain their existing rate overrides and
+periodic interior kernels. The Teukolsky reflection/constraint acceptance
+criterion below remains open; stencil tests do not establish it.
+
 ## A radiative outer boundary: letting a pulse leave
 
 Issue [#132](https://github.com/nosam1998/ParticleSim/issues/132), in

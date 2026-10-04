@@ -26,14 +26,13 @@ difference of the already-computed ``d_f_0`` rather than as two fresh
 passes, so a mixed derivative costs one stencil application instead of
 two.
 
-**The emitted stencils are periodic.** They are ``roll``-based, which is
-what makes them a handful of array operations that ``jit`` can fuse, and
-means a kernel is correct on a periodic domain and wrong at the edge of a
-bounded one. That is deliberate: the standard tests of an evolution
-scheme -- a gauge wave, a Teukolsky wave -- are periodic, and boundary
-treatment is a property of the evolution rather than of the algebra.
-:func:`particlesim.symbolic.threeplusone.grid_slice` is the bounded-domain
-path, with one-sided differences at the edges.
+**Boundary topology is explicit.** Kernels are periodic by default.
+``nonperiodic_axes`` selects bounded axes, which use off-centred stencils
+at the edges at the same accuracy order as the interior. First, second
+and mixed derivatives all respect that selection. The emitted source and
+kernel metadata record it, so cached periodic and bounded kernels remain
+distinguishable. These stencils do not prescribe a physical boundary
+condition; the evolution still has to supply one.
 
 The generated source is kept on the kernel and is meant to be read. The
 design document's reason for a symbolic pipeline is that it makes derived
@@ -97,6 +96,9 @@ NAMESPACE_FUNCTIONS = (
     "abs",
     "roll",
     "where",
+    "moveaxis",
+    "stack",
+    "concatenate",
 )
 
 
@@ -145,6 +147,7 @@ class Kernel:
     stencils: int = 0
     backend: str = "numpy"
     order: int = 4
+    nonperiodic_axes: tuple[int, ...] = ()
 
     def __call__(self, fields: Mapping[str, Any], spacing: Sequence[float]):
         return self.function(fields, spacing)
@@ -160,6 +163,7 @@ class Kernel:
         return {
             "backend": self.backend,
             "order": self.order,
+            "nonperiodic_axes": self.nonperiodic_axes,
             "outputs": len(self.outputs),
             "fields": len(self.fields),
             "stencils": self.stencils,
@@ -202,7 +206,51 @@ def _stencil_lines(needed, derivatives, order: int) -> tuple[list[str], int]:
     return lines, len(first_needed) + len(second_needed)
 
 
-def _operator_source(order: int) -> str:
+def _bounded_operator_source(order: int, degree: int) -> str:
+    """An order-accurate derivative, including the outermost grid points.
+
+    An off-centred second derivative needs ``order + 2`` points, one more
+    than a first derivative. Using only ``order + 1`` silently loses an
+    order at the edge: symmetry no longer cancels the leading error there.
+    Slice/stack/concatenate work with both NumPy and differentiable JAX.
+    """
+    radius = order // 2
+    width = order + degree
+    centred = FIRST[order] if degree == 1 else SECOND[order]
+    middle = " + ".join(
+        f"({weight!r}) * a[{radius + offset}:n - {radius - offset}]" for offset, weight in centred
+    )
+    rows = []
+    for index in range(radius):
+        weights = sp.finite_diff_weights(degree, range(width), index)[degree][-1]
+        rows.append(tuple(float(weight) for weight in weights))
+
+    def row(weights, right=False):
+        sign = (-1) ** degree if right else 1
+        return " + ".join(
+            f"({sign * weight!r}) * a[{-1 - j if right else j}]"
+            for j, weight in enumerate(weights)
+            if weight
+        )
+
+    left = ", ".join(f"({row(weights)})" for weights in rows)
+    right = ", ".join(f"({row(weights, right=True)})" for weights in reversed(rows))
+    return (
+        f"def _bounded_d{degree}(f, axis, h):\n"
+        f"    # {order}th-order derivative, degree {degree}, no wrap\n"
+        "    a = moveaxis(f, axis, 0)\n"
+        "    n = a.shape[0]\n"
+        f"    if n < {width}:\n"
+        f"        raise ValueError('bounded derivative needs at least {width} points')\n"
+        f"    middle = {middle}\n"
+        f"    left = stack(({left},), axis=0)\n"
+        f"    right = stack(({right},), axis=0)\n"
+        "    result = concatenate((left, middle, right), axis=0)\n"
+        f"    return moveaxis(result, 0, axis) / h**{degree}\n\n"
+    )
+
+
+def _operator_source(order: int, nonperiodic_axes: tuple[int, ...] = ()) -> str:
     """The two stencil operators, written out with their weights inline."""
     first = " + ".join(
         f"({weight!r}) * roll(f, {-offset}, axis)" for offset, weight in FIRST[order]
@@ -211,11 +259,24 @@ def _operator_source(order: int) -> str:
         f"({weight!r}) * roll(f, {-offset}, axis)" if offset else f"({weight!r}) * f"
         for offset, weight in SECOND[order]
     )
-    return (
+    bounded = (
+        "".join(_bounded_operator_source(order, d) for d in (1, 2)) if nonperiodic_axes else ""
+    )
+
+    def select(degree):
+        return (
+            f"    if axis in {nonperiodic_axes!r}:\n        return _bounded_d{degree}(f, axis, h)\n"
+            if nonperiodic_axes
+            else ""
+        )
+
+    return bounded + (
         f"def _d1(f, axis, h):\n"
+        f"{select(1)}"
         f"    # centred {order}th-order first derivative, periodic\n"
         f"    return ({first}) / h\n\n"
         f"def _d2(f, axis, h):\n"
+        f"{select(2)}"
         f"    # centred {order}th-order second derivative, periodic\n"
         f"    return ({second}) / h**2\n\n"
     )
@@ -240,6 +301,7 @@ def build_source(
     order: int = 4,
     backend: str = "numpy",
     name: str = "rhs",
+    nonperiodic_axes: tuple[int, ...] = (),
 ) -> str:
     """Generate the kernel's source without compiling it.
 
@@ -254,6 +316,9 @@ def build_source(
         raise ValueError(f"order must be one of {sorted(FIRST)}, got {order}")
     if not expressions:
         raise ValueError("nothing to emit: expressions is empty")
+    if any(type(axis) is not int or axis < 0 for axis in nonperiodic_axes):
+        raise ValueError("nonperiodic_axes must contain non-negative integer axes")
+    nonperiodic_axes = tuple(sorted(set(nonperiodic_axes)))
 
     outputs = tuple(expressions)
     trees = [sp.sympify(expressions[key]) for key in outputs]
@@ -263,16 +328,26 @@ def build_source(
     for tree in trees:
         symbols |= tree.free_symbols
     needed = sorted((s for s in symbols if s in derivatives), key=str)
-    field_symbols = sorted((s for s in symbols if s not in derivatives), key=str)
+    field_names = sorted(
+        {str(s) for s in symbols if s not in derivatives} | {derivatives[s][0] for s in needed}
+    )
 
     temporaries, reduced = _eliminate(tuple(trees))
     printer = _printer(backend)
 
     body = [f"def {name}(fields, spacing):"]
+    if nonperiodic_axes:
+        body.extend(
+            (
+                f"    if len(spacing) <= {max(nonperiodic_axes)}:",
+                "        raise ValueError('nonperiodic axis is outside the grid dimensions')",
+            )
+        )
     body.append("    # --- grid fields")
-    for symbol in field_symbols:
-        body.append(f"    {symbol} = fields[{str(symbol)!r}]")
-    body.append(f"    # --- finite differences, order {order}, periodic")
+    for field_name in field_names:
+        body.append(f"    {field_name} = fields[{field_name!r}]")
+    topology = f"bounded axes {nonperiodic_axes}" if nonperiodic_axes else "periodic"
+    body.append(f"    # --- finite differences, order {order}, {topology}")
     stencil_lines, stencil_count = _stencil_lines(needed, derivatives, order)
     body.extend(stencil_lines)
     body.append(f"    # --- common subexpressions ({len(temporaries)})")
@@ -290,16 +365,17 @@ def build_source(
     )
     stats = {
         "outputs": list(outputs),
-        "fields": [str(symbol) for symbol in field_symbols],
+        "fields": field_names,
         "raw_operations": raw_operations,
         "operations": operations,
         "temporaries": len(temporaries),
         "stencils": stencil_count,
         "order": order,
         "name": name,
+        "nonperiodic_axes": nonperiodic_axes,
     }
     body.append(f"_STATS = {stats!r}")
-    return _operator_source(order) + "\n".join(body) + "\n"
+    return _operator_source(order, nonperiodic_axes) + "\n".join(body) + "\n"
 
 
 def from_source(source: str, backend: str = "numpy", jit: bool = True) -> Kernel:
@@ -335,6 +411,7 @@ def from_source(source: str, backend: str = "numpy", jit: bool = True) -> Kernel
         stencils=stats["stencils"],
         backend=backend,
         order=stats["order"],
+        nonperiodic_axes=tuple(stats.get("nonperiodic_axes", ())),
     )
 
 
@@ -345,6 +422,7 @@ def emit(
     backend: str = "numpy",
     jit: bool = True,
     name: str = "rhs",
+    nonperiodic_axes: tuple[int, ...] = (),
 ) -> Kernel:
     """Generate and compile a kernel over grid arrays.
 
@@ -354,8 +432,20 @@ def emit(
     Anything in an expression that is neither a derivative symbol nor a
     number is taken to be a field and read from the ``fields`` mapping the
     kernel is called with.
+
+    ``nonperiodic_axes=(0, 2)`` selects bounded first and third axes; all
+    others stay periodic. The minimum bounded axis size is ``order + 1``
+    for first derivatives and ``order + 2`` for second derivatives. This
+    selects numerical stencils, not a physical boundary condition.
     """
-    source = build_source(expressions, derivatives, order=order, backend=backend, name=name)
+    source = build_source(
+        expressions,
+        derivatives,
+        order=order,
+        backend=backend,
+        name=name,
+        nonperiodic_axes=nonperiodic_axes,
+    )
     return from_source(source, backend=backend, jit=jit)
 
 

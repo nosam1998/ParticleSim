@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "particlesim"
-version = "0.2.1"
+version = "0.2.2"
 description = "Multi-theory spacetime, matter, and beam simulation framework"
 readme = "README.md"
 license = "GPL-3.0-only"

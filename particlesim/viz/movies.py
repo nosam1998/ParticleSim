@@ -95,6 +95,10 @@ def encode(
         "libx264",
         "-crf",
         str(crf),
+        # Tight figure bounds can produce odd dimensions. H.264 yuv420p
+        # needs even ones; pad by at most one pixel without cropping data.
+        "-vf",
+        "pad=ceil(iw/2)*2:ceil(ih/2)*2",
         "-pix_fmt",
         "yuv420p",
         str(path),
@@ -105,9 +109,16 @@ def encode(
         process.stdin.write(first)
         for frame in iterator:
             process.stdin.write(frame)
-        process.stdin.close()
     except BrokenPipeError:  # pragma: no cover - ffmpeg died early
         pass
+    finally:
+        try:
+            process.stdin.close()
+        except BrokenPipeError:  # pragma: no cover - ffmpeg rejected buffered input
+            pass
+        # EOF lets ffmpeg finish. communicate() must not flush this closed
+        # pipe; it still drains stderr and waits for the encoder below.
+        process.stdin = None
     _, errors = process.communicate()
     if process.returncode != 0:
         raise RuntimeError(

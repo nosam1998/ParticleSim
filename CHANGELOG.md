@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0 (2026-10-04)
+
+- Add explicitly bounded axes to generated NumPy and JAX kernels, with
+  second-, fourth- and sixth-order first, second and mixed derivatives.
+- Preserve sixth-order accuracy in the radiative boundary's edge stencils.
+- Fix generated kernels that use a field only through its derivatives.
+
+The older 1.0.0 entry below belongs to the repository template; ParticleSim's
+package version started at 0.1.0.
+
 ## 1.0.0 (2025-04-20)
 
 

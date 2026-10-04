@@ -94,12 +94,14 @@ from __future__ import annotations
 import weakref
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
+import sympy as sp
 
-from particlesim.core.grid import derivative
 from particlesim.solvers.nr.bssn import DIMENSION, INDICES, Evolution, _module
+from particlesim.symbolic import codegen
 
 #: What each evolved variable tends to at large radius, in vacuum.
 #:
@@ -121,6 +123,17 @@ ASYMPTOTIC: dict[str, float] = {
 }
 
 
+@lru_cache(maxsize=12)
+def _edge_kernel(axis: int, order: int):
+    symbol = sp.Symbol("d_edge_field")
+    return codegen.emit(
+        {"derivative": symbol},
+        {symbol: ("edge_field", (axis,))},
+        order=order,
+        nonperiodic_axes=(axis,),
+    )
+
+
 def edge_derivative(field, axis: int, step: float, order: int = 4) -> np.ndarray:
     """A bounded-domain derivative that keeps its order at the edge.
 
@@ -136,22 +149,14 @@ def edge_derivative(field, axis: int, step: float, order: int = 4) -> np.ndarray
 
     and mirrored with the sign flipped at the far edge. Both lean on the
     interior, which is upwind for a wave leaving the domain. At sixth order
-    the third point from the edge takes the centred fourth-order stencil,
-    so the edge is fourth order either way.
+    all three edge points use seven-point stencils, preserving sixth order.
+    The operators are shared with the explicitly bounded codegen path.
     """
-    out = derivative(np.asarray(field), axis, step, order=order)
-    if order == 2:
-        return out
-    a = np.moveaxis(np.asarray(field), axis, 0)
-    o = np.moveaxis(out, axis, 0)
-    o[0] = (-25 * a[0] + 48 * a[1] - 36 * a[2] + 16 * a[3] - 3 * a[4]) / (12 * step)
-    o[1] = (-3 * a[0] - 10 * a[1] + 18 * a[2] - 6 * a[3] + a[4]) / (12 * step)
-    o[-1] = (25 * a[-1] - 48 * a[-2] + 36 * a[-3] - 16 * a[-4] + 3 * a[-5]) / (12 * step)
-    o[-2] = (3 * a[-1] + 10 * a[-2] - 18 * a[-3] + 6 * a[-4] - a[-5]) / (12 * step)
-    if order == 6:
-        o[2] = (-a[4] + 8 * a[3] - 8 * a[1] + a[0]) / (12 * step)
-        o[-3] = (a[-5] - 8 * a[-4] + 8 * a[-2] - a[-1]) / (12 * step)
-    return out
+    field = np.asarray(field)
+    if not -field.ndim <= axis < field.ndim:
+        raise ValueError(f"axis {axis} is outside an array with {field.ndim} dimensions")
+    axis %= field.ndim
+    return _edge_kernel(axis, order)({"edge_field": field}, (step,) * field.ndim)["derivative"]
 
 
 def _stacked_edge_derivative(module, stacked, axis: int, step: float):

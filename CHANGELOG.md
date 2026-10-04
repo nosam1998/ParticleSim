@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2 (2026-10-04)
+
+- Finish movie encoding without flushing a closed input pipe, preserving
+  ffmpeg diagnostics when encoding fails.
+- Pad odd-sized figures by at most one pixel for H.264 playback.
+
 ## 0.2.1 (2026-10-04)
 
 - Replace the outdated foundations-only README status with the implemented

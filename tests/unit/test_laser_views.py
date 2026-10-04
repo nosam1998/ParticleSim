@@ -1,6 +1,7 @@
 """Views, beam diagnostics and movies for particle-in-cell runs (Section 5.7)."""
 
 import shutil
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -194,3 +195,14 @@ def test_a_movie_is_produced_and_plays_as_h264(tmp_path: Path):
     del plt
     out = encode(frames, tmp_path / "movie.mp4", fps=8)
     assert out.exists() and out.stat().st_size > 0
+    subprocess.run(
+        [ffmpeg_path(), "-v", "error", "-i", str(out), "-f", "null", "-"],
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
+def test_encoder_errors_are_reported_after_closing_the_input(tmp_path: Path):
+    with pytest.raises(RuntimeError, match=r"ffmpeg exited [1-9][0-9]*: .+"):
+        encode([b"not a PNG"], tmp_path / "invalid.mp4")

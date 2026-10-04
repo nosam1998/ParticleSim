@@ -43,6 +43,15 @@ and the CI completion gate remains pending until a current run succeeds.
   at a specified matrix size remain outstanding. The BFSS solver does not
   establish this acceptance. Reference parameters must include deformation,
   matrix size, time-block definition, sampling and drift diagnostics.
+  An accessible target is [Nishimura (2022), section 6 and figure 3](https://arxiv.org/html/2205.04726v1):
+  the **bosonic** model, `N = 32`, block size `n = 4`, deformation
+  `gamma = 3`, and stabilization `eta = 0.01`, reached by equilibrating
+  at `gamma = 7` and lowering it. Its largest spatial eigenvalue is fitted
+  by `a exp(b t) + c`, with `a = 3.55(9)`, `b = 0.38(5)` and `c = -5(1)`.
+  It reports **one** expanding direction, not a fermionic three-direction
+  result. The paper also requires an exponentially suppressed drift tail;
+  finite trajectories alone are insufficient. Matching the undeformed
+  contour phases is a useful calibration but not this dimension benchmark.
 - [#132: Outer boundary](https://github.com/nosam1998/ParticleSim/issues/132).
   Sommerfeld and second-order absorbing conditions exist, with measured
   reflection and constraint errors. Version 0.2.0 adds explicitly bounded

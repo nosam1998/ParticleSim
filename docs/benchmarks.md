@@ -1769,6 +1769,74 @@ three-level probe above. So the push has to be made smaller rather than
 cancelled: by resolving the puncture's neighbourhood, or by differencing
 that does less there.
 
+## Cell-centred puncture refinement
+
+Version 0.4.0 adds `Box(..., centering="cell")`. The samples are point
+values at cell centres, not finite-volume averages. Both children require
+interpolation, at ±h/4 from their parent. Restriction interpolates back to
+the parent at the same requested order; it excludes the fine buffer and
+any stencil that would wrap across a nonperiodic box edge. The existing
+vertex-centred convention remains the default.
+
+`NestedPuncture.build(..., centering="cell")` places an unshifted puncture
+at the common reflection centre of every level. No grid samples the
+singularity. Polynomial, smooth-wave and tensor-parity transfer tests cover
+orders two, four and six; the evolved gauge wave retains fourth-order
+convergence. JAX transfers, buffers, projection and RK4 combinations stay
+on the device. The large right-hand side is compiled separately from the
+small combinations to keep compilation tractable. NumPy remains an
+independent execution path and matches a complete subcycled step.
+
+The two-level control uses `n=32, extent=8, box=16`, maximal-trumpet data,
+`W`, the unadvected gauge and fine spacing `M/8`. At 40 M, the GPU runs remain centred to within 5e-14 M per axis without
+symmetry projection, but the original flat-reference outer condition increases
+the horizon mass by 4.5%.
+
+`boundary_background="trumpet"` instead applies the outer radiation
+operator to departures from the known stationary exterior, including the
+radial derivative. **The interior still evolves the full equations.** This
+option is restricted to unperturbed trumpet initial data with the
+unadvected gauge. It is a finite-domain single-hole experiment, not a
+characteristic or constraint-preserving boundary for general spacetimes.
+
+| Time / M | Mass, flat reference | Mass, trumpet reference |
+|---|---:|---:|
+| 0 | 0.999899 | 0.999899 |
+| 10 | 1.001293 | 0.999745 |
+| 20 | 1.010211 | 0.999965 |
+| 40 | 1.044808 | 1.004160 |
+
+At 40 M, the coarse/fine Hamiltonian RMS values outside `r=1 M` are
+0.0181/0.0200 with the flat reference and 0.000481/0.00837 with the trumpet
+reference. Both reference runs locate the apparent horizon; the trumpet
+case has maximum expansion residual 0.00396. A complete subcycled step
+is also checked against the independent NumPy execution path.
+
+The resumable driver records horizon mass and residual, the lapse-weighted
+centre, reflection error, constraints, grid settings and source hashes:
+
+```bash
+uv run python examples/puncture_benchmark.py --n 32 --box 16 --extent 8 \
+  --stop 40 --interval 5 --output puncture-control.json
+# A finer, explicitly reflection-symmetric single-hole experiment:
+uv run python examples/puncture_benchmark.py --stop 1000 --reflection-symmetry --output puncture.json
+# Continue from its saved checkpoint with the same grid settings:
+uv run python examples/puncture_benchmark.py --stop 1000 --reflection-symmetry --output puncture.json --resume
+```
+
+The finer default uses two levels, `n=48, box=32, extent=8`, and fine
+spacing `M/12`. `reflection_symmetry=True` (the CLI flag above) explicitly
+restricts the evolution to reflection in each coordinate plane. Scalars,
+vectors, rank-two tensors and auxiliary fields get their appropriate
+parities. This is the physical symmetry restriction used by an octant
+single-hole simulation; see [Imbiriba et al., section IV](https://arxiv.org/abs/gr-qc/0403048).
+The full grid is retained here. Group averaging removes roundoff seeds in
+asymmetric modes after each coarse step; it does not reset the solution to
+analytic values or fix its mass. This option makes no claim about stability
+against asymmetric perturbations and is off by default. Passing a short run or retaining finite arrays does not
+satisfy issue #48. Its 1000 M acceptance, and issue #51's binary comparison,
+remain open until measured.
+
 ## Explicitly bounded generated stencils
 
 Issue [#132](https://github.com/nosam1998/ParticleSim/issues/132)'s codegen

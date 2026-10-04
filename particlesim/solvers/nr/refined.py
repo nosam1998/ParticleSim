@@ -34,17 +34,18 @@ right one and there is nothing to fill. Refining in one direction only --
 the useful case for a plane wave, and the cheapest thing to test on -- then
 buffers one axis instead of three.
 
-**The operators run on the host.** ``prolong`` and ``restrict`` are NumPy,
-so a JAX state makes one round trip per coarse step for the arrays that get
-buffered. That is a handful of transfers against eight kernel launches, and
-it is not free: making them device-resident is worth doing before this
-carries a production run, and is not done here.
+**Transfers use the evolution's backend.** JAX states remain on the device
+through prolongation, buffer replacement and restriction. Each spatial
+transfer is compiled once and reused across fields and levels; NumPy remains
+an independent execution path. Cell-centred restriction transfers only the
+evolved fine interior, so it cannot wrap across a nonperiodic box edge.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -52,17 +53,63 @@ import numpy as np
 from particlesim.solvers.nr import mesh
 from particlesim.solvers.nr.bssn import Evolution, dissipation_operator
 from particlesim.solvers.nr.mesh import RATIO, Box
+from particlesim.solvers.nr.stepping import operations
 
 
-def _as_backend(array, backend: str):
-    if backend == "numpy":
-        return np.asarray(array)
+@lru_cache(maxsize=64)
+def _buffer_mask(shape, axes, width):
+    mask = np.zeros(shape, dtype=bool)
+    for axis in axes:
+        low, high = [slice(None)] * len(shape), [slice(None)] * len(shape)
+        low[axis], high[axis] = slice(0, width), slice(shape[axis] - width, shape[axis])
+        mask[tuple(low)] = True
+        mask[tuple(high)] = True
+    return mask
+
+
+@lru_cache(maxsize=64)
+def _jax_transfers(box, order, buffer):
+    """Compile small reusable transfers instead of one enormous subcycled graph."""
+    import jax
     import jax.numpy as jnp
 
-    return jnp.asarray(array)
+    extract_field = jax.vmap(lambda value: mesh.extract(value, box, order, backend="jax"))
+    inject_field = jax.vmap(
+        lambda coarse, fine: mesh.inject(
+            coarse, fine, box, order=order, buffer=buffer, backend="jax"
+        )
+    )
+
+    def extract(values):
+        names = tuple(values)
+        fine = extract_field(jnp.stack([values[name] for name in names]))
+        return {name: fine[i] for i, name in enumerate(names)}
+
+    def inject(coarse, fine):
+        names = tuple(fine)
+        changed = inject_field(
+            jnp.stack([coarse[name] for name in names]),
+            jnp.stack([fine[name] for name in names]),
+        )
+        return {**coarse, **{name: changed[i] for i, name in enumerate(names)}}
+
+    return jax.jit(extract), jax.jit(inject)
 
 
-def hermite(start, start_rate, end, end_rate, theta: float, step: float):
+@lru_cache(maxsize=64)
+def _jax_buffer(shape, axes, width):
+    import jax
+    import jax.numpy as jnp
+
+    mask = _buffer_mask(shape, axes, width)
+
+    def fill(values, source):
+        return {name: jnp.where(mask, source[name], value) for name, value in values.items()}
+
+    return jax.jit(fill)
+
+
+def hermite(start, start_rate, end, end_rate, theta: float, step: float, *, backend="numpy"):
     """Cubic Hermite interpolation between two states, one field at a time.
 
     ``theta`` runs from zero at ``start`` to one at ``end``. The basis is the
@@ -75,19 +122,8 @@ def hermite(start, start_rate, end, end_rate, theta: float, step: float):
     derivative rather than an increment. Fourth-order accurate, which is the
     point: it matches the spatial stencils instead of throttling them.
     """
-    t2 = theta * theta
-    t3 = t2 * theta
-    h00 = 2 * t3 - 3 * t2 + 1
-    h10 = t3 - 2 * t2 + theta
-    h01 = -2 * t3 + 3 * t2
-    h11 = t3 - t2
-    return {
-        name: h00 * start[name]
-        + h10 * step * start_rate[name]
-        + h01 * end[name]
-        + h11 * step * end_rate[name]
-        for name in start
-    }
+    _, _, interpolate = operations(backend)
+    return interpolate(start, start_rate, end, end_rate, theta, step)
 
 
 @dataclass(frozen=True)
@@ -190,12 +226,15 @@ class Hierarchy:
         where it exists, and is what the tests use for the gauge wave. This
         is what a hierarchy does when it does not have that.
         """
+        return self._extract_state(coarse_state)
+
+    def _extract_state(self, values):
+        if self.coarse.backend == "jax":
+            extract, _ = _jax_transfers(self.box, self.interpolation, self.buffer)
+            return extract(values)
         return {
-            name: _as_backend(
-                mesh.extract(np.asarray(value), self.box, self.interpolation),
-                self.coarse.backend,
-            )
-            for name, value in coarse_state.items()
+            name: mesh.extract(value, self.box, self.interpolation)
+            for name, value in values.items()
         }
 
     def _fill_buffer(self, fine_state, boundary) -> dict[str, Any]:
@@ -208,19 +247,13 @@ class Hierarchy:
         axes = self.buffered_axes
         if not axes:
             return dict(fine_state)
-        out = {}
-        for name, value in fine_state.items():
-            array = np.array(np.asarray(value), copy=True)
-            source = np.asarray(boundary[name])
-            for axis in axes:
-                low = [slice(None)] * array.ndim
-                high = [slice(None)] * array.ndim
-                low[axis] = slice(0, self.buffer)
-                high[axis] = slice(array.shape[axis] - self.buffer, array.shape[axis])
-                array[tuple(low)] = source[tuple(low)]
-                array[tuple(high)] = source[tuple(high)]
-            out[name] = _as_backend(array, self.coarse.backend)
-        return out
+        if self.coarse.backend == "jax":
+            shape = next(iter(fine_state.values())).shape
+            return _jax_buffer(shape, axes, self.buffer)(fine_state, boundary)
+        return {
+            name: np.where(_buffer_mask(value.shape, axes, self.buffer), boundary[name], value)
+            for name, value in fine_state.items()
+        }
 
     def _restrict_into(self, coarse_state, fine_state) -> dict[str, Any]:
         """Inject the fine interior onto the coarse points inside the box.
@@ -229,10 +262,13 @@ class Hierarchy:
         auxiliary fields of :class:`~particlesim.solvers.nr.boundary.SecondOrder`
         live only on the coarse level, beside its outer edge.
         """
+        if self.coarse.backend == "jax":
+            _, inject = _jax_transfers(self.box, self.interpolation, self.buffer)
+            return inject(coarse_state, fine_state)
+
         return {
-            name: _as_backend(
-                mesh.inject(np.asarray(value), np.asarray(fine_state[name]), self.box),
-                self.coarse.backend,
+            name: mesh.inject(
+                value, fine_state[name], self.box, order=self.interpolation, buffer=self.buffer
             )
             if name in fine_state
             else value
@@ -256,7 +292,7 @@ class Hierarchy:
         times a pair of fine steps asks for, so it is five per coarse step
         rather than eight.
         """
-        names = list(state)
+        advance, finish, _ = operations(self.fine.backend)
 
         def stage(values, theta):
             filled = self._fill_buffer(values, boundary_at(theta))
@@ -264,14 +300,11 @@ class Hierarchy:
 
         half = span / 2
         base, first = stage(dict(state), start)
-        _, second = stage({n: base[n] + (step / 2) * first[n] for n in names}, start + half)
-        _, third = stage({n: base[n] + (step / 2) * second[n] for n in names}, start + half)
-        _, fourth = stage({n: base[n] + step * third[n] for n in names}, start + span)
+        _, second = stage(advance(base, first, step / 2), start + half)
+        _, third = stage(advance(base, second, step / 2), start + half)
+        _, fourth = stage(advance(base, third, step), start + span)
 
-        out = {
-            n: base[n] + (step / 6) * (first[n] + 2 * second[n] + 2 * third[n] + fourth[n])
-            for n in names
-        }
+        out = finish(base, first, second, third, fourth, step)
         out = self._fill_buffer(out, boundary_at(start + span))
         return self.fine.project(out) if self.fine.enforce else out
 
@@ -288,11 +321,10 @@ class Hierarchy:
         def boundary_at(theta: float):
             key = round(float(theta), 12)
             if key not in cache:
-                level = hermite(before, rate_before, after, rate_after, key, step)
-                cache[key] = {
-                    name: mesh.extract(np.asarray(value), self.box, self.interpolation)
-                    for name, value in level.items()
-                }
+                level = hermite(
+                    before, rate_before, after, rate_after, key, step, backend=self.coarse.backend
+                )
+                cache[key] = self._extract_state(level)
             return cache[key]
 
         span = 1.0 / RATIO
@@ -345,6 +377,8 @@ class Nested:
         buffer in from that edge.
         """
         for outer, inner in zip(self.pairs, self.pairs[1:], strict=False):
+            if outer.box.centering != inner.box.centering:
+                raise ValueError("nested boxes must use the same grid centering")
             if tuple(inner.parent_shape) != outer.box.fine_shape:
                 raise ValueError(
                     f"level shapes do not chain: a box of fine shape {outer.box.fine_shape} "
@@ -389,11 +423,10 @@ class Nested:
         def inner_boundary(theta: float):
             key = round(float(theta), 12)
             if key not in cache:
-                values = hermite(before, rate_before, after, rate_after, key, step)
-                cache[key] = {
-                    name: mesh.extract(np.asarray(value), pair.box, pair.interpolation)
-                    for name, value in values.items()
-                }
+                values = hermite(
+                    before, rate_before, after, rate_after, key, step, backend=evolution.backend
+                )
+                cache[key] = pair._extract_state(values)
             return cache[key]
 
         sub = 1.0 / RATIO

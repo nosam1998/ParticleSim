@@ -39,8 +39,10 @@ are in [Benchmarks](benchmarks.md#bosonic-lorentzian-ikkt-dimension-benchmark).
 - [#48: Fixed mesh refinement](https://github.com/nosam1998/ParticleSim/issues/48).
   Prolongation, restriction, subcycling and stage buffers exist. The required
   Schwarzschild puncture stable to `t = 1000 M` on two levels has not passed.
-  Recent nested runs improve mass accuracy but still develop coordinate
-  drift. A five-level run does not by itself satisfy the two-level criterion.
+  Version 0.4.0 adds cell-centred levels and an optional stationary trumpet
+  boundary reference. At 40 M on two levels, the hole remains centred and
+  its mass error is 0.42%, against 4.5% with the flat reference. This short
+  measurement does not establish the required 1000 M evolution.
 - [#51: 3D NR benchmarks](https://github.com/nosam1998/ParticleSim/issues/51).
   Gauge-wave and evolved Teukolsky-wave convergence are implemented.
   The long puncture and a head-on binary whose final mass and radiated

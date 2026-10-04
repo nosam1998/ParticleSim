@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0 (2026-10-04)
+
+- Add point-sampled cell-centred refinement with second-, fourth- and
+  sixth-order transfers and a common reflection centre on nested grids.
+- Keep JAX refinement transfers, buffers and RK4 combinations on the device,
+  compiling small operations separately from the large evolution kernel.
+- Allow outer radiation conditions on departures from a stationary reference,
+  including the Schwarzschild trumpet, without changing interior equations.
+- Add an optional tensor-aware reflection restriction for centred single-hole
+  experiments, with field evolution preserved.
+- Add a resumable two-level puncture experiment with constraint, horizon,
+  position and source-provenance reports. Long-run acceptance remains open.
+
 ## 0.3.0 (2026-10-04)
 
 - Add bosonic Lorentzian IKKT complex Langevin with adaptive steps, equal-time

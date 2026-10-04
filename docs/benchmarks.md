@@ -7480,6 +7480,65 @@ with a published value.
   theory registry. That registry's checks require every plugin to reduce to
   General Relativity.
 
+## Bosonic Lorentzian IKKT dimension benchmark
+
+`particlesim.solvers.matrix.ikkt` implements the explicitly bosonic,
+mass-deformed Lorentzian model. The independent targets are the contour
+phases in equations (9)–(10) and the dimension profile in figure 3 of
+[Nishimura (2022)](https://arxiv.org/html/2205.04726v1). Fermions are omitted;
+one spatial direction grows in this reference. This is not a demonstration
+of three-dimensional space or of our universe. Every saved report identifies
+the truncation and the debated interpretation.
+
+The analytic test uses `N = 8`, no deformation or stabilization, and checks
+half-phases `-3 pi/8` and `pi/8` to 0.03 radians. The dimension run uses
+`N = 32`, `gamma = 3`, block size 4, maximum step `2e-5`, drift limit 100,
+and stabilization `eta = 0.01`. It equilibrates at `gamma = 7`, lowers gamma
+by 0.1 every 0.1 units of Langevin time, re-equilibrates for 1.6 at gamma 3,
+and collects 120 samples separated by 0.02. Initial/noise seeds are 41/888.
+
+Time is calculated from block averages of the ensemble-mean temporal
+eigenvalues. The table averages the two reflection-related halves. The
+reference column is the published empirical fit `3.55 exp(0.38 t) - 5`,
+not digitized eigenvalue data or a fit to this run.
+
+| Time | Largest eigenvalue | Published fit | Relative difference |
+|---:|---:|---:|---:|
+| 2.0830 | 2.6115 | 2.8341 | 7.85% |
+| 2.3582 | 3.3882 | 3.6978 | 8.37% |
+| 2.6549 | 4.3199 | 4.7357 | 8.78% |
+| 2.9690 | 5.5081 | 5.9701 | 7.74% |
+| 3.3842 | 7.5618 | 7.8449 | 3.61% |
+
+The maximum difference is 8.8%, within the 15% benchmark tolerance and the
+published fit uncertainty. The leading eigenvalue exceeds the second by
+at least 10.3 in this window. The Hermitian-part approximation is measured:
+the largest mean relative non-Hermiticity in the late-time blocks is 0.0504.
+
+An independent annealed chain, re-equilibrated for 1.6 with half the maximum
+step (`1e-5`) and half the stabilization (`eta = 0.005`), gives a maximum
+curve difference of 12.7%. Interpolating the primary result to the four
+shared late times, the two profiles differ by at most 4.7%. This checks
+step/stabilization sensitivity together; it is not a continuum extrapolation
+or an independent measurement of the correlated fit coefficients.
+
+Samples are taken at equal Langevin times. Adaptive step limiting does not
+clip the recorded drift: its median, 99th and 99.9th percentiles are 89,
+129 and 145, and the maximum is 168.9. Histograms are weighted by time,
+not by the number of adaptive steps. A rapidly falling measured tail is
+a diagnostic, not a proof of complex-Langevin correctness. Stabilization
+and the Hermitian-part moment tensor are nonholomorphic approximations.
+
+```bash
+uv run python examples/ikkt_benchmark.py --output runs/ikkt/benchmark.json
+uv run pytest -q tests/benchmarks/test_ikkt_benchmarks.py -o timeout=0
+```
+
+The full N=32 reproduction has the `research` marker for the nightly suite;
+the analytic calibration runs with the ordinary slow benchmarks. The
+example saves parameters, validity statements, drift distributions and raw
+observables alongside the comparison.
+
 ## Benchmark roadmap and implementation notes
 
 The original targets from Section 10 of the design document, grouped by
@@ -7602,4 +7661,8 @@ the sections above.
   `N = 10` and 12: Hanada et al.'s curve to 3 to 7.5% at `T = 0.5` to `0.7`,
   and their stringy coefficient as `5.47 ± 0.23` against `5.58`. See "The
   BFSS matrix model" above.
-- IKKT dimension-emergence observable (issue #86)
+- IKKT dimension-emergence observable (issue #86) — **done** for the bosonic
+  mass-deformed model at `N = 32`: the published one-direction profile
+  agrees to 8.8%, with a smaller-step/stabilization cross-check at 12.7%.
+  Fermions are omitted and emergent-spacetime claims remain debated. See
+  [the IKKT benchmark](#bosonic-lorentzian-ikkt-dimension-benchmark).

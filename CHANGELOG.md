@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 (2026-10-04)
+
+- Add bosonic Lorentzian IKKT complex Langevin with adaptive steps, equal-time
+  samples, raw drift diagnostics and explicit validity/provenance reports.
+- Reproduce the published mass-deformed N=32 one-direction profile to 8.8%,
+  with an independent smaller-step/stabilization cross-check at 12.7%.
+- Add analytic contour-phase and holomorphic-action gradient checks.
+
 ## 0.2.2 (2026-10-04)
 
 - Finish movie encoding without flushing a closed input pipe, preserving

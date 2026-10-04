@@ -11,11 +11,14 @@ Start with the [design document](docs/DESIGN.md).
 ParticleSim includes the foundations, spherical numerical relativity,
 particle-in-cell and laser scenarios, cosmology, relativistic hydrodynamics,
 lattice fields, string EFT modules, structure formation, adapters, and run
-dashboards. The child issues for milestones M0–M3 and M5–M8 are closed.
+dashboards, and matrix models. The child issues for milestones M0–M3 and
+M5–M9 are closed.
 
-The remaining M4 and M9 work includes long-lived punctures and binary
-benchmarks, constraint-preserving outer boundaries, modified CCZ4 evolution,
-and IKKT complex Langevin. A closed child issue does not imply every method
+The remaining M4 work includes long-lived punctures and binary benchmarks,
+constraint-preserving outer boundaries, and modified CCZ4 evolution. IKKT
+complex Langevin reproduces a published **bosonic** dimension profile at
+`N = 32`; it omits fermions and does not establish three-dimensional space.
+A closed child issue does not imply every method
 in the design roadmap is implemented: see the measured scope and limitations
 in [Benchmarks](docs/benchmarks.md).
 

@@ -15,12 +15,24 @@ issues to be closed **and** its benchmarks to pass in CI.
 | M6: Lattice fields | [#62](https://github.com/nosam1998/ParticleSim/issues/62) | 5 / 5 | All child issues closed |
 | M7: String EFT family | [#69](https://github.com/nosam1998/ParticleSim/issues/69) | 7 / 7 | All child issues closed |
 | M8: Structure, adapters and dashboards | [#77](https://github.com/nosam1998/ParticleSim/issues/77) | 6 / 6 | All child issues closed |
-| M9: Matrix models and Calabi–Yau | [#84](https://github.com/nosam1998/ParticleSim/issues/84) | 2 / 3 | IKKT remains open |
+| M9: Matrix models and Calabi–Yau | [#84](https://github.com/nosam1998/ParticleSim/issues/84) | 3 / 3 | All child issues closed; bosonic IKKT scope below |
 
 At the audit, repository-level GitHub Actions was disabled. That explains
 the missing recent workflow runs; a queued historical run is not evidence
 that current benchmarks passed. Local verification is recorded in the PRs,
 and the CI completion gate remains pending until a current run succeeds.
+
+## IKKT scope
+
+[#86](https://github.com/nosam1998/ParticleSim/issues/86) reproduces the
+**bosonic**, mass-deformed Lorentzian dimension profile of
+[Nishimura (2022), figure 3](https://arxiv.org/html/2205.04726v1) at `N = 32`.
+The largest eigenvalue agrees with the published fit to 8.8%, and a
+half-step/half-stabilization cross-check agrees to 12.7%, within the 15%
+benchmark tolerance. This reference has one expanding direction. Fermions
+are omitted, and the output explicitly records the truncation and debated
+interpretation. Parameters, drift diagnostics and reproduction commands
+are in [Benchmarks](benchmarks.md#bosonic-lorentzian-ikkt-dimension-benchmark).
 
 ## Remaining acceptance work
 
@@ -38,20 +50,6 @@ and the CI completion gate remains pending until a current run succeeds.
   leading and second-order order reduction, and refusal of unsupported 3D
   runs are implemented. The full modified CCZ4 evolution is not. The
   plugin must keep declaring `order_reduced` until that solver is verified.
-- [#86: IKKT](https://github.com/nosam1998/ParticleSim/issues/86).
-  Lorentzian complex Langevin and a published dimension-emergence observable
-  at a specified matrix size remain outstanding. The BFSS solver does not
-  establish this acceptance. Reference parameters must include deformation,
-  matrix size, time-block definition, sampling and drift diagnostics.
-  An accessible target is [Nishimura (2022), section 6 and figure 3](https://arxiv.org/html/2205.04726v1):
-  the **bosonic** model, `N = 32`, block size `n = 4`, deformation
-  `gamma = 3`, and stabilization `eta = 0.01`, reached by equilibrating
-  at `gamma = 7` and lowering it. Its largest spatial eigenvalue is fitted
-  by `a exp(b t) + c`, with `a = 3.55(9)`, `b = 0.38(5)` and `c = -5(1)`.
-  It reports **one** expanding direction, not a fermionic three-direction
-  result. The paper also requires an exponentially suppressed drift tail;
-  finite trajectories alone are insufficient. Matching the undeformed
-  contour phases is a useful calibration but not this dimension benchmark.
 - [#132: Outer boundary](https://github.com/nosam1998/ParticleSim/issues/132).
   Sommerfeld and second-order absorbing conditions exist, with measured
   reflection and constraint errors. Version 0.2.0 adds explicitly bounded

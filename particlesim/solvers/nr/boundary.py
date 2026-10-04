@@ -101,6 +101,7 @@ import numpy as np
 import sympy as sp
 
 from particlesim.solvers.nr.bssn import DIMENSION, INDICES, Evolution, _module
+from particlesim.solvers.nr.stepping import operations
 from particlesim.symbolic import codegen
 
 #: What each evolved variable tends to at large radius, in vacuum.
@@ -218,6 +219,13 @@ class Radiative:
     ``eq=False`` so that instances hash by identity. The class holds
     coordinate arrays, which are not hashable, and the evolutions it is
     attached to are used as cache keys.
+
+    ``background`` optionally supplies time-independent reference fields.
+    The radiation condition then acts on their departures, including the
+    radial derivative. This permits a known stationary Schwarzschild
+    exterior at a finite boundary. It changes only the outer condition;
+    the interior still evolves the full equations. It is an approximate
+    radiation condition, not a constraint-preserving characteristic one.
     """
 
     coords: tuple[Any, ...]
@@ -228,6 +236,7 @@ class Radiative:
     order: int = 4
     backend: str = "jax"
     speeds: Mapping[str, float] | None = None
+    background: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         radius = self.order // 2
@@ -237,6 +246,17 @@ class Radiative:
                 f"stencil radius {radius}: the kernel's wrapped rates would "
                 "reach the interior"
             )
+        if self.background is not None:
+            shape = np.shape(self.coords[0])
+            for name, value in self.background.items():
+                if np.shape(value) not in ((), shape):
+                    raise ValueError(
+                        f"background {name!r} must be scalar or have grid shape {shape}"
+                    )
+
+    def background_value(self, name):
+        value = ASYMPTOTIC.get(name, 0.0)
+        return value if self.background is None else self.background.get(name, value)
 
     @property
     def radius(self):
@@ -279,7 +299,8 @@ class Radiative:
         if names in cache:
             return cache[names]
         import jax
-        import jax.numpy as jnp
+
+        jnp = _module("jax")
 
         radius = np.maximum(self.radius, min(self.spacing))
         direction = jnp.asarray(
@@ -289,6 +310,14 @@ class Radiative:
         spacing = tuple(self.spacing)
         column = (len(names),) + (1,) * DIMENSION
         background = jnp.asarray([ASYMPTOTIC.get(name, 0.0) for name in names]).reshape(column)
+        reference = None
+        if self.background is not None:
+            reference = jnp.stack(
+                [
+                    jnp.broadcast_to(jnp.asarray(self.background_value(n)), radius.shape)
+                    for n in names
+                ]
+            )
         table = self.speeds or {}
         speeds = [table.get(name, self.speed) for name in names]
         speed = jnp.asarray(speeds).reshape(column)
@@ -300,6 +329,9 @@ class Radiative:
             )
 
         def sommerfeld(stack):
+            if reference is not None:
+                departure = stack - reference
+                return -speed * (radial(departure) + departure * inverse)
             return -speed * (radial(stack) + (stack - background) * inverse)
 
         compiled = (jax.jit(radial), jax.jit(sommerfeld), speed, inverse)
@@ -333,11 +365,12 @@ class Radiative:
         out = {}
         for name, value in state.items():
             field = np.asarray(value)
-            background = ASYMPTOTIC.get(name, 0.0)
+            background = self.background_value(name)
+            differentiated = field if self.background is None else field - background
             gradient = sum(
                 np.asarray(self.coords[axis])
                 / radius
-                * edge_derivative(field, axis, self.spacing[axis], order=self.order)
+                * edge_derivative(differentiated, axis, self.spacing[axis], order=self.order)
                 for axis in range(DIMENSION)
             )
             speed = self.speed if self.speeds is None else self.speeds.get(name, self.speed)
@@ -402,18 +435,15 @@ class Bounded:
     def step(self, state, time_step: float | None = None):
         """One classical fourth-order step, the boundary applied at each stage."""
         step = self.time_step if time_step is None else float(time_step)
-        names = list(state)
+        advance, finish, _ = operations(self.backend)
         base = dict(state)
 
         first = self.right_hand_side(base)
-        second = self.right_hand_side({n: base[n] + (step / 2) * first[n] for n in names})
-        third = self.right_hand_side({n: base[n] + (step / 2) * second[n] for n in names})
-        fourth = self.right_hand_side({n: base[n] + step * third[n] for n in names})
+        second = self.right_hand_side(advance(base, first, step / 2))
+        third = self.right_hand_side(advance(base, second, step / 2))
+        fourth = self.right_hand_side(advance(base, third, step))
 
-        out = {
-            n: base[n] + (step / 6) * (first[n] + 2 * second[n] + 2 * third[n] + fourth[n])
-            for n in names
-        }
+        out = finish(base, first, second, third, fourth, step)
         return self.evolution.project(out) if self.evolution.enforce else out
 
     def run(self, state, steps: int, time_step: float | None = None, sample=None):
@@ -494,29 +524,28 @@ class SecondOrder(Bounded):
         import jax.numpy as jnp
 
         b = self.boundary
-        names = tuple(geometry)
+        names = tuple(sorted(geometry))
         radial, sommerfeld, speed, inverse = b._compiled(names)
         cache = _STACKED.setdefault(b, {})
         key = (names, "second")
         if key not in cache:
             zone = jnp.asarray(b.mask())
 
-            def combine(fields, kernel, carried_zone):
+            def combine(geometry, auxiliary, rates):
+                fields = jnp.stack([geometry[n] for n in names])
+                kernel = jnp.stack([rates[n] for n in names])
+                carried_zone = jnp.stack([auxiliary[AUXILIARY + n] for n in names])
                 condition = sommerfeld(fields)
                 carried = jnp.where(zone, carried_zone, kernel - condition)
                 own = jnp.where(zone, condition + carried, kernel)
                 moved = -speed * (radial(carried) + 3.0 * carried * inverse)
-                return own, jnp.where(zone, moved, 0.0)
+                moved = jnp.where(zone, moved, 0.0)
+                out = {name: own[index] for index, name in enumerate(names)}
+                out.update({AUXILIARY + name: moved[index] for index, name in enumerate(names)})
+                return out
 
             cache[key] = jax.jit(combine)
-        own, moved = cache[key](
-            jnp.stack([jnp.asarray(geometry[n]) for n in names]),
-            jnp.stack([jnp.asarray(rates[n]) for n in names]),
-            jnp.stack([jnp.asarray(auxiliary[AUXILIARY + n]) for n in names]),
-        )
-        out = {name: own[index] for index, name in enumerate(names)}
-        out.update({AUXILIARY + name: moved[index] for index, name in enumerate(names)})
-        return out
+        return cache[key](geometry, auxiliary, rates)
 
     def right_hand_side(self, state) -> dict[str, Any]:
         geometry, auxiliary = self._split(state)
@@ -529,8 +558,9 @@ class SecondOrder(Bounded):
         for name, value in geometry.items():
             field = np.asarray(value)
             speed = b.speed if b.speeds is None else b.speeds.get(name, b.speed)
-            gradient, radius = self._radial(field)
-            sommerfeld = -speed * (gradient + (field - ASYMPTOTIC.get(name, 0.0)) / radius)
+            departure = field - b.background_value(name)
+            gradient, radius = self._radial(field if b.background is None else departure)
+            sommerfeld = -speed * (gradient + departure / radius)
             kernel = np.asarray(rates[name])
             carried = np.where(zone, np.asarray(auxiliary[AUXILIARY + name]), kernel - sommerfeld)
             out[name] = np.where(zone, sommerfeld + carried, kernel)
@@ -543,16 +573,13 @@ class SecondOrder(Bounded):
     def step(self, state, time_step: float | None = None):
         """One classical fourth-order step, both conditions applied at each stage."""
         step = self.time_step if time_step is None else float(time_step)
+        advance, finish, _ = operations(self.backend)
         base = self.start(state)
-        names = list(base)
         first = self.right_hand_side(base)
-        second = self.right_hand_side({n: base[n] + (step / 2) * first[n] for n in names})
-        third = self.right_hand_side({n: base[n] + (step / 2) * second[n] for n in names})
-        fourth = self.right_hand_side({n: base[n] + step * third[n] for n in names})
-        out = {
-            n: base[n] + (step / 6) * (first[n] + 2 * second[n] + 2 * third[n] + fourth[n])
-            for n in names
-        }
+        second = self.right_hand_side(advance(base, first, step / 2))
+        third = self.right_hand_side(advance(base, second, step / 2))
+        fourth = self.right_hand_side(advance(base, third, step))
+        out = finish(base, first, second, third, fourth, step)
         return self.project(out) if self.evolution.enforce else out
 
 

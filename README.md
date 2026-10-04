@@ -8,15 +8,19 @@ Start with the [design document](docs/DESIGN.md).
 
 ## Status
 
-Milestone 0 (Foundations) in progress. What works today:
+ParticleSim includes the foundations, spherical numerical relativity,
+particle-in-cell and laser scenarios, cosmology, relativistic hydrodynamics,
+lattice fields, string EFT modules, structure formation, adapters, and run
+dashboards. The child issues for milestones M0–M3 and M5–M8 are closed.
 
-- Theory plugin contracts and discovery (`particlesim theories`), with general
-  relativity as the baseline plugin.
-- Symbolic curvature pipeline: metric to Einstein tensor, Eulerian
-  decomposition, compiled NumPy kernels.
-- Warp Mode W1 static analysis for the Alcubierre, Natário, and Van Den Broeck
-  families: Eulerian energy density, expansion, momentum density, and sampled
-  NEC/WEC/SEC/DEC energy conditions, with run manifests for reproducibility.
+The remaining M4 and M9 work includes long-lived punctures and binary
+benchmarks, constraint-preserving outer boundaries, modified CCZ4 evolution,
+and IKKT complex Langevin. A closed child issue does not imply every method
+in the design roadmap is implemented: see the measured scope and limitations
+in [Benchmarks](docs/benchmarks.md).
+
+[Milestone status](docs/status.md) records the completion criteria and the
+remaining acceptance tests, with links to the live GitHub issues.
 
 ## Quick start
 

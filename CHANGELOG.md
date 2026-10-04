@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 (2026-10-04)
+
+- Replace the outdated foundations-only README status with the implemented
+  milestone scope and a linked issue/acceptance audit.
+- Document semantic versions in branch names and PR titles.
+
 ## 0.2.0 (2026-10-04)
 
 - Add explicitly bounded axes to generated NumPy and JAX kernels, with

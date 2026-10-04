@@ -7480,13 +7480,16 @@ with a published value.
   theory registry. That registry's checks require every plugin to reduce to
   General Relativity.
 
-## Not implemented yet
+## Benchmark roadmap and implementation notes
 
-Grouped by the milestone that will add them. Each is named in Section 10 of
-the design document.
+The original targets from Section 10 of the design document, grouped by
+milestone, with implementation notes accumulated as results were added.
+This is not a list of open issues. The current acceptance work is listed in
+[Milestone status](status.md); detailed measurements and limitations are in
+the sections above.
 
 ### Milestone 1, spherical numerical relativity
-- Choptuik critical collapse (issue #22): γ = 0.3746 and Δ = 3.454 are measured on the refined grid above, and Δ = 3.444 from three echoes of the central field — **done**. What #22 still lists is a nightly job at research resolution.
+- Choptuik critical collapse (issue #22): γ = 0.3746 and Δ = 3.454 are measured on the refined grid above, and Δ = 3.444 from three echoes of the central field — **done**. The research-resolution rerun is configured in `.github/workflows/nightly.yml`; it requires GitHub Actions to be enabled.
 - Oppenheimer-Snyder dust collapse against the closed form (issue #23)
 - Bianchi IX mixmaster Kasner map (issue #23)
 - Loop quantum cosmology bounce at ρ_c ≈ 0.41 ρ_Planck (issue #24)
@@ -7503,9 +7506,10 @@ the design document.
 
 ### Milestone 4, three-dimensional numerical relativity
 - Single Schwarzschild puncture stable to t = 1000 M (issue #51)
-- Gauge wave and Teukolsky wave convergence (issue #51) — Teukolsky data
-  exists now, and its interior error converges at order 3.9 on the way out
-  through the radiative boundary; see that section
+- Gauge wave and Teukolsky wave convergence (issue #51) — **done** for the
+  periodic evolutions. The evolved Teukolsky constraint converges near fourth
+  order; constraint convergence after reflection from an outer boundary is
+  a separate, still-open acceptance in #132.
 - Head-on binary black hole final mass and radiated energy, to 5% (issue #51)
 - Einstein-scalar-Gauss-Bonnet scalarized black hole (issue #52) — **done** in
   spherical symmetry: the three bifurcation points are Doneva and Yazadjiev's

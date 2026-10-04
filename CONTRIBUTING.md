@@ -46,8 +46,13 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
 because release-please reads them to produce the changelog and version
 bumps: `feat:`, `fix:`, `docs:`, `chore:`, `test:`, `refactor:`.
 
-Branches are named `feat/<issue>-<slug>`, `fix/<issue>-<slug>`,
-`docs/<slug>` or `chore/<slug>`.
+Branches include the target semantic version: `feat/v0.2.0-<issue>-<slug>`,
+`fix/v0.2.1-<issue>-<slug>`, `docs/v0.2.1-<slug>` or
+`chore/v0.2.1-<slug>`. PR titles include the same version after the
+Conventional Commit prefix, for example `feat: v0.2.0 add bounded kernels`.
+Use a minor version for a new compatible feature and a patch version for a
+compatible fix or documentation correction. Keep `pyproject.toml`,
+`particlesim.__version__`, and the project's entry in `uv.lock` consistent.
 
 ## Where things go
 

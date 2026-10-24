@@ -126,8 +126,8 @@ def test_a_static_hole_of_the_shooting_equations_is_static_here(which):
     A third derivation: the static equations are the action reduced to one
     dimension and varied in areal coordinates. Mapped to isotropic ones with
     its own static lapse, the hole's rates here are truncation error, and
-    fall at fourth order. Measured for the scalarized hole from 150 to 300
-    cells: 3.8 to 4.1.
+    fall at fourth order. Measured from 150 to 300 cells: 4.00 to 4.02 for
+    the scalarized hole, 3.96 to 4.17 for the dilatonic one.
     """
     rows = _static_residuals(which)
     print(which, rows)

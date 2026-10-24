@@ -477,6 +477,22 @@ class ModifiedKernel:
         return out
 
 
+@dataclass(frozen=True)
+class ModifiedEvolution(bssn_solver.Evolution):
+    """:class:`~particlesim.solvers.nr.bssn.Evolution`, without one ``jit`` around everything.
+
+    The parent compiles its whole right-hand side as one XLA module. For
+    this one -- two generated kernels, the matter, a batched 7 x 7 solve and
+    the gauge -- that module took 759 s to compile at 40^3 and then ran at
+    84 s a call, against 2.3 s when each generated kernel is compiled on its
+    own and the arithmetic between them is dispatched as it stands. The
+    kernels are already compiled; only the glue is not.
+    """
+
+    def right_hand_side(self, state):
+        return self._rates(dict(state))
+
+
 def admit_theory(theory, dimensions: int = 3) -> None:
     """ADR-008 for this solver: what ``nr.modified`` evolves, and what it refuses.
 
@@ -549,7 +565,7 @@ def build(
         coupling_squared=coupling_squared if needs_coupling else 0.0,
         theta_in_slicing=theta_in_slicing,
     )
-    return bssn_solver.Evolution(
+    return ModifiedEvolution(
         spacing=tuple(float(value) for value in spacing),
         order=order,
         backend=backend,
@@ -606,6 +622,43 @@ def scalar_gauge_wave(
     scalar = scalar_amplitude * module.sin(argument)
     rate = scalar_amplitude * 2 * np.pi * module.cos(argument)
     return with_scalar(state, scalar, -rate / state["alpha"], backend=backend), spacing
+
+
+def static_schwarzschild(shape, extent, mass: float = 1.0, backend: str = "jax"):
+    """Isotropic Schwarzschild with its static lapse, for a frozen gauge: time is Killing time.
+
+    ``psi = 1 + M/2R`` and ``alpha = (1 - M/2R)/(1 + M/2R)``, zero shift,
+    ``K_ij = 0``, no scalar. Frozen, this lapse makes the coordinate time
+    Schwarzschild's ``t``, so a field on the hole can be compared with a
+    one-dimensional evolution in the same time without tracking anything.
+    Inside the horizon the lapse is taken smoothly to zero near ``R = 0``,
+    the other asymptotic end, by ``1 - exp(-(R / 0.35 M)^8)``: that region
+    is outside the exterior's domain of dependence, and with the static
+    lapse, ``-1`` there, the puncture's truncation error runs away. At the
+    horizon the taper differs from one by ``3e-8``. Returns
+    ``(state, spacing, R)``.
+    """
+    module = bssn_solver._module(backend)
+    mesh, spacing = bssn_solver._grid(shape, extent, "numpy")
+    lengths = tuple(float(v) for v in np.atleast_1d(extent))
+    if len(lengths) == 1:
+        lengths = lengths * DIMENSION
+    centre = [lengths[i] / 2 + spacing[i] / 2 for i in INDICES]
+    radius = np.sqrt(sum((np.asarray(mesh[i]) - centre[i]) ** 2 for i in INDICES))
+    psi = 1 + mass / (2 * radius)
+    lapse = (1 - mass / (2 * radius)) / psi * (1 - np.exp(-((radius / (0.35 * mass)) ** 8)))
+    zero = np.zeros_like(radius)
+    state: dict[str, Any] = {"phi": np.log(psi), "alpha": lapse, "trK": zero, "Theta": zero}
+    state["sf"] = zero
+    state["Ksf"] = zero
+    for i in INDICES:
+        state[f"beta{i}"] = zero
+        state[f"B{i}"] = zero
+        state[f"Gt{i}"] = zero
+        for j in range(i, DIMENSION):
+            state[f"gt{i}{j}"] = np.full_like(radius, 1.0 if i == j else 0.0)
+            state[f"At{i}{j}"] = zero
+    return {k: module.asarray(v) for k, v in state.items()}, spacing, radius
 
 
 @dataclass(frozen=True)
@@ -791,7 +844,10 @@ __all__ = [
     "GAUGE_INGREDIENTS",
     "GEOMETRY_NAMES",
     "INTERMEDIATE_NAMES",
+    "GAUSS_BONNET_VERSION",
     "KERNEL_VERSION",
+    "IsotropicHole",
+    "ModifiedEvolution",
     "ModifiedKernel",
     "admit_theory",
     "build",
@@ -800,5 +856,7 @@ __all__ = [
     "matter_constraints",
     "rhs_expressions",
     "rhs_kernel",
+    "scalar_gauge_wave",
+    "static_schwarzschild",
     "with_scalar",
 ]

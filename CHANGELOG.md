@@ -19,8 +19,9 @@
   apart from dissipation and upwinding on CPU (2.5× faster per point), and
   add two-puncture Brill–Lindquist data, a resumable head-on driver and a
   close-limit Zerilli benchmark.
-- Measure the two-level puncture at `M/8` and `M/12` and a close-limit
-  head-on collision; the 1000 M and 5% acceptances remain open.
+- Run the two-level puncture at `M/8` to 140 M and at `M/12` to 1000 M
+  against a stability definition fixed in advance, and a close-limit head-on
+  collision; the 1000 M and 5% acceptances remain open.
 
 ## 0.4.0 (2026-10-04)
 

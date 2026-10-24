@@ -55,15 +55,15 @@ Version 0.5.0 moves each of these and completes #52 and #132.
 - [#48: Fixed mesh refinement](https://github.com/nosam1998/ParticleSim/issues/48).
   Prolongation, restriction, subcycling and stage buffers exist. On the
   cell-centred two-level grids of v0.4.0, an octant evolution
-  (`solvers/nr/octant.py`) holds the puncture at its centre to rounding. The
-  `M/8` two-level run meets a stability definition written down in advance
-  (finite, horizon found, mass within 5%, centred, constraints bounded) to
-  130 M and fails the mass criterion at 140 M, its mass error matching the
-  earlier five-level `M/8` run to 2e−3, so the drift is set by the finest
-  spacing. At `M/12` the mass error is 10 to 20 times smaller (0.26% at
-  130 M) and still growing slowly; that run is being continued toward
-  1000 M and its state is recorded in [Benchmarks](benchmarks.md). The
-  1000 M acceptance has not been reached.
+  (`solvers/nr/octant.py`) holds the puncture at its centre to rounding. A
+  stability definition was written down before the runs (finite, horizon
+  found with residual below 0.01, mass within 5%, centred, constraints
+  bounded). The `M/8` two-level run meets it to 130 M; the `M/12` run meets
+  it to 590 M and then, though it stays finite with a horizon all the way
+  to 1000 M, its mass leaves the 5% band at 600 M, peaks at 1.168 at 700 M
+  and ends at 0.555, with the constraints e-folding every 155 to 271 M. The
+  1000 M acceptance is not met; the full record is in
+  [Benchmarks](benchmarks.md).
 - [#51: 3D NR benchmarks](https://github.com/nosam1998/ParticleSim/issues/51).
   Gauge-wave and evolved Teukolsky-wave convergence are implemented. A
   head-on Brill–Lindquist collision from rest at `z₀ = 0.3 M`, compared

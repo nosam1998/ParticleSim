@@ -1152,9 +1152,10 @@ counted twice: 3.2 and 3.0, with a peak of `Θ` that fell by a third. See
 The test that asserted the damping lowers `Θ`'s peak here now checks it
 where the claim has a closed form. A `Θ` wave on flat space with the gauge
 frozen lives in the linearised constraint system `(Θ, Z, H, M)`, and its
-envelope falls to 0.522 of its start by `t = 4` at `κ₁ = 0.1`. Why the
-damping term does not pull this violation down, in harmonic slicing on a
-gauge wave, is not resolved here.
+envelope falls to 0.52191 of its start by `t = 4` at `κ₁ = 0.1`. Measured,
+it falls to 0.52202, and undamped it is 0.99999994 against 1. Why the
+damping term does not pull the gauge-wave violation down in harmonic
+slicing is not resolved here.
 
 ### The gauge wave cannot tell the two apart, and `Θ` says why
 
@@ -5029,6 +5030,13 @@ and the 3+1 quantities from closed forms of `K_ij` and `K_φ`.
 | `P_acbd ∇^c∇^d f`, `f = e^{−2φ}` | 4-D tensor projected | 1e-25 of 30 digits |
 | `Ξ₀ + J X` with the true `X` | `−8πα(S_ij − γ_ij S/2)` and `αs` of the full tensor, less static parts | double precision |
 | `∂ρ/∂X`, `∂S_i/∂X` | zero | exact |
+| every second derivative of `S_ij` and `s` by `X` | zero | exact |
+
+**The GR limit.** At `λ = 0` the Gauss–Bonnet kernel is not called, so the
+rates are the minimally coupled scalar's exactly. Near it, on the
+scalarized hole's data at `R_H/8`, halving `λ²` from `2 × 10⁻³` halves the
+largest change in `∂_tK`, `∂_tÃ_xx`, `∂_tK_φ` and `∂_tΘ`, with ratios from
+1.996 to 2.000.
 
 ### Modified CCZ4: a static hairy hole is static, to fourth order
 

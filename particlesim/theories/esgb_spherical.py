@@ -312,10 +312,9 @@ class CoupledSpherical:
         speed = np.abs(self._alpha) * np.exp(-state["a"])
         return self.spacing / float(np.max(speed))
 
-    def schwarzschild(self, mass: float | None = None) -> dict[str, np.ndarray]:
-        """Isotropic Schwarzschild, time-symmetric, with no scalar: ``e^a = e^b = 2M cosh^2``."""
-        mass = 2 * self.horizon if mass is None else mass
-        a = np.log(2 * mass * np.cosh(self.rho / 2) ** 2)
+    def schwarzschild(self) -> dict[str, np.ndarray]:
+        """Isotropic Schwarzschild, ``M = 2 R_H``, at rest, no scalar: ``e^a = 2M cosh^2``."""
+        a = np.log(4 * self.horizon * np.cosh(self.rho / 2) ** 2)
         zero = np.zeros_like(self.rho)
         return {"a": a, "b": a.copy(), "phi": zero, "ka": zero, "kb": zero, "pi": zero}
 

@@ -37,6 +37,14 @@ The trace of ``K_ij`` vanishes at linear order too, which is why harmonic
 slicing with a frozen shift keeps the evolution in Teukolsky's gauge to
 ``O(a^2)`` and the evolved metric can be compared with the formula directly.
 
+That quadratic violation is largest at the origin, where the perturbation
+is ``48 a``: ``H/a = -0.048`` there at ``a = 1e-6``, at every resolution.
+BSSN with a frozen shift has a constraint mode of zero speed and keeps
+4/3 of it at the centre for good, so a measurement of ``|H|`` that is to
+converge past about 72 points across a box of 12 wants either a smaller
+amplitude or a formulation, such as CCZ4, whose constraint modes all move
+(``docs/benchmarks.md``).
+
 **The formula cancels catastrophically at the origin.** Every term in ``A``
 goes as ``a / r^4`` there and the sum is finite, so near ``r = 0`` it is
 evaluated from its Taylor series instead. Collecting powers, each of ``A``,

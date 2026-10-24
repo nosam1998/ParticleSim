@@ -777,9 +777,11 @@ def test_a_teukolsky_wave_leaves_through_the_layer_without_a_reflection(formulat
     The ``||H||`` bound is the one that changed. The same layer on BSSN,
     the previous condition, gives 3.80e-02 and 1.13e-02, order 3.0: BSSN
     with a frozen shift holds 4/3 of the Teukolsky data's own quadratic
-    violation at the centre for good, and what the rim sends back of the
-    constraint modes it cannot damp. Run once with ``("bssn",
-    ConstraintPreserving)`` the test fails on that bound alone; see
+    violation at the centre for good, and cannot damp the constraint
+    violation the boundary sends in. Run once with ``("bssn",
+    ConstraintPreserving)`` the test fails on that bound alone: every other
+    bound holds, with 0.37 of the truncation error after the reflection at
+    order 4.4, and the ``||H||`` order is 3.00 against 3.5. See
     ``docs/benchmarks.md``.
     """
     coarse = _acceptance(_octant_teukolsky(48, condition, formulation=formulation))

@@ -221,7 +221,7 @@ def run_benchmark(
         while clock < target - 1e-9:
             step = min(setup.time_step, target - clock)
             states = setup.step(states, step)
-            clock += step
+            clock = round(clock + step, 12)
 
 
 def main():

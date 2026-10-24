@@ -66,9 +66,12 @@ def _drift_and_mass(extra, time=2.5):
 def test_a_cell_centred_puncture_stays_at_its_centre():
     """Measured at 2.5 M: 8e-17 M per axis, mass 0.99993.
 
-    The control is the vertex-centred hierarchy with the puncture half a
-    fine cell, a quarter coarse cell, off the boxes' centre along (1,1,1):
-    its centre moves by DRIFT_CONTROL M per axis over the same time.
+    The control, run once, is the vertex-centred hierarchy with the puncture
+    half a fine cell, a quarter coarse cell, off the boxes' centre along
+    (1,1,1) (``centering="vertex", offset=1``). Over the same 2.5 M its
+    centre moves by -6.6e-05 M per axis, and the drift tolerance fails it
+    by six orders of magnitude. Its mass, 0.99990, passes: at this length
+    the mass bound guards the cell-centred run's health, not the centring.
     """
     drift, mass = _drift_and_mass(dict(centering="cell"))
     assert np.max(np.abs(drift)) < 1e-10

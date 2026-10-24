@@ -155,16 +155,21 @@ def puncture_positions(setup, full):
     return float(z[k]), float(line[k])
 
 
-def common_horizon(setup, full, guess=1.0, reach=1.5, level=None):
+def common_horizon(setup, full, guess=1.0, reach=None, level=None):
     """The common apparent horizon about the centre, ``degree=4``, on the finest level.
 
     On Brill-Lindquist data with ``z0 = 0.3 M`` the finder's residual is
     0.15 at spacing ``M/8`` and 0.037 at ``M/16``, where the horizon is at
     ``r = 0.42`` to 0.60: an ``M/8`` level does not resolve it before the
-    gauge has moved it out.
+    gauge has moved it out. The gauge then carries it outward, to
+    ``r = 1.17 M`` by 10 M, so the rays reach to two cells short of the
+    level's edge unless told otherwise.
     """
     level = setup.levels - 1 if level is None else level
     h = setup.spacing(level)
+    if reach is None:
+        reach = 0.5 * setup.full_axis(level).size * h - 2 * h
+    guess = min(guess, 0.9 * reach)
     fields, axis = _crop(full[level], setup.full_axis(level), setup.position[0], reach)
     geometry = Slice(
         bssn.physical_slice_arrays(fields, backend="numpy"),
@@ -331,7 +336,9 @@ def run(
             row.update(time=clock, elapsed=time.monotonic() - start, puncture_z=position)
             row["W_min"] = depth
             if due(horizon_every):
-                row.update(common_horizon(setup, full))
+                previous = [r for r in extra["records"] if r.get("horizon_converged")]
+                guess = 1.15 * previous[-1]["horizon_radius"] if previous else 1.0
+                row.update(common_horizon(setup, full, guess=guess))
             extra["records"].append(row)
             if progress:
                 progress(row)

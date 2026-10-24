@@ -530,11 +530,15 @@ class DilatonGaussBonnet(Theory):
     **Formulation: ``order_reduced``.** Einstein-scalar-Gauss-Bonnet is not
     strongly hyperbolic in the usual gauges. The known well-posed route is
     modified CCZ4 (Kovacs and Reall 2020; Areste Salo, Clough and Figueras
-    2022), and it is not implemented. Declaring ``order_reduced`` means
-    ADR-008 applies: :func:`~particlesim.theories.base.require_well_posed`
-    refuses a strong-field 3-D run with this plugin, and says why. The
-    static, spherically symmetric holes of this module need no evolution
-    and are unaffected.
+    2022), which :mod:`particlesim.solvers.nr.modified` implements. Its
+    static-hole and weak-coupling checks pass; the comparison at stronger
+    coupling with the static solutions does not exist yet, so the plugin
+    still declares ``order_reduced`` and ADR-008 applies:
+    :func:`~particlesim.theories.base.require_well_posed` refuses a
+    strong-field 3-D run with this plugin, and says why.
+    ``nr.modified.build(coupling=..., coupling_squared=...)`` runs the
+    theory without it. The static, spherically symmetric holes of this
+    module need no evolution and are unaffected.
 
     ``effective_stress_energy`` returns ``G / 8 pi``: everything the scalar
     and the Gauss-Bonnet term do is attributed to effective matter, the

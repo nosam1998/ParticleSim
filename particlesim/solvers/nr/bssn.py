@@ -591,9 +591,14 @@ def admit_theory(theory, dimensions: int = 3) -> None:
     if all(theory.values.get(name) == value for name, value in limit.items()):
         return
     require_well_posed(theory, dimensions=dimensions, strong_field=True)
+    hint = (
+        "; a plugin declaring 'modified_ccz4' is evolved by particlesim.solvers.nr.modified"
+        if theory.formulation == "modified_ccz4"
+        else ""
+    )
     raise NotImplementedError(
         f"{theory.id} away from its GR limit {limit}: the 3-D solvers evolve vacuum "
-        "General Relativity, and this plugin's field equations are not implemented in them"
+        "General Relativity, and this plugin's field equations are not implemented in them" + hint
     )
 
 

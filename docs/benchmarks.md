@@ -1837,6 +1837,204 @@ against asymmetric perturbations and is off by default. Passing a short run or r
 satisfy issue #48. Its 1000 M acceptance, and issue #51's binary comparison,
 remain open until measured.
 
+### An octant, and a right-hand side compiled too much
+
+Two changes make a long two-level run affordable on a CPU.
+
+**The octant.** `NestedPuncture.build(..., octant=True)` evolves only the
+octant `x, y, z > 0` of each cell-centred level, with four reflection ghosts
+below each symmetry plane (`particlesim.solvers.nr.octant`): 20³ points in
+place of 32³, or 28³ in place of 48³. It is the same
+restriction as `reflection_symmetry=True`, which group-averages the full
+grid, so the same caveat holds: asymmetric perturbations are projected out,
+and nothing here says the hole is stable against them. In particular **the
+hole cannot drift in an octant run**: its offset is zero by construction.
+- **The ghosts.** Every right-hand side overwrites them with the mirror
+  image of the first four interior cells, with each component's parity,
+  and then reflects its own rates the same way. Runge–Kutta combinations of
+  reflected states and rates stay reflected. Restriction runs up to the
+  planes, and then the parent's ghosts are refilled.
+- **The edges.** Only the high faces are edges. The radiation zone and the
+  refinement buffer are applied there and nowhere else.
+- **Agreement.** One and two subcycled steps of the two-level trumpet
+  (`n=24, extent=6, box=16`) match the reflection-symmetric full grid to
+  4e−16 and 1e−15 on both levels
+  (`test_octant_steps_match_the_symmetric_full_grid_and_a_wrong_parity_does_not`).
+  Its control mirrors every component as a scalar, and the step then
+  differs beside each plane at order one. The control run below reads the
+  same horizon mass as PR #216's full-grid GPU run to six figures at 10, 20,
+  30 and 40 M.
+
+**The right-hand side.** `Evolution.right_hand_side` compiled the kernel,
+the dissipation and the upwinding as one JAX function. On a CPU, XLA's
+fusion of the kernel's temporaries with the rest made that two to three
+times slower than compiling the kernel and the corrections separately:
+
+| points | fused, µs per point | composed, µs per point |
+|---|---:|---:|
+| 20³ | 8.9, 12.1 | 6.0, 4.7 |
+| 28³ | 11.8, 12.2 | 4.5, 4.2 |
+| 36³ | 12.0, 11.4 | 5.2, 5.4 |
+
+Two passes each, one thread, upwinded, on trumpet data, on a shared
+machine. On a CPU it is now composed (`bssn.FUSE_RATES`, fused elsewhere).
+The two agree to rounding (`test_composed_and_fused_right_hand_sides_agree`).
+
+What a two-level octant costs per M of evolution, with the machine shared
+with three other jobs (load average 8 to 30 on four cores, so these are
+upper bounds; the larger number in each range is the busier time):
+
+| fine spacing, box | coarse spacing, boundary | octant points per level | Courant | threads | s per M |
+|---|---|---|---:|---:|---:|
+| `M/8`, ±2 M | `M/4`, ±4 M | 20³, 20³ | 0.25 | 1, 2 | 19 to 80 |
+| `M/8`, ±2 M | `M/4`, ±4 M | 20³, 20³ | 0.5 | 2 | 19 to 29 |
+| `M/8`, ±3 M | `M/4`, ±6 M | 28³, 28³ | 0.25 | 1 | 79 to 280 |
+| `M/12`, ±2 M | `M/6`, ±4 M | 28³, 28³ | 0.5 | 2 | 40 to 117 |
+| `M/12`, ±2.67 M | `M/6`, ±4 M | 28³, 36³ | 0.25 | 1 | 570, before the change above |
+
+### Two levels toward 1000 M: what "stable" means, fixed before the run
+
+Written down at 22:59 UTC on 2026-10-23, when the run had reached 1 M.
+"Stable to `T`" means, at every record (every 10 M) up to `T`:
+1. every evolved field is finite on both levels;
+2. the apparent horizon is found on the finest level, with expansion
+   residual `max|Θ| < 0.01`;
+3. its irreducible mass is within 5% of 1;
+4. the hole's lapse-weighted offset is below 0.1 M per axis and not growing
+   exponentially (zero by construction on an octant: stated, not claimed);
+5. the Hamiltonian constraint on each level, outside `r = 2 M`, is bounded:
+   at `T` it is at most ten times its value at 100 M, and an exponential
+   fit to the last 300 M of records gives an e-folding time longer than
+   1000 M, or decay.
+
+The mass error's growth is reported separately, as a rate per M.
+
+**The run.** PR #216's two-level control on an octant: `n=32, extent=8,
+box=16, octant=True`, maximal-trumpet data, `W`, the unadvected gauge,
+upwinding, the second-order edge with the stationary-trumpet reference, and
+Courant factor 0.25. The coarse level is `M/4` to ±4 M, the radiation zone
+its outer 1 M. The fine level is `M/8` to ±2 M, evolved to ±1.25 M inside its
+six-point buffer, with the horizon at `r = 0.78 M`. Its horizon mass reads
+0.999899, 0.999745, 0.999965, 1.001724 and 1.004160 at 0 to 40 M, PR #216's
+full-grid GPU numbers to every printed digit. It ran from the committed
+snapshot in `runs/puncture-1000/` at 33 to 80 s per M:
+
+| t / M | 0 | 20 | 40 | 60 | 80 | 100 | 120 | 140 |
+|---|---|---|---|---|---|---|---|---|
+| horizon mass | 0.9999 | 1.0000 | 1.0042 | 1.0106 | 1.0192 | 1.0293 | 1.0406 | 1.0521 |
+| five levels, `M/8`, ±3 M box (above) | | | 1.0058 | | 1.0190 | | 1.0397 | |
+| five levels, `M/12`, ±2 M box (above) | | | 1.0009 | | 1.0019 | | 1.0031 | |
+| coarse `‖H‖`, `r > 2 M` | 1.2e−05 | 2.3e−04 | 4.8e−04 | 6.8e−04 | 9.5e−04 | 1.3e−03 | 1.6e−03 | 1.9e−03 |
+| fine `‖H‖`, `r > 2 M` | 1.5e−05 | 3.4e−03 | 4.4e−03 | 5.8e−03 | 6.8e−03 | 7.7e−03 | 8.5e−03 | 8.8e−03 |
+| fine `‖H‖`, `1 < r < 2 M` | 1.3e−04 | 8.4e−03 | 8.4e−03 | 8.5e−03 | 8.5e−03 | 8.4e−03 | 8.1e−03 | 7.8e−03 |
+| smallest lapse | 0.031 | 0.064 | 0.061 | 0.060 | 0.059 | 0.058 | 0.057 | 0.057 |
+| largest `φ` | 1.325 | 1.317 | 1.319 | 1.321 | 1.325 | 1.329 | 1.335 | 1.340 |
+
+The horizon's residual is 0.0034 to 0.0040 throughout, and the offset is
+below 2e−17 M, as it must be on an octant.
+
+**By the definition above it is stable to 130 M, not to 1000 M.** Every
+criterion holds until the mass passes 1.05 between 130 and 140 M (1.0464,
+then 1.0521). The run was stopped at 140 M, with its checkpoint kept.
+- **The mass error is not exponential late on; it tends to a constant
+  rate.** Its rate per M rises from 1.8e−04 at 30 M to 5.7e−04 at 120 M and
+  is 5.8e−04 at 130 and 140 M. An exponential fit from 40 to 140 M gives an
+  e-folding time of 42 M; from 90 to 140 M, 65 M. At the rate it has
+  reached, 1000 M would carry the mass to about 1.55.
+- **It is the finest spacing's error, not the box's or the boundary's.**
+  The five-level `M/8` run had its boundary at 48 M and a finest box of ±3 M,
+  and its mass agrees with this one to 2e−03 at 40, 80 and 120 M. The
+  five-level `M/12` run's error was ten to fifteen times smaller.
+- **The coarse constraint grows**, e-folding every 72 M from 40 M on. The
+  fine level's grows more slowly (150 M) and its inner value does not grow.
+
+**A Courant factor of 0.5 costs nothing measurable here.** The same run
+with twice the time step reads 0.9997449, 0.9999665, 1.0017312 and
+1.0041780 at 10 to 40 M, against 0.9997453, 0.9999653, 1.0017239 and
+1.0041604. The difference is 0.4% of the drift. The time step's error is
+not what moves the mass.
+
+**The resolution test: `M/12`, to 1000 M.** The next run is this one at
+1.5 times the resolution on both levels: `n=48, extent=8, box=24`, coarse
+`M/6` to ±4 M, fine `M/12` to ±2 M, Courant factor 0.5. If the error goes
+as the fourth power of the spacing it is five times smaller; the five-level
+runs above found ten to fifteen at 80 to 120 M.
+
+Its first 100 M, against the `M/8` run at the same times:
+
+| t / M | 0 | 20 | 40 | 60 | 80 | 100 |
+|---|---|---|---|---|---|---|
+| horizon mass, `M/12` | 1.00000 | 0.99957 | 0.99960 | 1.00005 | 1.00069 | 1.00142 |
+| horizon mass, `M/8` | 0.99990 | 0.99997 | 1.00416 | 1.01060 | 1.01915 | 1.02932 |
+| fine `‖H‖`, `r > 2 M`, `M/12` | 1.7e−06 | 5.3e−04 | 5.9e−04 | 6.9e−04 | 7.1e−04 | 7.2e−04 |
+| fine `‖H‖`, `r > 2 M`, `M/8` | 1.5e−05 | 3.4e−03 | 4.4e−03 | 5.8e−03 | 6.8e−03 | 7.7e−03 |
+| coarse `‖H‖`, `r > 2 M`, `M/12` | 2.2e−06 | 3.2e−05 | 1.2e−04 | 1.4e−04 | 1.7e−04 | 2.2e−04 |
+| coarse `‖H‖`, `r > 2 M`, `M/8` | 1.2e−05 | 2.3e−04 | 4.8e−04 | 6.8e−04 | 9.5e−04 | 1.3e−03 |
+
+The horizon's residual rises from 0.0005 to 0.0033, the smallest lapse is
+0.038 from 20 M on, and the offset is below 2e−16 M.
+- **The mass error is ten to twenty times smaller.** It is −4e−04 at 40 M, against
+  +4.2e−03, and +1.4e−03 at 100 M, against +2.9e−02. Its rate per M is
+  1.9e−05 from 40 to 50 M and 3.8e−05 from 90 to 100 M, fourteen times
+  below the `M/8` run's at the same time. That is more than the fourth
+  power of 1.5, five, as the five-level runs also found.
+- **The constraint is ten times smaller** on the fine level and six times
+  on the coarse, and the fine level's has stopped growing.
+- **What 1000 M would need.** The rate's increase is slowing, as the `M/8`
+  run's did before it levelled off near 130 M. If this one levels off at
+  4.5e−05 per M the mass is about 1.04 at 1000 M, inside the definition.
+  At its present 3.8e−05 it would be 1.035; if the rate kept growing as it
+  has, more than 1.05.
+
+The run continues from its checkpoint; this records it at 100 M, after 40
+to 117 s per M.
+
+The two runs, and how to continue them from their checkpoints (each holds
+a committed snapshot of the code it runs, so its source digests match on
+resuming):
+
+```bash
+sh runs/puncture-m12/run.sh    # M/12, Courant 0.5, toward 1000 M
+sh runs/puncture-1000/run.sh   # M/8, stopped at 140 M
+```
+
+`runs/` is not tracked. Each script is `examples/puncture_benchmark.py`
+with `--octant`, the grid above and `--resume` once a checkpoint exists:
+
+```bash
+uv run python examples/puncture_benchmark.py --n 48 --box 24 --extent 8 --octant \
+  --courant 0.5 --stop 1000 --interval 10 --output runs/puncture-m12/puncture.json --resume
+```
+
+**A test that the centring holds.** The octant cannot show a drift, so
+`test_a_cell_centred_puncture_stays_at_its_centre` runs the same two-level
+trumpet on a full grid with no symmetry imposed (`n=24, extent=6, box=16`,
+fine `M/8`) for 2.5 M:
+
+| | centre's move per axis, 2.5 M | 5 M | horizon mass, 2.5 M |
+|---|---:|---:|---:|
+| cell-centred | 8e−17 | 2e−16 | 0.99993 |
+| vertex-centred, half a fine cell off (the control) | −6.6e−05 | −9.7e−05 | 0.99990 |
+
+It requires the centre within 1e−10 M and the mass within 1e−3 of one. The
+control fails the first by six orders of magnitude and passes the second:
+at this length the mass bound checks the run's health, not its centring.
+
+### What is not here
+
+- **1000 M.** The `M/8` run is stable by the definition above to 130 M and
+  no further; the `M/12` run had not reached 1000 M when this was written.
+  Issue #48's acceptance is not met.
+- **Asymmetric perturbations.** Both long runs are octants, so the hole
+  cannot move, and the five-level runs' failure, the hole drifting out of
+  the finest box, is excluded by construction rather than cured. The full-grid
+  test above shows that a cell-centred puncture's push cancels to rounding
+  over 5 M; it does not show that rounding-level asymmetries stay small over
+  1000 M.
+- **Why the mass grows.** The comparison with the five-level runs puts it
+  at the finest spacing, but the mechanism, and why its rate levels off
+  rather than growing, are not established.
+
 ## Explicitly bounded generated stencils
 
 Issue [#132](https://github.com/nosam1998/ParticleSim/issues/132)'s codegen
@@ -2783,6 +2981,181 @@ waves see the same slow mass loss the horizon shows.
 so comparing them to pick the dominant mode in a late window favours
 heavily damped modes by `exp(Δγ t)`. `windowed_frequencies` compares them
 at the window's start.
+
+### A head-on collision from rest, against the close limit
+
+Issue #51 asks for a head-on binary's final mass and radiated energy within
+5% of the literature.
+
+**The literature value, and an independent check of it.** The web search
+available here could not open arXiv, INSPIRE or the APS journals, so the
+numbers below are the ones its result snippets confirm, and one that is
+recomputed here rather than quoted.
+- **Far apart.** Equal holes falling from rest at infinity radiate about
+  0.055% of the total mass in four dimensions (quoted by Witek et al.,
+  Phys. Rev. D 82, 104014 (2010), abstract). That needs both holes resolved
+  along a fall of tens of M inside one finest box, which is not affordable
+  here.
+- **Close together.** Price and Pullin's close limit treats two holes inside
+  one horizon as one distorted hole. For equal Brill–Lindquist holes of bare
+  mass `M/2` at `z = ±z₀`, Abrahams and Price (Phys. Rev. D 53, 1972 (1996),
+  gr-qc/9509020) give `E/M = 0.0251 κ₂²` with `κ₂ = (z₀/M)²/4`. A common
+  horizon encloses both only while `2z₀` is below about 1.53 times either
+  bare mass, `z₀ < 0.38 M`: Brill and Lindquist's 1963 result, recalled
+  rather than read here. The finder agrees. On the initial data it
+  converges at `z₀ = 0.3` as the spacing falls (residual 0.15 at `M/8`,
+  0.037 at `M/16`), and at `z₀ = 0.48` it does not, at any degree up to
+  eight (0.23 to 0.25).
+- **Recomputed.** `particlesim.analysis.close_limit` evolves that quadrupole
+  with the Zerilli equation from time-symmetric data, in Martel and
+  Poisson's normalisation. It gives `E/(M κ₂²) = 0.025148`, the same at half
+  the spacing, which is 0.0251 to the three figures published. The
+  energy scales as `z₀⁴`, and the ringing fits the fundamental
+  `0.3737 − 0.0890i` to 0.2% (`test_close_limit_energy_reproduces_abrahams_and_price`).
+
+So the comparison is with `z₀ = 0.3 M`: `κ₂ = 0.0225`, and the close limit
+gives `E = 1.2731e−05 M`, 0.00127% of `M_ADM = 1`. Its error is the
+neglected second order in `κ₂`, which neither source quantifies for this
+data. The final mass it implies is `M_ADM − E = 0.999987 M`.
+
+**The run.** `examples/headon_benchmark.py`: two Brill–Lindquist punctures
+of bare mass 1/2 at `z = ±0.3 M`, at rest, on six nested octants
+(`NestedPuncture.build(punctures=..., octant=True)`). The pair is symmetric
+under all three reflections, so the octant is the whole problem.
+- **Grid.** 48 points across each level, boxes of 24 parent points, from
+  `2M` to `M/16`. The outer boundary is at 48 M with the second-order
+  condition and the flat reference, and the finest box is ±1.5 M.
+- **Gauge.** Moving punctures: `advect=True`, the `d₀` Gamma-driver with
+  `η = 2/M`, 1+log slicing with its advection, the lapse starting at `ψ⁻²`.
+  Upwinded, with `W`.
+- **Placement.** No sample can sit on a puncture. On cell-centred grids
+  whose spacings halve, a puncture is at a reflection point of every level
+  only when `z₀` is a whole number of coarsest spacings, here 2 M. So the
+  holes are where the data puts them. At `z₀ = 0.3` the nearest finest
+  sample is 0.3 of a cell away along the axis and half a cell across it.
+- **What is recorded.** `Ψ₄`'s (2,0), (4,0) and (2,2) modes every 0.5 M
+  at `r` = 6 (on the `M/2` level), 8, 10 and 12 (the `M` level), and 16, 20
+  and 24 (the `2M` level), with each sphere's areal radius. The common
+  apparent horizon (`degree=4`) and where the punctures are, every 5 M.
+- **The finest level is dropped at 15 M**
+  (`headon_benchmark.run(coarsen_at=15)`). The punctures have met by 10 M,
+  and the common horizon is at `r = 1.18 M`, nine cells inside the `M/8`
+  level's evolved region (±2.25 M). The finest level was most of the cost:
+  410 s per M before, 115 s after, on the shared machine.
+
+**It merges, rings and settles.** The run went to 70 M (snapshots of the
+code it ran, and the run script, are in `runs/headon-z03/`).
+- **The merger.** The punctures, at `z = ±0.30`, are at ±0.11 by 5 M (the
+  smallest `W` along the axis), and within one finest cell of the centre by
+  10 M.
+- **The common horizon** is found at every record, with residual 0.004
+  from 5 M on (0.025 on the initial data, where it is at `r = 0.50` on the
+  `M/16` level). Its mass:
+
+| t / M | 0 | 5 | 10 | 15 | 20 | 30 | 40 | 50 | 60 | 70 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| horizon mass | 0.9957 | 1.0021 | 0.9969 | 0.9972 | 1.0029 | 1.0029 | 1.0029 | 1.0030 | 1.0030 | 1.0031 |
+| mean coordinate radius | 0.50 | 0.91 | 1.17 | 1.18 | 1.20 | 1.28 | 1.32 | 1.35 | 1.38 | 1.40 |
+
+  It is read on the `M/16` level to 15 M and on the `M/8` level after. The
+  step at 20 M is that change of level; from 20 M to 70 M the mass moves by
+  2e−04.
+- **The ringing is the fundamental.** From `u = 25` to 50 M the `(2,0)` mode
+  fits `Mω = 0.376 − 0.088i` at every radius from 6 to 20 M
+  (`qnm.dominant_frequency`, two modes). For the horizon's mass, 1.003, the
+  fundamental is `0.3726 − 0.0887i`: 1.1% and 0.6%. Windows from `u = 15`
+  read 0.383 − 0.082i, the overtone not yet gone.
+- **The symmetry holds.** The `(2,2)` mode stays below 5e−16, where the
+  `(2,0)` mode peaks at 8e−04 at `r = 6`.
+
+**The waveform tends to the close limit's as `1/R²`.** The largest
+`|R Ψ₄|` of the `(2,0)` mode, against the close limit's 3.59e−03:
+
+| `r` (level spacing) | 6 (`M/2`) | 8 (`M`) | 10 (`M`) | 12 (`M`) | 16 (`2M`) | 20 (`2M`) | 24 (`2M`) |
+|---|---|---|---|---|---|---|---|
+| areal radius `R` | 6.81 | 8.88 | 10.93 | 12.96 | 17.00 | 21.01 | 25.01 |
+| peak, over the close limit's | 1.481 | 1.277 | 1.166 | 1.096 | 1.036 | 1.029 | 1.013 |
+| `E₂₀ / E_close limit`, news from `t = 0` | 1.734 | 1.487 | 1.352 | 1.269 | 1.150 | 1.100 | 1.062 |
+| `(E₂₀ / E_close limit − 1) R²` | 34 | 38 | 42 | 45 | 43 | 44 | 39 |
+
+`E₂₀ = (R²/16π) ∫|∫Ψ₄ dt|² dt`, with the news vanishing at `t = 0`, which
+is right for time-symmetric data, and Simpson's rule for both integrals
+(`headon_benchmark.radiated_energy`). Each record ends 40 to 61 M after its
+radius's retarded time zero. The ringdown left beyond the end of the record
+is at most 0.8% of the energy (at 24 M), and below 0.01% at 12 M and in.
+
+**The extrapolated energy.** From `R = 11` out, the excess falls as
+`1/R²`: `(E/E_cl − 1)R²` is 42, 45, 43, 44 and 44 with the 24 M record's
+tail added. That is the expected form. For an outgoing quadrupole the
+finite-radius terms in the news are `ḟ/r + c₁f/r² + …`, and the `1/r`
+cross term in `|N|²` is `∫ḟ f dt`, which vanishes for a wave that starts and
+ends at rest. Extrapolated to infinite radius:
+
+| finite-radius model, radii used | `E₂₀ / E_close limit` at infinity |
+|---|---:|
+| `b/R²`, `R ≥ 11` | 1.000 |
+| the same, with each record's ringdown tail added | 1.006 |
+| `b/R²`, all seven radii | 1.040 |
+| `a/R + b/R²`, `R ≥ 11` (fits `a = +3.2`) | 0.903 |
+| `a/R + b/R²`, `R ≥ 11`, with the tails | 0.932 |
+| `a/R` alone, `R ≥ 11` (which the data do not follow) | 0.828 |
+
+So **`E_rad = 1.27e−05 M` to `1.28e−05 M`, 0.0% to +0.6% from Abrahams and
+Price's `1.2707e−05 M`**, with the finite-radius error taken as `1/R²` as
+the data at `R ≥ 11` show it to be. Allowing a free `1/R` term moves it to
+−10% to −7%. The `(4,0)` mode carries 0.1% to 6% of the `(2,0)` energy
+depending on radius, and 49% at `r = 8` alone, a feature of that sphere
+that no other radius shows; it is not included. Fixing the news at the end
+of the record instead of the start changes the four inner radii by 0.3% or
+less.
+
+**The final mass.** `M_ADM − E_rad = 0.999987 M` (Brill–Lindquist's
+`M_ADM` is the sum of the bare masses, `brill_lindquist_adm_mass`). The
+horizon reads 1.0031 at 70 M, **+0.31%**. That is the horizon's own error at
+`M/8`, three hundred times the radiated energy. So `M_ADM − E_rad` against
+the horizon checks the mass, not the energy.
+
+**Against issue #51's 5%.**
+- **The final mass is within 5%**: 0.31%.
+- **The radiated energy is within 5%** with the `1/R²` extrapolation that
+  the outer five radii follow, at 0.0% to 0.6%. It is not within 5% once a
+  free `1/R` term is admitted, at −10% to −7%. One resolution was run, so the
+  resolution's own error is not in either number.
+- **The literature value is first order.** It neglects terms of second
+  order in `κ₂ = 0.0225`, which no source available here quantifies.
+
+The small configuration of the test
+(`test_a_small_head_on_collision_merges_rings_and_radiates_within_a_factor_of_four`:
+four levels to `M/8`, boundary at 16 M, `r = 8` on the `M` level) gives 2.95
+times the close limit at `r = 8`, where this run gives 1.49. It rings at
+0.330 − 0.102i and its horizon reaches 1.034. Resolving the merger is what
+the production run's `M/16` level and wider domain buy.
+
+To reproduce it with the current code, or to continue the run from its
+70 M checkpoint (the run itself used the three snapshots its script names,
+which differ in the level drop and the horizon finder's reach):
+
+```bash
+uv run python examples/headon_benchmark.py --z0 0.3 --stop 70 --coarsen-at 15 \
+  --output runs/headon-z03/headon.json   # add --resume to continue
+```
+
+#### What is not here
+
+- **A literature value beyond first order.** The comparison is with the
+  close limit at `κ₂ = 0.0225`, whose second-order correction no source
+  available here quantifies for Brill–Lindquist data. A difference of a few
+  percent between a full evolution and it is not, by itself, an error of
+  either.
+- **Holes that start apart.** `z₀ = 0.3 M` starts inside a common horizon;
+  the merger is a distorted hole ringing down. Holes that fall from rest at
+  larger separations (0.055% of `M` from infinity) need both resolved along
+  their fall, which this machine cannot afford here.
+- **The energy balance.** The horizon's mass is measured to about 0.3%, and
+  the radiated energy is 0.0013% of `M`. `M_ADM − E` against the final
+  horizon mass checks the mass, not the energy.
+- **Convergence of the waveform.** One production resolution, `M/16` to the
+  merger and `M/8` after it, and the small `M/8` configuration of the test.
 
 ## A scalar test field on a warp background: what can be evolved *on* one
 

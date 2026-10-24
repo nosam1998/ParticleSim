@@ -88,6 +88,50 @@ def puncture_state(coords, position, mass: float = 1.0, backend: str = "jax") ->
     return {name: module.asarray(value) for name, value in state.items()}
 
 
+def brill_lindquist_state(coords, positions, masses, backend: str = "jax") -> dict[str, Any]:
+    """Brill-Lindquist data for several punctures at rest, on any grid.
+
+    ``psi = 1 + sum_a m_a / (2 |x - x_a|)`` with the conformal metric flat and
+    the extrinsic curvature zero, which solves both constraints exactly
+    (Brill and Lindquist 1963). Its ADM mass is ``sum_a m_a``
+    (:func:`brill_lindquist_adm_mass`). The lapse starts at ``psi^-2``, the
+    shift and ``B^i`` at zero, as for :func:`puncture_state`. A sample on
+    a puncture is refused.
+    """
+    if len(positions) != len(masses) or not masses:
+        raise ValueError("give one mass per puncture")
+    module = _module(backend)
+    conformal = 1.0
+    for position, mass in zip(positions, masses, strict=True):
+        radius = np.sqrt(
+            sum((np.asarray(c) - p) ** 2 for c, p in zip(coords, position, strict=True))
+        )
+        if float(np.min(radius)) <= 0.0:
+            raise ValueError("a grid point lands on a puncture: psi is infinite there")
+        conformal = conformal + mass / (2 * radius)
+    zero = np.zeros_like(conformal)
+    state: dict[str, Any] = {"phi": np.log(conformal), "trK": zero, "alpha": conformal**-2}
+    for i in INDICES:
+        state[f"beta{i}"] = zero
+        state[f"B{i}"] = zero
+        state[f"Gt{i}"] = zero
+        for j in range(i, DIMENSION):
+            state[f"gt{i}{j}"] = np.full_like(conformal, 1.0 if i == j else 0.0)
+            state[f"At{i}{j}"] = zero
+    return {name: module.asarray(value) for name, value in state.items()}
+
+
+def brill_lindquist_adm_mass(masses) -> float:
+    """The ADM mass of Brill-Lindquist data: the bare masses add, ``M = sum_a m_a``.
+
+    At large ``r``, ``psi -> 1 + (sum_a m_a)/(2r)``, and ``psi = 1 + M/2r`` is
+    Schwarzschild's isotropic form for mass ``M``. Each puncture's own
+    asymptotic end has mass ``m_a (1 + sum_{b != a} m_b / (2 r_ab))``, which is
+    not this.
+    """
+    return float(sum(masses))
+
+
 def trumpet_isotropic_radius(areal, mass: float = 1.0):
     """The isotropic radius of the maximal trumpet, in closed form.
 
@@ -433,6 +477,10 @@ class NestedPuncture:
     zone: int
     mass: float = 1.0
     reflection_symmetry: bool = False
+    ghosts: int = 0
+    full_axes: tuple[np.ndarray, ...] | None = None
+    full_boxes: tuple[mesh.Box, ...] | None = None
+    punctures: tuple[tuple[float, tuple[float, ...]], ...] | None = None
 
     @classmethod
     def build(
@@ -458,6 +506,9 @@ class NestedPuncture:
         centering: str = "vertex",
         boundary_background: str = "flat",
         reflection_symmetry: bool = False,
+        octant: bool = False,
+        punctures: tuple[tuple[float, tuple[float, ...]], ...] | None = None,
+        courant: float = bssn.COURANT,
     ) -> tuple[NestedPuncture, list[dict[str, Any]]]:
         """The setup and one initial state per level, coarsest first.
 
@@ -504,7 +555,49 @@ class NestedPuncture:
         group averaging removes roundoff asymmetries after each coarse
         step; it does not hold any field at its initial value. It requires
         a centred cell grid and unperturbed single-hole initial data.
+
+        ``octant=True`` evolves only the octant ``x, y, z > 0`` of each
+        level about the common centre, with reflection ghosts below each
+        symmetry plane (:mod:`~particlesim.solvers.nr.octant`). It is the
+        same restriction as ``reflection_symmetry`` at a quarter to a fifth
+        of the points. The states are octant arrays; :meth:`full_states` unfolds
+        them, and :meth:`diagnostics` measures the unfolded grid.
+
+        ``punctures`` replaces the single hole with Brill-Lindquist data for
+        several, as ``(mass, offset)`` pairs with each offset from the
+        boxes' common centre (:func:`brill_lindquist_state`). The lapse
+        starts at ``psi^-2`` and the shift at zero, so ``data`` must be
+        ``"brill_lindquist"``. On an octant the set must be symmetric under
+        the three reflections, e.g. an equal pair on the ``z`` axis.
+
+        ``courant`` is the coarsest level's Courant factor; every finer level
+        takes two steps for each of its parent's, so it is the same on all.
         """
+        if octant and (
+            centering != "cell"
+            or (offset or 0) != 0
+            or wave is not None
+            or reflection_symmetry
+            or formulation != "bssn"
+        ):
+            raise ValueError(
+                "an octant requires centred cell grids, BSSN and reflection-symmetric data"
+            )
+        if punctures is not None:
+            if data != "brill_lindquist" or wave is not None or boundary_background != "flat":
+                raise ValueError("several punctures take Brill-Lindquist data and a flat edge")
+            punctures = tuple((float(m), tuple(float(c) for c in where)) for m, where in punctures)
+            if octant:
+                mirrors = [(1 - 2 * a, 1 - 2 * b, 1 - 2 * c) for a, b, c in np.ndindex(2, 2, 2)]
+                images = {
+                    (m, tuple(sign * c for sign, c in zip(signs, where, strict=True)))
+                    for m, where in punctures
+                    for signs in mirrors
+                }
+                if images != set(punctures):
+                    raise ValueError(
+                        "the punctures are not symmetric under the octant's reflections"
+                    )
         if formulation not in ("bssn", "ccz4"):
             raise ValueError(f"formulation {formulation!r} is not 'bssn' or 'ccz4'")
         if formulation == "ccz4" and conformal != "phi":
@@ -559,6 +652,27 @@ class NestedPuncture:
             )
             sizes.append(mesh.RATIO * box)
 
+        ghosts = 0
+        full_axes = full_boxes = None
+        if octant:
+            from particlesim.solvers.nr import octant as octants
+
+            ghosts = octants.GHOSTS
+            # The box's origin, its extent and the prolongation stencil's reach.
+            if ghosts // 2 + (box // 2 + ghosts // 2) + 2 > n // 2 + ghosts:
+                raise ValueError(f"a box of {box} points leaves no octant parent around it")
+            full_axes, full_boxes = tuple(axes), tuple(regions)
+            axes = [axis[axis.size // 2 - ghosts :] for axis in axes]
+            regions = [
+                mesh.Box(
+                    origin=(ghosts // 2,) * DIMENSION,
+                    shape=(box // 2 + ghosts // 2,) * DIMENSION,
+                    centering="cell",
+                )
+                for _ in regions
+            ]
+            sizes = [axes[0].size] + [axis.size for axis in axes[1:]]
+
         if formulation == "ccz4":
             from particlesim.solvers.nr import ccz4
 
@@ -572,9 +686,10 @@ class NestedPuncture:
                 **extra,
             )
         else:
-            evolution = bssn.Evolution.build(
+            evolution = (octants.OctantEvolution if octant else bssn.Evolution).build(
                 (spacing,) * DIMENSION,
                 backend=backend,
+                courant=courant,
                 dissipation=dissipation,
                 upwind=upwind,
                 advect=advect,
@@ -588,9 +703,13 @@ class NestedPuncture:
             reference = bssn.with_conformal(
                 trumpet_state(coarse_mesh, position, mass, backend), conformal, backend
             )
-        edge = (SecondOrder if second_order else Bounded)(
+        if octant:
+            classes = (octants.OctantSecondOrder, octants.OctantBounded, octants.OctantRadiative)
+        else:
+            classes = (SecondOrder, Bounded, Radiative)
+        edge = (classes[0] if second_order else classes[1])(
             evolution,
-            Radiative(
+            classes[2](
                 coords=relative,
                 spacing=(spacing,) * DIMENSION,
                 axes=tuple(INDICES),
@@ -602,18 +721,23 @@ class NestedPuncture:
         )
         pairs = []
         parent = evolution
+        pairing = octants.OctantHierarchy if octant else Hierarchy
         for region, size in zip(regions, sizes, strict=False):
-            pair = Hierarchy.build(parent, region, (size,) * DIMENSION, buffer=buffer)
+            pair = pairing.build(parent, region, (size,) * DIMENSION, buffer=buffer)
             pairs.append(pair)
             parent = pair.fine
         pairs[0] = replace(pairs[0], coarse=edge)
         setup = cls(
-            nested=Nested(tuple(pairs)),
+            nested=(octants.OctantNested if octant else Nested)(tuple(pairs)),
             position=position,
             axes=tuple(axes),
             zone=width,
             mass=mass,
             reflection_symmetry=reflection_symmetry,
+            ghosts=ghosts,
+            full_axes=full_axes,
+            full_boxes=full_boxes,
+            punctures=punctures,
         )
 
         states = []
@@ -627,6 +751,16 @@ class NestedPuncture:
                     spacing=float(axis[1] - axis[0]),
                     backend=backend,
                     **wave,
+                )
+            elif punctures is not None:
+                state = brill_lindquist_state(
+                    grid,
+                    [
+                        tuple(p + c for p, c in zip(position, where, strict=True))
+                        for _, where in punctures
+                    ],
+                    [m for m, _ in punctures],
+                    backend,
                 )
             else:
                 initial = {"brill_lindquist": puncture_state, "trumpet": trumpet_state}[data]
@@ -643,6 +777,8 @@ class NestedPuncture:
             from particlesim.solvers.nr.symmetry import project
 
             states = [project(state, backend=backend) for state in states]
+        if octant:
+            states = [octants.reflect(state, ghosts, backend) for state in states]
         return setup, states
 
     @property
@@ -656,6 +792,24 @@ class NestedPuncture:
     def spacing(self, level: int) -> float:
         return float(self.axes[level][1] - self.axes[level][0])
 
+    def full_states(self, states) -> list[dict[str, Any]]:
+        """The states on whole grids: unfolded from an octant, otherwise as they are."""
+        if not self.ghosts:
+            return list(states)
+        from particlesim.solvers.nr.octant import unfold
+
+        return [unfold(state, self.ghosts) for state in states]
+
+    def full_axis(self, level: int) -> np.ndarray:
+        """The level's whole coordinate axis, the octant's unfolded one included."""
+        return self.axes[level] if self.full_axes is None else self.full_axes[level]
+
+    def full_box(self, level: int) -> mesh.Box:
+        """Where level ``level + 1`` sits in the whole grid of level ``level``."""
+        if self.full_boxes is None:
+            return self.nested.pairs[level].box
+        return self.full_boxes[level]
+
     def step(self, states, time_step: float | None = None) -> list:
         advanced = self.nested.step(states, time_step)
         if self.reflection_symmetry:
@@ -665,19 +819,27 @@ class NestedPuncture:
             advanced = [project(state, backend=backend) for state in advanced]
         return advanced
 
-    def diagnostics(self, states, excise: float = 1.0) -> dict[str, Any]:
+    def diagnostics(self, states, excise: float = 1.0, split: float = 2.0) -> dict[str, Any]:
         """What says whether the run is healthy, as plain numbers.
 
         The Hamiltonian constraint is given per level, each measured where
         that level and nothing else is responsible: inside its own buffer,
         outside the next box, outside ``r = excise``, and on the coarsest
         level inside the radiative zone. A level with nothing left to
-        measure reports ``nan``.
+        measure reports ``nan``. ``hamiltonian_inner`` and
+        ``hamiltonian_outer`` split the same regions at ``r = split``. An
+        octant's states are unfolded first, so every number is the whole
+        grid's.
         """
+        states = self.full_states(states)
         kernel = bssn.constraint_kernel(order=self.nested.pairs[0].fine.order)
         buffer = self.nested.pairs[0].buffer
         axes = tuple(INDICES)
-        norms = []
+        norms, inner, outer = [], [], []
+
+        def rms(values, where):
+            return float(np.sqrt(np.mean(values[where] ** 2))) if where.any() else float("nan")
+
         for level, state in enumerate(states):
             fields = {k: v for k, v in state.items() if not k.startswith(AUXILIARY)}
             h = np.asarray(
@@ -685,16 +847,17 @@ class NestedPuncture:
                     "hamiltonian"
                 ]
             )
-            grid = np.meshgrid(*(self.axes[level],) * DIMENSION, indexing="ij")
+            grid = np.meshgrid(*(self.full_axis(level),) * DIMENSION, indexing="ij")
             radius = np.sqrt(sum((g - p) ** 2 for g, p in zip(grid, self.position, strict=True)))
             keep = radius > excise
             if level + 1 < self.levels:
-                keep[self.nested.pairs[level].box.slices()] = False
-            if level == 0:
-                h, keep = interior(h, self.zone, axes), interior(keep, self.zone, axes)
-            else:
-                h, keep = interior(h, buffer, axes), interior(keep, buffer, axes)
-            norms.append(float(np.sqrt(np.mean(h[keep] ** 2))) if keep.any() else float("nan"))
+                keep[self.full_box(level).slices()] = False
+            width = self.zone if level == 0 else buffer
+            h, keep = interior(h, width, axes), interior(keep, width, axes)
+            radius = interior(radius, width, axes)
+            norms.append(rms(h, keep))
+            inner.append(rms(h, keep & (radius <= split)))
+            outer.append(rms(h, keep & (radius > split)))
         finest = states[-1]
         finite = all(
             np.all(np.isfinite(np.asarray(value))) for state in states for value in state.values()
@@ -703,6 +866,8 @@ class NestedPuncture:
             "lapse_min": float(np.min(np.asarray(finest["alpha"]))),
             "phi_max": float(np.max(np.asarray(bssn.conformal_exponent(finest)))),
             "hamiltonian": norms,
+            "hamiltonian_inner": inner,
+            "hamiltonian_outer": outer,
             "shift_max": float(
                 max(np.max(np.abs(np.asarray(finest[f"beta{i}"]))) for i in INDICES)
             ),
@@ -712,6 +877,8 @@ class NestedPuncture:
 
 __all__ = [
     "NestedPuncture",
+    "brill_lindquist_adm_mass",
+    "brill_lindquist_state",
     "TwoLevelPuncture",
     "perturbed_puncture_state",
     "puncture_state",

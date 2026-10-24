@@ -779,12 +779,13 @@ def test_strong_coupling_hair_carries_the_metric_answer_the_spherical_theory_pre
     The assertion is that the 3-D hair departs from the 1-D coupled hair by
     less than 15% of that answer, at every sample and both probes. Measured
     at ``h = M/6``: 7.7% at worst, at ``r = 2.5M`` and ``t = 3M``, and
-    under 1% at ``3M``; at ``h = M/4``, 19%. The control is the same
-    3-D run with the Gauss-Bonnet stress-energy negated in the metric's
-    equations and the scalar's left alone. Its hair is 6.6% to 8.7% *smaller*
-    than the decoupled hair, which is what the 1-D theory flipped the same
-    way says, to 0.2% of the hair at ``t = 2M``, and against the true
-    prediction it misses by 170% to 190% of the answer, so this fails on it.
+    under 1% at ``3M``; at ``h = M/4``, 19%, and at ``M/8``, 0.8%. The
+    control is the same 3-D run with the Gauss-Bonnet stress-energy negated
+    in the metric's equations and the scalar's left alone. Its hair is
+    *smaller* than the decoupled hair, by 6.8% and 3.2% at ``t = 3M``, as the
+    1-D theory flipped the same way says (7.2% and 3.1%). Through this
+    assertion at ``h = M/6`` it departs from the true prediction by 175% to
+    195% of the answer, and fails.
     """
     from particlesim.theories.esgb_spherical import CoupledSpherical
     from particlesim.theories.gauss_bonnet import DILATONIC

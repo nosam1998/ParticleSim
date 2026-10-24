@@ -5205,17 +5205,23 @@ sourced with one sign, so `φ_H < 0`, and a regular horizon then needs
 
 ### ADR-008, enforced
 
-`string.eft4d.dgb` declares `formulation = "order_reduced"`. The well-posed
-alternative is modified CCZ4 (Kovács–Reall; Aresté Saló–Clough–Figueras),
-which `nr.modified` now implements, below. `require_well_posed` accepts a
-plugin that declares `modified_ccz4` instead of raising, and
-`nr.modified.admit_theory` admits a Gauss–Bonnet one. `Evolution.build` and
-`ccz4.build` call `admit_theory` before they derive anything:
+`string.eft4d.dgb` declares `formulation = "modified_ccz4"`. It declared
+`order_reduced` until the 3-D evolution below had been checked against an
+independent calculation at a coupling where the metric's answer matters:
+[Modified CCZ4: the metric's answer at strong coupling](#modified-ccz4-the-metrics-answer-at-strong-coupling-against-the-same-problem-in-one-dimension).
+The well-posed route is modified CCZ4 (Kovács–Reall; Aresté Saló–Clough–Figueras),
+which `nr.modified` implements. `require_well_posed` accepts a plugin that
+declares `modified_ccz4`, and `nr.modified.admit_theory` admits a
+Gauss–Bonnet one. `Evolution.build` and `ccz4.build` call `admit_theory`
+before they derive anything:
 - A plugin at its GR limit is GR, and is admitted.
 - An `order_reduced` plugin away from its limit raises `IllPosedRun`,
-  which says why.
-- Any other plugin away from its limit is refused too. The 3-D solvers
+  which says why, and `nr.modified` refuses it too. The tests keep one:
+  the same plugin, declaring `order_reduced`.
+- Any other plugin away from its limit is refused too. The vacuum solvers
   evolve vacuum GR, and would otherwise ignore it without a word.
+  `string.eft4d.dgb` is refused there, and the refusal names
+  `nr.modified`.
 
 ### Order reduction at leading order: the scalar on a fixed hole
 
@@ -5523,7 +5529,10 @@ covariant derivative carried by the conformal factor, is added by hand
 adds `2D̃_(iZ_j)`, exactly, for a polynomial `Z_i` put in by hand. The
 speed test above would now fail on the old kernel. The kernel version is
 `ccz4-4`, and the fix changed what CCZ4's damping does, as the CCZ4 section
-records.
+records. All five of `tests/unit/test_ccz4.py`'s slow tests pass on it as
+pytest: the two forms of `H`, the reduction to BSSN, the bounded violation,
+the `Θ` wave's linear damping rate, and fourth-order convergence on the
+gauge wave, in 476 s with the kernels cached.
 
 ### Modified CCZ4: a scalar
 
@@ -5717,24 +5726,182 @@ horizon's radius is two cells. The 1-D answer is fourth order on 8 001 points in
 and the 3-D value at a radius is a quadratic fit over a thin shell of grid
 points.
 
-**What ends it is the box.** The static data is not periodic, so at the
-faces it meets its periodic image with a kink. The disturbance from there
-reaches the probes after about `3M`, and at `t = 3.5M` it had turned into
-a NaN at `r = 3M`. Before that, `|K|` in the region the
-faces have not reached stays below 1e−2.
+**What ends it is the box, at `3.5M`, and it is not what the 1.6% is.**
+The static data is not periodic, so at the faces it meets its periodic
+image with a kink, and at `t = 3.5M` that had turned into a NaN at
+`r = 3M`. Before then the box does not reach the probes. On an octant with
+a radiative edge, below, the hair at both probes is the periodic run's to
+1e−5 of itself through `t = 2.5M`, and to 6e−5 at `3M`. The 1.6% is
+truncation error at `h = M/4`, which the coupled solution of the next
+subsection makes measurable. Against it the 3-D hair departs by at most
+0.19% before `t = 2M`, and by −1.5% at `r = 2.5M` at `t = 3M`. At
+`λ² = 0.3` the departure is the same, −1.6% there.
 
-**At stronger coupling the two separate, and only one direction is
-measured.** At `λ² = 0.3M²`, close to the largest at which a dilatonic
-hole of this size can have a regular horizon (`r_H > 3.3λ`), the 3-D hair
-is larger in magnitude than the decoupled hair at both probes. By `t = 3M`, `φ` at `r = 2.5M` is −2.566e−2 against
-−2.386e−2, 7.5% more, and at `r = 3M` it is −1.502e−2 against −1.443e−2,
-4.1% more. At `λ² = 0.05` the differences were 1.6% and 0.8%, of mixed
-sign, which is the discretisation at `h = M/4`. The issue asked for the
-static solutions' prediction of that direction, and it is not here. The
-decoupled dilatonic scalar at this coupling does not settle: relaxed for
-600M, `e^{−2φ}` overflows. And the bracket tried for a coupled static hole of
-mass `M` returned none. So the 7.5% is a measured difference whose sign has
-not been checked against anything.
+**At stronger coupling the two separate,** and the next subsection is the
+check of by how much and which way. At `λ² = 0.3M²` the 3-D hair at
+`t = 3M` is 7.4% larger in magnitude than the decoupled hair at
+`r = 2.5M`, and 3.8% at `3M`. It was given here before as 7.5% and 4.1%,
+against a 1-D reference read at its nearest grid point in `r*`, which
+moved it by 0.06% and 0.3%.
+
+### Modified CCZ4: the metric's answer at strong coupling, against the same problem in one dimension
+
+At `λ² = 0.3M²` the metric's response to the hair is not small, and it
+changes the hair. The check is that the 3-D evolution changes it the way the
+theory does: in the right direction, and by the right amount. That needs a
+prediction of the coupled hair that does not come from the 3-D code.
+
+**The static solutions cannot give it, for two reasons, both measured.**
+- **At this coupling there is no static dilatonic hole of mass `M`.**
+  `static_black_hole` finds none with `r_H ≤ 4.40λ`. The smallest it finds,
+  at `4.45λ`, has `M = 2.405λ`. A hole of mass `M` needs
+  `λ² < M²/2.405² = 0.173M²`, and at 0.3, `M/λ = 1.83`. That is why the
+  bracket tried before returned nothing, and why the decoupled scalar at
+  this coupling runs away rather than settling: there is nothing to settle
+  on.
+- **Where one exists, this gauge cannot reach it.** The frozen lapse
+  vanishes on the bifurcation sphere, so nothing there evolves. The scalar
+  at the horizon keeps its initial zero, and a hairy hole's is not zero, so
+  the hair outside approaches its static form across a layer that steepens
+  toward the horizon. In 1-D (below), with the linear coupling `f = −2φ` at
+  `λ² = 0.3M²`, which does have a static hole, the steepest gradient of the
+  decoupled hair sits at `ρ = ln(R/R_H) =` 0.31, 0.19, 0.096, 0.050 and
+  0.026 at `t = 3, 6, 9, 12, 15M`. It halves about every `3M`, near
+  `4M ln 2 = 2.8M`, the surface gravity's rate. Coupled, the evolution in
+  this gauge stops at `t = 9.5M`, and with the dilatonic coupling at the
+  same `λ²` at `6.0M`, the same on 600 and 1 200 cells: the theory in this
+  slicing stops being an evolution, as "What is not here" says. At
+  `λ² = 0.05` it stops at `24M` and `19.5M` on 600 and 1 200 cells. A
+  comparison with a static hole needs a gauge that goes through the
+  horizon, the moving-puncture run nothing here has done.
+
+Second-order order reduction does not give it at fixed time either. Its
+gauge is polar-areal, whose slicing differs from the frozen static lapse's
+at order `λ⁴`. The scalar is of order `λ²` and grows at a rate of that order,
+so the difference between the two slicings moves it at order `λ⁶`, the
+order of the effect being measured.
+
+**The same problem, in one dimension, derived from the action.**
+`particlesim.theories.esgb_spherical` solves what the 3-D runs solve —
+the theory, the data, the frozen static lapse and the zero shift — in
+spherical symmetry:
+
+```
+ds² = −α(ρ)² dt² + e^{2a(t,ρ)} dρ² + e^{2b(t,ρ)} dΩ²,     ρ = ln(R/R_H)
+```
+
+with `R` the isotropic radius of the initial slice, `R_H = M/2`, and on
+Schwarzschild `α = tanh(ρ/2)` and `e^a = e^b = 2M cosh²(ρ/2)`. The slice's
+inversion symmetry is `ρ → −ρ`, under which `a`, `b` and `φ` are even and the
+lapse is odd, so the horizon is a symmetry point and only the exterior is
+evolved. The action is reduced on this metric with the lapse a function of
+`(t, ρ)` as well, and varied in `a`, `b`, `φ` and `α`, in 15 s:
+- The third and fourth derivatives cancel, as they have to in a Horndeski
+  theory, and the derivation raises if any survive.
+- In `k_a = ∂_t a/α`, `k_b = ∂_t b/α` and `π = ∂_t φ/α`, no inverse power of
+  the lapse survives, so the equations are regular on the horizon. It raises
+  if one does.
+- The three evolution equations are affine in `∂_t k_a`, `∂_t k_b` and
+  `∂_t π`, with a symmetric kinetic matrix, as a Lagrangian's is. At every
+  point the evolution solves the 3 × 3 system, as the 3-D code solves its
+  7 × 7 one.
+- Varying the lapse gives the Hamiltonian constraint, which is not imposed
+  and is measured.
+
+Nothing of the 3-D code is in it: not the 3+1 split of the Gauss–Bonnet
+tensor, not its `−4`, not the CCZ4 variables, their `b` terms or their
+damping. What the two share is the action and the gauge. Fourth-order
+differences on a cell-centred grid in `ρ`, RK4 and Kreiss–Oliger
+dissipation; the outer end, at `R = 200M`, is held at its initial values.
+
+| check | measured | against |
+|---|---|---|
+| the lapse's equation at `λ = 0` | `e^{a+2b}(R⁽³⁾ + K² − K_ijK^ij − 16πρ)`, exactly | `R⁽³⁾` from `MetricGeometry` |
+| Schwarzschild, uncoupled | rates fall at fourth order | zero |
+| the scalarized hole at `M = λ/2`, coupled | rates fall at order 4.00 to 4.02, 150 → 300 cells | `static_black_hole` |
+| the dilatonic hole at `r_H = 6λ`, coupled | order 3.96 to 4.17 | `static_black_hole` |
+| the scalarized data, coupling off | rates do not fall | |
+| the metric held: decoupled hair at `t = 3M` | −2.389763e−2 and −1.446989e−2 | `decoupling.py` in `r*`: the same, to 6e−9 and 2e−8 |
+| the Hamiltonian constraint while the hair grows | order 4.02, then 4.01, 150 → 300 → 600 cells | zero |
+| the metric's answer over `λ⁴`, `r = 2.5M`, `t = 3M` | 1.010, 0.901, 0.874, 0.865 at `λ² =` 0.3, 0.15, 0.075, 0.0375 | a constant: relative order `λ⁴` |
+
+The static hole is the sharpest of these: a third derivation, the static
+equations shot in areal coordinates, mapped to isotropic ones with its own
+static lapse. The residual of the first cells off the horizon stops falling
+at 600 cells, because the spline the hole is carried in has a gap of 1e−3
+across `ρ = 0`; smooth data that solves nothing converges there.
+
+**The prediction.** The dilatonic hair at `λ² = 0.3M²`, from rest, coupled
+and with the metric held, and the excess of the first over the second, which
+is the metric's answer:
+
+| `t/M` | 1 | 2 | 3 |
+|---|---|---|---|
+| `r = 2.5M`, decoupled | −2.9118e−3 | −1.1230e−2 | −2.3898e−2 |
+| `r = 2.5M`, coupled | −3.1386e−3 | −1.2161e−2 | −2.6071e−2 |
+| excess | **7.79%** | **8.29%** | **9.09%** |
+| `r = 3M`, decoupled | −1.6434e−3 | −6.5299e−3 | −1.4470e−2 |
+| `r = 3M`, coupled | −1.6853e−3 | −6.7202e−3 | −1.4975e−2 |
+| excess | **2.55%** | **2.91%** | **3.49%** |
+
+The metric's answer makes the hair larger. At 150 and 1 200 cells the
+coupled values agree to 4e−9, and 150 cells take a second.
+
+**The 3-D runs, on an octant.** The hole has the three reflections, so the
+runs evolve the octant `x, y, z > 0` with four mirror cells below each plane
+(`OctantModifiedEvolution`, which needs `sf` and `K_φ` to have a parity), and
+the high faces carry the Sommerfeld condition on the departure from the
+initial Schwarzschild data (`OctantRadiative` through `OctantBounded`, which
+take `ModifiedEvolution` unchanged). The box is `10M` across. `φ` at a radius
+is the quadratic fit over a thin shell of the octant's own cells. Fitting
+over its mirror cells too weights the cells near the planes twice, and moved
+`φ` at `r = 2.5M` by 1% at `h = M/4`. Departure of the 3-D hair from the
+1-D coupled hair, and its largest size as a fraction of the metric's answer:
+
+| `h` | octant | wall time | `r = 2.5M`: `t = 1M` | `2M` | `3M` | of the answer | `r = 3M`: worst | of the answer |
+|---|---|---|---|---|---|---|---|---|
+| `M/4` | `24³` | 3 min | +0.33% | +0.01% | −1.58% | 19% | +0.31% | 9% |
+| `M/6` | `34³` | 10 min | −0.08% | −0.00% | +0.64% | 7.7% | +0.02% | 0.8% |
+| `M/8` | `44³` | 16 min | +0.01% | −0.01% | −0.06% | 0.8% | +0.01% | 0.3% |
+
+**The 3-D hair converges on the 1-D coupled hair, and so carries the
+predicted answer.** Its departure falls from 19% of the answer at `h = M/4`
+to 7.7% at `M/6` and 0.8% at `M/8`. At `h = M/8` the excess over the
+decoupled hair at `t = 3M` is 9.03% against the predicted 9.09% at
+`r = 2.5M`, and 3.50% against 3.49% at `3M`. The wall times are on four
+cores shared with three other jobs, at a load average of 11 to 13.
+
+**The control.** The same 3-D run at `h = M/4` with the Gauss–Bonnet
+stress-energy negated in the metric's equations — its density, momentum and
+stress, and its rows of the 7 × 7 solve — and the scalar's equation left
+alone. Its hair is *smaller* than the decoupled hair, by 6.6% to 8.7% at
+`r = 2.5M` and 2.2% to 2.9% at `3M`. The 1-D theory flipped the same way says
+−6.9% and −2.7% at `t = 2M`, where the 3-D run has −7.1% and −2.7%. So the
+3-D code answers the sign of the Gauss–Bonnet stress as the 1-D derivation
+does, and it is the Gauss–Bonnet part, not the scalar's own stress, that
+raises the hair. Against the true prediction the control misses by 183% to
+196% of the answer. Run through the test's own assertion at `h = M/6` it
+misses by 175% to 195%, ends `3M` 6.8% and 3.2% below the decoupled hair
+where the flipped 1-D theory says 7.2% and 3.1%, and fails.
+
+**What limits it after `2M` is inside the horizon, and it is not the
+coupling.** The taper that takes the frozen lapse to zero near `R = 0` makes
+it not the interior's static lapse, so the interior is not static even in
+General Relativity. At `h = M/8`, `|K|` at `R = 0.37M` is 0.16, 0.29, 0.40
+and 0.50 at `t = 0.25, 0.5, 0.75` and `1M` with the coupling on, and the same
+to two digits with it off. That leaks across a horizon two to four cells in
+radius. Just outside it, at `R = 0.62M`, `|K|` is 2.8e−2 by `0.75M` with
+the coupling or without it, against 1.7e−4 in 1-D. At `h = M/6` the leak had
+reached the inner probe by `3M`: the largest `|K|` beyond `R = 1.2M` was
+3.3e−2, against 4.1e−3 in 1-D. At `M/8` it is 4.25e−3, the 1-D value, and
+the hair converges.
+
+**The test** (`test_strong_coupling_hair_carries_the_metric_answer_the_spherical_theory_predicts`)
+runs `h = M/6` to `3M` and asserts that the 3-D hair departs from the 1-D
+coupled hair by less than 15% of the metric's answer at every sample and
+both probes, and that the 3-D excess over the decoupled hair is between 7%
+and 11% at `r = 2.5M` and between 2.5% and 4.5% at `3M`. The 1-D code's own
+checks are in `tests/unit/test_esgb_spherical.py`.
 
 ### Modified CCZ4: what it costs
 
@@ -5778,17 +5945,27 @@ the matter and gauge arithmetic together.
 
 ### What is not here
 
-- **`string.eft4d.dgb` still declares `order_reduced`.** It switches to
-  `modified_ccz4` once the coupled evolution is verified three ways, and two
-  of them are: the coupling's GR limit, and a static hairy hole that is
-  static to fourth order, at strong coupling and at the string's own. The
-  third, hair grown in 3-D against the decoupling limit, holds at weak
-  coupling, to 1.6%. At stronger coupling the direction of the difference is
-  measured but not checked against the static solutions.
-  `require_well_posed` already accepts `modified_ccz4`, and
-  `nr.modified.admit_theory` admits a Gauss–Bonnet plugin that declares it,
-  so the switch is one line. Until then, `nr.modified` runs the theory from
-  `coupling=` and `coupling_squared=` directly.
+- **What the plugin's `modified_ccz4` rests on, and how far it goes.**
+  `string.eft4d.dgb` declares it, on three checks: a static hairy hole is
+  static on the grid to fourth order, at strong coupling and at the
+  string's own; the coupling's GR limit is linear in `λ²`; and hair grown
+  from rest in 3-D follows the same problem solved in one dimension from
+  the action, at `λ² = 0.3M²`, where the metric's answer raises the hair by
+  9%, to 0.8% of that answer at `h = M/8`. All of it is in a frozen static
+  gauge and lasts `3M`. The strong hyperbolicity the formulation buys is
+  proved by Aresté Saló, Clough and Figueras for weak coupling, and is not
+  measured here; nothing checks that a run stays where it holds.
+- **The saturated hair, against the static solutions.** At `λ² = 0.3M²`
+  there is no static dilatonic hole of mass `M` to compare with. Where
+  there is one, the frozen static gauge cannot reach it, because the
+  bifurcation sphere does not evolve. In 1-D the coupled evolution in this
+  gauge stops at `t = 6.0M` (dilatonic, `λ² = 0.3`) and `9.5M` (linear, at
+  the same coupling), the same at 600 and 1 200 cells. By `6M` the
+  determinant of the 3 × 3 kinetic matrix has fallen to 0.31 of its value
+  at `λ = 0`, at `R = 0.74M`, and half an `M` later it is singular. With
+  the stop the same at two resolutions, it is the theory in this slicing
+  that stops being an evolution, not the grid. The comparison needs a
+  slicing that goes through the horizon.
 - **The papers.** The proxy refused arXiv, so the `Θ`, `K` and `Γ̂^i`
   equations are this repository's derivation. They are checked by their
   consequences — the speeds and the reduction to CCZ4 — and not against
@@ -5798,13 +5975,13 @@ the matter and gauge arithmetic together.
   integrated `Γ̂^i` form, and here it is the `B^i` form with the same
   change.
 - **A black hole in the moving-puncture gauge, and anything long.** The 3-D
-  runs here are a frozen static gauge on a periodic box, and they last
-  about `3M` before the disturbance from the box's faces reaches the
-  probes. A puncture with 1+log slicing, the Gamma driver and `a`, `b` on,
-  with a radiative boundary and refinement, is the run the formulation
-  exists for. Nothing here has done it. The strong hyperbolicity it buys is
-  proved by Aresté Saló, Clough and Figueras for weak coupling, and is not
-  measured here.
+  runs here are a frozen static gauge, on a periodic box or on an octant
+  with a radiative edge, and they last `3M`. Inside the horizon the taper
+  of the frozen lapse makes the interior non-static, and what that does
+  leaks across the few cells the horizon spans. A puncture with 1+log
+  slicing, the Gamma driver and `a`, `b` on, with a radiative boundary and
+  refinement, is the run the formulation exists for. Nothing here has done
+  it.
 - **A free scalar pulse on the hole.** A sourceless scalar on the hole,
   against the 1-D evolution at `λ = 0`, was not run. The hair runs compare
   the same scalar sector, on the same frozen background, with the

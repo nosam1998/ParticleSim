@@ -683,6 +683,21 @@ class ConstraintPreserving(Bounded):
     the dissipation's stencil is allowed because the dissipation here is
     switched off, per axis, within its radius of the edge, as
     :func:`particlesim.core.grid.kreiss_oliger` does.
+
+    **Measured** on the Teukolsky wave of :mod:`particlesim.solvers.nr.teukolsky`
+    (box of 12, zone from ``|x_i| = 5``, cube ``|x_i| <= 2.5``, one octant),
+    as multiples of the amplitude:
+
+        n     truncation   after      ratio   |H| after   left
+        48    7.06e-02     3.18e-02   0.45    3.80e-02    0.129
+        72    1.48e-02     5.44e-03   0.37    1.13e-02    0.022
+        96    4.79e-03     1.83e-03   0.38    4.97e-03    0.0077
+
+    What comes back stays below the truncation error and converges at 4.4
+    and 3.8 against its 3.9; :class:`SecondOrder` alone reaches 1.26 of it at
+    96 points. The Hamiltonian constraint after the reflection converges at
+    3.0 and 2.8, not at the interior's order. ``docs/benchmarks.md`` has the
+    rest, including a part of it that stops converging past 72 points.
     """
 
     strength: float = 20.0

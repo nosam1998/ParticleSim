@@ -546,8 +546,10 @@ def test_a_teukolsky_wave_leaves_through_the_layer_without_a_reflection(conditio
     and, from ``docs/benchmarks.md``, with Bayliss and Turkel's second
     condition on its own: after 3.2e-02 and 1.35e-02, ratio 0.45 and 0.91,
     order 2.1; ``||H||`` 3.4e-02 and 1.6e-02, order 1.9. The bounds below sit
-    between the two. Run with ``condition = SecondOrder`` on this same
-    octant, the test fails; ``docs/benchmarks.md`` records by how much.
+    between the two. Run once with ``condition = SecondOrder`` on this same
+    octant, the test fails: 0.83 of the truncation error at 72 points
+    against 0.5, at order 2.5 against 3.5, and ``||H||`` at order 2.0
+    against 2.5.
     """
     coarse = _acceptance(_octant_teukolsky(48, condition))
     fine = _acceptance(_octant_teukolsky(72, condition))

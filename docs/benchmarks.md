@@ -1889,7 +1889,7 @@ upper bounds; the larger number in each range is the busier time):
 | `M/8`, ±2 M | `M/4`, ±4 M | 20³, 20³ | 0.25 | 1, 2 | 19 to 80 |
 | `M/8`, ±2 M | `M/4`, ±4 M | 20³, 20³ | 0.5 | 2 | 19 to 29 |
 | `M/8`, ±3 M | `M/4`, ±6 M | 28³, 28³ | 0.25 | 1 | 79 to 280 |
-| `M/12`, ±2 M | `M/6`, ±4 M | 28³, 28³ | 0.5 | 2 | 85 to 117 |
+| `M/12`, ±2 M | `M/6`, ±4 M | 28³, 28³ | 0.5 | 2 | 40 to 117 |
 | `M/12`, ±2.67 M | `M/6`, ±4 M | 28³, 36³ | 0.25 | 1 | 570, before the change above |
 
 ### Two levels toward 1000 M: what "stable" means, fixed before the run
@@ -1960,28 +1960,34 @@ not what moves the mass.
 as the fourth power of the spacing it is five times smaller; the five-level
 runs above found ten to fifteen at 80 to 120 M.
 
-Its first 60 M, against the `M/8` run at the same times:
+Its first 100 M, against the `M/8` run at the same times:
 
-| t / M | 0 | 10 | 20 | 30 | 40 | 50 | 60 |
-|---|---|---|---|---|---|---|---|
-| horizon mass, `M/12` | 1.00000 | 1.00005 | 0.99957 | 0.99949 | 0.99960 | 0.99979 | 1.00005 |
-| horizon mass, `M/8` | 0.99990 | 0.99975 | 0.99997 | 1.00172 | 1.00416 | 1.00709 | 1.01060 |
-| fine `‖H‖`, `r > 2 M`, `M/12` | 1.7e−06 | 5.1e−04 | 5.3e−04 | 5.6e−04 | 5.9e−04 | 6.5e−04 | 6.9e−04 |
-| fine `‖H‖`, `r > 2 M`, `M/8` | 1.5e−05 | 3.1e−03 | 3.4e−03 | 3.9e−03 | 4.4e−03 | 5.2e−03 | 5.8e−03 |
-| coarse `‖H‖`, `r > 2 M`, `M/12` | 2.2e−06 | 1.6e−05 | 3.2e−05 | 9.1e−05 | 1.2e−04 | 1.3e−04 | 1.4e−04 |
+| t / M | 0 | 20 | 40 | 60 | 80 | 100 |
+|---|---|---|---|---|---|---|
+| horizon mass, `M/12` | 1.00000 | 0.99957 | 0.99960 | 1.00005 | 1.00069 | 1.00142 |
+| horizon mass, `M/8` | 0.99990 | 0.99997 | 1.00416 | 1.01060 | 1.01915 | 1.02932 |
+| fine `‖H‖`, `r > 2 M`, `M/12` | 1.7e−06 | 5.3e−04 | 5.9e−04 | 6.9e−04 | 7.1e−04 | 7.2e−04 |
+| fine `‖H‖`, `r > 2 M`, `M/8` | 1.5e−05 | 3.4e−03 | 4.4e−03 | 5.8e−03 | 6.8e−03 | 7.7e−03 |
+| coarse `‖H‖`, `r > 2 M`, `M/12` | 2.2e−06 | 3.2e−05 | 1.2e−04 | 1.4e−04 | 1.7e−04 | 2.2e−04 |
+| coarse `‖H‖`, `r > 2 M`, `M/8` | 1.2e−05 | 2.3e−04 | 4.8e−04 | 6.8e−04 | 9.5e−04 | 1.3e−03 |
 
-- **The mass error is ten times smaller at 40 M and of the other sign**:
-  −4e−04 against +4.2e−03. From 40 to 60 M it grows by 2.2e−05 per M,
-  against 3.2e−04 at `M/8`, fifteen times slower.
-- **The constraint is eight times smaller** on the fine level and four times
-  on the coarse.
-- **What 1000 M would need.** At its present rate the `M/12` mass would be
-  1.02 at 1000 M. The `M/8` rate grew 2.4 times between 40 and 130 M before
-  levelling off. If this one does the same it ends near 1.05, at the edge
-  of the definition.
+The horizon's residual rises from 0.0005 to 0.0033, the smallest lapse is
+0.038 from 20 M on, and the offset is below 2e−16 M.
+- **The mass error is ten to twenty times smaller.** It is −4e−04 at 40 M, against
+  +4.2e−03, and +1.4e−03 at 100 M, against +2.9e−02. Its rate per M is
+  1.9e−05 from 40 to 50 M and 3.8e−05 from 90 to 100 M, fourteen times
+  below the `M/8` run's at the same time. That is more than the fourth
+  power of 1.5, five, as the five-level runs also found.
+- **The constraint is ten times smaller** on the fine level and six times
+  on the coarse, and the fine level's has stopped growing.
+- **What 1000 M would need.** The rate's increase is slowing, as the `M/8`
+  run's did before it levelled off near 130 M. If this one levels off at
+  4.5e−05 per M the mass is about 1.04 at 1000 M, inside the definition.
+  At its present 3.8e−05 it would be 1.035; if the rate kept growing as it
+  has, more than 1.05.
 
-The run continues from its checkpoint; this records it at 60 M, after
-about 90 s per M.
+The run continues from its checkpoint; this records it at 100 M, after 40
+to 117 s per M.
 
 The two runs, and how to continue them from their checkpoints (each holds
 a committed snapshot of the code it runs, so its source digests match on

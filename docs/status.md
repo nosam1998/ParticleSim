@@ -50,7 +50,7 @@ are in [Benchmarks](benchmarks.md#bosonic-lorentzian-ikkt-dimension-benchmark).
 
 ## Remaining acceptance work
 
-Version 0.5.0 moves each of these; none is closed by it.
+Version 0.5.0 moves each of these and completes #52's tasks.
 
 - [#48: Fixed mesh refinement](https://github.com/nosam1998/ParticleSim/issues/48).
   Prolongation, restriction, subcycling and stage buffers exist. On the
@@ -77,11 +77,16 @@ Version 0.5.0 moves each of these; none is closed by it.
   `symbolic/esgb.py`, `solvers/nr/modified.py`): the modified gauge reduces
   to CCZ4 at `a = b = 0`, the constraint and lapse modes travel at the
   predicted speeds, the gauge wave converges at fourth order, static hairy
-  holes stay static at fourth order, and weak-coupling hair growth matches
-  the decoupling limit to 1.6%. The plugin still declares `order_reduced`
-  until the strong-coupling comparison against the static solutions is
-  measured. On the way, CCZ4's conformal Ricci tensor was found to count the
-  Z terms twice; the fix changes the CCZ4 damping table.
+  holes stay static at fourth order, and the hair's growth matches an
+  independent spherical solver of the same problem at weak coupling and at
+  strong coupling (3-D excess over the decoupling limit +9.03% and +3.50%
+  against the 1-D prediction +9.09% and +3.49%; a sign-flipped control
+  fails). `string.eft4d.dgb` now declares `modified_ccz4`, and ADR-008
+  still refuses plugins that only declare `order_reduced`. Every task of
+  the issue is done; what is not here is a long dynamical 3-D run or 3-D
+  scalarization, which no acceptance of the issue asks for. On the way,
+  CCZ4's conformal Ricci tensor was found to count the Z terms twice; the
+  fix changes the CCZ4 damping table.
 - [#132: Outer boundary](https://github.com/nosam1998/ParticleSim/issues/132).
   A constraint-preserving absorbing layer (`boundary.ConstraintPreserving`)
   lets the Teukolsky wave leave by 6300× at 96 points with the reflection at

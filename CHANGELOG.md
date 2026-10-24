@@ -8,8 +8,9 @@
 - Add modified CCZ4 with the modified gauge, a minimally coupled scalar and
   Gauss–Bonnet effective matter solved per point, verified against CCZ4,
   the predicted mode speeds, static hairy holes and the decoupling limit.
-  ADR-008 accepts `modified_ccz4`; `string.eft4d.dgb` keeps `order_reduced`
-  until the strong-coupling check is measured.
+  At strong coupling the 3-D hair matches an independent spherical solver
+  of the same problem, so `string.eft4d.dgb` now declares `modified_ccz4`;
+  ADR-008 still refuses plugins that only declare `order_reduced`.
 - Add a constraint-preserving absorbing layer for the outer boundary; the
   Teukolsky wave leaves by 6300× with no reflection above the truncation
   error, and the post-reflection constraint converges at 2.8.

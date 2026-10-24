@@ -438,13 +438,17 @@ def _octant_teukolsky(n: int, condition, final: float = 10.5, every: float = 0.5
     from particlesim.solvers.nr.stepping import operations
     from particlesim.symbolic.threeplusone import determinant
 
+    # Through bssn's resolver, so jax_enable_x64 is on before the first array:
+    # converting the data first makes it float32, and the error at t = 0 is
+    # then 0.05 instead of zero.
+    jnp = bssn._module("jax")
     amplitude = 1e-6
     full, spacing = teukolsky.teukolsky_wave(
         shape=(n, n, n), amplitude=amplitude, width=1.0, extent=TEUKOLSKY_EXTENT, backend="numpy"
     )
     low = n // 2 - GHOSTS
     window = (slice(low, None),) * 3
-    state = {k: jax.numpy.asarray(np.asarray(v)[window]) for k, v in full.items()}
+    state = {k: jnp.asarray(np.asarray(v)[window]) for k, v in full.items()}
     del full
     h = spacing[0]
     axis = (np.arange(n - low) - GHOSTS) * h
@@ -496,7 +500,7 @@ def _octant_teukolsky(n: int, condition, final: float = 10.5, every: float = 0.5
     stride = max(1, int(round(every / step)))
     advance, finish, _ = operations("jax")
     current = dict(bounded.start(state)) if hasattr(bounded, "start") else state
-    current = {k: jax.numpy.asarray(v) for k, v in current.items()}
+    current = {k: jnp.asarray(v) for k, v in current.items()}
 
     def rates(s):
         return bounded.right_hand_side(reflect(s))
@@ -523,3 +527,39 @@ def _acceptance(samples):
         max(s[1] for s in late),
         max(s[3] for s in late),
     )
+
+
+@pytest.mark.slow
+@pytest.mark.benchmark
+@pytest.mark.parametrize("condition", [boundary.ConstraintPreserving])
+def test_a_teukolsky_wave_leaves_through_the_layer_without_a_reflection(condition):
+    """Issue #132's acceptance on the documented setup, at 48 and 72 points.
+
+    Box of 12, zone from ``|x_i| = 5``, cube ``|x_i| <= 2.5``, as multiples of
+    the amplitude. Measured with the layer:
+
+        n     truncation   after      ratio   ||H|| after   left
+        48    7.06e-02     3.18e-02   0.45    3.80e-02      0.129
+        72    1.48e-02     5.44e-03   0.37    1.13e-02      0.022
+        order 3.9          4.4                3.0
+
+    and, from ``docs/benchmarks.md``, with Bayliss and Turkel's second
+    condition on its own: after 3.2e-02 and 1.35e-02, ratio 0.45 and 0.91,
+    order 2.1; ``||H||`` 3.4e-02 and 1.6e-02, order 1.9. The bounds below sit
+    between the two. Run with ``condition = SecondOrder`` on this same
+    octant, the test fails; ``docs/benchmarks.md`` records by how much.
+    """
+    coarse = _acceptance(_octant_teukolsky(48, condition))
+    fine = _acceptance(_octant_teukolsky(72, condition))
+    truncation, after, left, hamiltonian = fine
+    order = np.log(coarse[1] / fine[1]) / np.log(1.5)
+    constraint_order = np.log(coarse[3] / fine[3]) / np.log(1.5)
+    assert np.log(coarse[0] / truncation) / np.log(1.5) > 3.7, (coarse, fine)
+
+    # The wave leaves: two orders of magnitude, from 48.
+    assert left < 48.0 / 100.0, (coarse, fine)
+    # What comes back is below the truncation error and converges as fast.
+    assert after < 0.5 * truncation, (coarse, fine)
+    assert order > 3.5, (coarse, fine, order)
+    # And so does the constraint, though more slowly than the interior.
+    assert constraint_order > 2.5, (coarse, fine, constraint_order)

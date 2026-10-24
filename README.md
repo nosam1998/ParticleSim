@@ -14,11 +14,11 @@ lattice fields, string EFT modules, structure formation, adapters, and run
 dashboards, and matrix models. The child issues for milestones M0–M3 and
 M5–M9 are closed.
 
-The remaining M4 work is the long-lived puncture and binary acceptances
-and fourth-order constraint convergence through the outer boundary.
+The remaining M4 work is the long-lived puncture and binary acceptances.
 Modified CCZ4 for Einstein-scalar-Gauss-Bonnet is implemented and verified
 against an independent spherical solver, and `string.eft4d.dgb` declares
-it. IKKT
+it; a constraint-preserving outer boundary lets a Teukolsky wave leave with
+the constraints converging at fourth order. IKKT
 complex Langevin reproduces a published **bosonic** dimension profile at
 `N = 32`; it omits fermions and does not establish three-dimensional space.
 A closed child issue does not imply every method

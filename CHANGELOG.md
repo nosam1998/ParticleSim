@@ -11,9 +11,10 @@
   At strong coupling the 3-D hair matches an independent spherical solver
   of the same problem, so `string.eft4d.dgb` now declares `modified_ccz4`;
   ADR-008 still refuses plugins that only declare `order_reduced`.
-- Add a constraint-preserving absorbing layer for the outer boundary; the
-  Teukolsky wave leaves by 6300× with no reflection above the truncation
-  error, and the post-reflection constraint converges at 2.8.
+- Add a constraint-preserving absorbing layer for the outer boundary, with
+  CCZ4's constraint damping applied inside the layer; the Teukolsky wave
+  leaves by 5900× with no reflection above the truncation error, and the
+  post-reflection constraints converge at the interior's fourth order.
 - Evolve reflection-symmetric punctures on an octant, compile the BSSN kernel
   apart from dissipation and upwinding on CPU (2.5× faster per point), and
   add two-puncture Brill–Lindquist data, a resumable head-on driver and a

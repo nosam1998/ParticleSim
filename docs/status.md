@@ -50,7 +50,7 @@ are in [Benchmarks](benchmarks.md#bosonic-lorentzian-ikkt-dimension-benchmark).
 
 ## Remaining acceptance work
 
-Version 0.5.0 moves each of these and completes #52's tasks.
+Version 0.5.0 moves each of these and completes #52 and #132.
 
 - [#48: Fixed mesh refinement](https://github.com/nosam1998/ParticleSim/issues/48).
   Prolongation, restriction, subcycling and stage buffers exist. On the
@@ -89,10 +89,19 @@ Version 0.5.0 moves each of these and completes #52's tasks.
   fix changes the CCZ4 damping table.
 - [#132: Outer boundary](https://github.com/nosam1998/ParticleSim/issues/132).
   A constraint-preserving absorbing layer (`boundary.ConstraintPreserving`)
-  lets the Teukolsky wave leave by 6300× at 96 points with the reflection at
-  0.38 of the truncation error, converging at 3.8. The Hamiltonian constraint
-  after the reflection converges at 2.8 between 72 and 96 points, against
-  the interior's 3.9, so the third acceptance item still fails.
+  relaxes the incoming radiation modes toward Bayliss–Turkel's second
+  condition through a surface auxiliary, and on CCZ4 damps the constraint
+  modes inside the layer only. On the Teukolsky wave (box of 12, zone from
+  `r = 5`, 48/72/96 points) the wave leaves by 5900×, what returns is 0.40
+  of the truncation error, and the Hamiltonian and momentum constraints
+  after the reflection converge at 4.1 and 4.2 between 72 and 96 points
+  against the interior's 3.9. All three acceptance items pass. The
+  previous BSSN layer fails the same test at order 3.0, because BSSN with
+  a frozen shift has a zero-speed constraint mode that keeps the Teukolsky
+  data's own `O(a²)` violation in place. Measured in harmonic slicing with
+  a frozen shift on one octant; not yet run with 1+log slicing or a moving
+  shift, and the incoming constraint data is damped across a layer rather
+  than imposed at a surface.
 
 See [Benchmarks](benchmarks.md) for the measurements and
 [CONTRIBUTING](../CONTRIBUTING.md) for the reproducible checks. Keep these

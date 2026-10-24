@@ -401,11 +401,19 @@ def effective_matter(inputs: dict[str, Any] | None = None):
     )
 
     def scaled_change(expression):
-        """``alpha (expression - expression at zero)``, given it is linear in the two."""
+        """``alpha (expression - expression at zero)``, given it is affine in the two.
+
+        The coefficients are taken at zero. In the unexpanded tree they still
+        hold the products of two electric components, or of one with
+        ``normal``, that cancel algebraically -- the double dual's
+        antisymmetry -- and leaving them in would make the kernel read
+        symbols nothing supplies. The tests check, with exact arithmetic,
+        that every such second derivative vanishes.
+        """
         total = 0
         for name, symbol in electric_symbols.items():
-            total = total + sp.diff(expression, symbol) * scaled_electric[name]
-        total = total + sp.diff(expression, normal) * scaled_normal
+            total = total + sp.diff(expression, symbol).subs(zero) * scaled_electric[name]
+        total = total + sp.diff(expression, normal).subs(zero) * scaled_normal
         return total
 
     change = [[scaled_change(stress[i][j]) for j in INDICES] for i in INDICES]

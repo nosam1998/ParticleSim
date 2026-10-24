@@ -484,9 +484,18 @@ def test_the_seven_by_seven_system_reproduces_the_stress_it_was_built_from(geome
     }
     values[full["normal"]] = s["normal"]
     # rho and S_i: independent of the unknowns.
+    second = (*full["electric"].values(), full["normal"])
     for expression in (full["density"], *full["momentum"]):
-        for symbol in (*full["electric"].values(), full["normal"]):
+        for symbol in second:
             assert sp.N(sp.diff(expression, symbol), 30) == 0
+    # S_ij and the source: affine in them, which is what lets the kernel take
+    # their coefficients at zero. Exact here, because every input is rational
+    # or exp(-2 phi_0); in a tree of bare symbols the products only cancel
+    # after expansion.
+    for expression in (*[full["stress"][i][j] for i in INDICES for j in INDICES], full["source"]):
+        for one in second:
+            for other in second:
+                assert sp.simplify(sp.diff(expression, one, other)) == 0
     stress = [[sp.N(full["stress"][i][j].subs(values), 30) for j in INDICES] for i in INDICES]
     static = [[sp.N(matter["stress"][i][j], 30) for j in INDICES] for i in INDICES]
     alpha = s["lapse"]
@@ -510,3 +519,81 @@ def test_the_seven_by_seven_system_reproduces_the_stress_it_was_built_from(geome
     # Not trivially zero: the coupling does something at this point.
     assert scale > 1e-3
     assert np.isfinite(float(sp.N(matter["density"])))
+
+
+@pytest.mark.slow
+def test_the_field_equations_normalisation_is_the_reduced_actions():
+    """``G_ab = 8 pi T^phi_ab - 4 lambda^2 P_acbd nabla^c nabla^d f``, and not another factor.
+
+    The static spherical ansatz goes through the covariant tensor, and the
+    ``tt`` and ``rr`` components must be proportional, with one constant,
+    to the Euler-Lagrange expressions
+    :func:`~particlesim.theories.gauss_bonnet.static_equations` derives from
+    the reduced action. Solving for that constant and the Gauss-Bonnet
+    factor at two radii gives ``-4``, and the other two radii then agree to
+    thirty digits; ``+4`` or ``-2`` does not.
+    """
+    from particlesim.symbolic.curvature import MetricGeometry
+    from particlesim.theories.gauss_bonnet import _static_symbols, static_equations
+
+    r, coords, Phi, Lam, phi = _static_symbols()
+    lam = sp.Symbol("lambda", positive=True)
+    f = sp.Function("f")
+    g = sp.diag(-sp.exp(2 * Phi), sp.exp(2 * Lam), r**2, r**2 * sp.sin(coords[2]) ** 2)
+    geo = MetricGeometry(g, coords)
+    gi, gam = geo.ginv, geo.christoffel
+    F = f(phi)
+    dF = [sp.diff(F, x) for x in coords]
+    hess = [
+        [
+            sp.diff(F, coords[a], coords[b]) - sum(gam[c][a][b] * dF[c] for c in range(4))
+            for b in range(4)
+        ]
+        for a in range(4)
+    ]
+    hess_up = [
+        [
+            sum(gi[a, c] * gi[b, d] * hess[c][d] for c in range(4) for d in range(4))
+            for b in range(4)
+        ]
+        for a in range(4)
+    ]
+    dual = esgb.double_dual(geo.riemann_lower, geo.ricci.tolist(), geo.ricci_scalar, g.tolist())
+    H = [
+        [
+            sum(dual[m][a][n][b] * hess_up[a][b] for a in range(4) for b in range(4))
+            for n in range(4)
+        ]
+        for m in range(4)
+    ]
+    dphi = [sp.diff(phi, x) for x in coords]
+    grad2 = sum(gi[a, b] * dphi[a] * dphi[b] for a in range(4) for b in range(4))
+    T8 = [[2 * dphi[a] * dphi[b] - g[a, b] * grad2 for b in range(4)] for a in range(4)]
+    E_Phi, E_Lam, _ = static_equations()
+    c, k = sp.symbols("c k")
+
+    def mixed(i):
+        return sum(
+            gi[i, j] * (geo.einstein[j, i] - T8[j][i] - c * lam**2 * H[j][i]) for j in range(4)
+        )
+
+    sub = {
+        Phi: sp.Rational(1, 3) * r + r**2 / 7,
+        Lam: sp.Rational(1, 5) - r / 11,
+        phi: sp.Rational(2, 7) + r / 3 - r**2 / 13,
+    }
+
+    def value(expression, radius):
+        e = expression.subs(f(phi), sp.exp(-2 * phi)).doit().subs(sub).doit().subs(r, radius)
+        return sp.N(e.subs(coords[2], sp.pi / 3).subs(lam, sp.Rational(3, 5)), 40)
+
+    radii = [sp.Rational(3, 2), sp.Rational(7, 4), 2, sp.Rational(5, 2)]
+    for reduced, index in ((E_Phi, 0), (E_Lam, 1)):
+        density = r**2 * sp.exp(Phi + Lam) * mixed(index)
+        pairs = [(value(reduced, x), value(density, x)) for x in radii]
+        (solution,) = sp.solve([sp.Eq(p[0], k * p[1]) for p in pairs[:2]], [k, c], dict=True)
+        assert float(solution[c]) == pytest.approx(-4.0, abs=1e-25)
+        for lhs, rhs in pairs[2:]:
+            assert abs(lhs - (k * rhs).subs(solution)) < 1e-25
+            for wrong in (4, -2):
+                assert abs(lhs - (k * rhs).subs({k: solution[k], c: wrong})) > 1e-3

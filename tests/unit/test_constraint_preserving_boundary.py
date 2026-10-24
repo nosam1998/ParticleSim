@@ -6,15 +6,18 @@ deep that keeps :class:`~particlesim.solvers.nr.boundary.SecondOrder`. Two
 terms are added in the layer, for the incoming modes of BSSN linearised about
 flat space (harmonic slicing, frozen shift) that are not constraint modes: a
 relaxation of the transverse-traceless incoming radiation towards its
-Bayliss-Turkel value, and an outgoing radiation condition on the lapse. The
-constraint modes get nothing, because damping them is unstable in BSSN. Each
-of those statements is checked here against the principal part of the
-equations actually evolved.
+Bayliss-Turkel value, and an outgoing radiation condition on the lapse. In
+BSSN the constraint modes get nothing, because damping them is unstable
+there. On CCZ4 the layer damps them with Z4's own terms, ``kappa_1`` in the
+layer only. Each of those statements is checked here against the principal
+part of the equations actually evolved.
 
 The fast tests use the linearised system written out by hand, emitted into
-a kernel by the same code generator in seconds; the slow one holds that
-kernel to the generated BSSN kernel's own linearisation, which is what
-makes the fast ones statements about BSSN rather than about a model of it.
+a kernel by the same code generator in seconds; the slow ones hold those
+kernels to the generated BSSN and CCZ4 kernels' own linearisations, and the
+layer's damping to the CCZ4 kernel's ``kappa_1`` terms, which is what makes
+the fast ones statements about BSSN and CCZ4 rather than about a model of
+them.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ import sympy as sp
 from particlesim.solvers.nr import boundary, bssn
 from particlesim.symbolic import codegen
 from particlesim.symbolic.bssn import STATE_NAMES
+from particlesim.symbolic.ccz4 import STATE_NAMES as Z4_NAMES
 
 INDICES = range(3)
 EXTENT = 8.0
@@ -38,7 +42,7 @@ def _pair(i, j):
     return f"{min(i, j)}{max(i, j)}"
 
 
-def linearised_expressions():
+def linearised_expressions(z4: bool = False):
     """BSSN about flat space, harmonic slicing, frozen shift, to first order.
 
     ``d_t alpha = -K``, ``d_t phi = -K/6``, ``d_t gammabar_ij = -2 Abar_ij``,
@@ -49,6 +53,14 @@ def linearised_expressions():
 
     which is the connection-form Ricci tensor of the conformal metric plus
     the conformal factor's, linearised.
+
+    With ``z4``, undamped CCZ4 instead. Linearised, it differs from BSSN in
+    three rates: ``d_t K`` gets back ``H + 2 d_k Z_k``, ``d_t Gammahat^i``
+    gets ``2 d_i Theta``, and ``d_t Theta = (H + 2 d_k Z_k) / 2``, with
+    ``H = -8 Laplacian phi + d_i d_j gammabar_ij`` and
+    ``2 Z_i = Gammahat^i - d_j gammabar_ij``. ``d_t Abar_ij`` keeps its form
+    with ``Gammahat`` in it, because the Ricci tensor built from the evolved
+    connection already carries ``2 d_(i Z_j)``.
     """
     registry = {}
 
@@ -65,9 +77,17 @@ def linearised_expressions():
         "phi": -trace / 6,
         "trK": -sum(d("alpha", k, k) for k in INDICES),
     }
+    if z4:
+        # H + 2 d.Z = -8 Laplacian phi + d.Gammahat: the metric's second
+        # derivatives cancel between the two.
+        violation = -8 * sum(d("phi", k, k) for k in INDICES) + sum(d(f"Gt{k}", k) for k in INDICES)
+        out["trK"] = out["trK"] + violation
+        out["Theta"] = violation / 2
     source = {}
     for i in INDICES:
         out[f"Gt{i}"] = -sp.Rational(4, 3) * d("trK", i)
+        if z4:
+            out[f"Gt{i}"] = out[f"Gt{i}"] + 2 * d("Theta", i)
         out[f"beta{i}"] = sp.Integer(0) * trace
         out[f"B{i}"] = sp.Integer(0) * trace
         for j in INDICES:
@@ -82,12 +102,12 @@ def linearised_expressions():
         for j in range(i, 3):
             out[f"gt{i}{j}"] = -2 * sp.Symbol(f"At{i}{j}", real=True)
             out[f"At{i}{j}"] = source[i, j] - (traced / 3 if i == j else 0)
-    assert set(out) == set(STATE_NAMES)
+    assert set(out) == set(Z4_NAMES if z4 else STATE_NAMES)
     return out, registry
 
 
-def _layer(dissipation: float):
-    expressions, registry = linearised_expressions()
+def _layer(dissipation: float, z4: bool = False, **options):
+    expressions, registry = linearised_expressions(z4)
     kernel = codegen.emit(expressions, registry, order=4, backend="jax")
     spacing = (EXTENT / N,) * 3
     evolution = bssn.Evolution(
@@ -101,7 +121,7 @@ def _layer(dissipation: float):
     axis = np.linspace(0.0, EXTENT, N, endpoint=False) - EXTENT / 2 + EXTENT / (2 * N)
     mesh = tuple(np.meshgrid(axis, axis, axis, indexing="ij"))
     radiative = boundary.Radiative(coords=mesh, spacing=spacing, axes=(0, 1, 2), width=WIDTH)
-    return boundary.ConstraintPreserving(evolution, radiative, strength=20.0), mesh
+    return boundary.ConstraintPreserving(evolution, radiative, strength=20.0, **options), mesh
 
 
 @pytest.fixture(scope="module")
@@ -110,8 +130,8 @@ def setup():
     return _layer(0.0)
 
 
-def _flat():
-    state = {name: np.zeros((N, N, N)) for name in STATE_NAMES}
+def _flat(names=STATE_NAMES):
+    state = {name: np.zeros((N, N, N)) for name in names}
     state["alpha"] = np.ones((N, N, N))
     for i in INDICES:
         state[f"gt{i}{i}"] = np.ones((N, N, N))
@@ -329,31 +349,163 @@ def test_a_rim_narrower_than_the_stencil_or_a_zone_with_no_layer_is_refused(setu
         boundary.ConstraintPreserving(layer.evolution, thin)
 
 
-# --- the linearisation is BSSN's -------------------------------------------
+# --- the Z4 layer: the constraint modes, carried by Theta and Z_i, damped ---
+
+KAPPA, MIX = 4.0, 0.5
+
+
+@pytest.fixture(scope="module")
+def z4_setup():
+    """The undamped and the damped layer on linearised CCZ4, without dissipation."""
+    plain, mesh = _layer(0.0, z4=True)
+    damped, _ = _layer(0.0, z4=True, damping=KAPPA, damping_mix=MIX)
+    return plain, damped, mesh
+
+
+def test_the_layers_damping_is_z4s_and_only_in_the_layer(z4_setup):
+    """``Theta`` and ``Gammahat^i`` disturbed: the damping is Z4's three terms, in the layer alone.
+
+    ``d_t Theta -= kappa_1 (2 + kappa_2) Theta``,
+    ``d_t K -= 3 kappa_1 (1 + kappa_2) Theta`` and
+    ``d_t Gammahat^i -= kappa_1 (Gammahat^i + d_j gammabar^ij)``, with
+    ``Gammahat^i + d_j gammabar^ij = 2 gammabar^ij Z_j``. On a flat metric
+    the last is ``kappa_1 Gammahat^i`` exactly. Every other rate, and every
+    rate outside the layer, is the undamped layer's to the last bit.
+    """
+    plain, damped, mesh = z4_setup
+    inner, _ = plain.masks()
+    r = np.sqrt(sum(m**2 for m in mesh))
+    state = _flat(Z4_NAMES)
+    state["Theta"] = 1e-4 * np.exp(-((r - 3.5) ** 2))
+    state["Gt0"] = 1e-4 * np.exp(-((r - 3.2) ** 2)) * mesh[1] / 4
+    added = {k: v - _rates(plain, state)[k] for k, v in _rates(damped, state).items()}
+    expected = {name: np.zeros((N, N, N)) for name in added}
+    expected["Theta"] = -KAPPA * (2 + MIX) * state["Theta"]
+    expected["trK"] = -3 * KAPPA * (1 + MIX) * state["Theta"]
+    expected["Gt0"] = -KAPPA * state["Gt0"]
+    for name in added:
+        assert np.allclose(added[name][inner], expected[name][inner], rtol=1e-12, atol=1e-20), name
+    # Outside the layer the geometry's rates are untouched. The rim's carried
+    # fields are not: they are fed by the layer's rates, damping and all.
+    for name in Z4_NAMES:
+        assert not np.any(added[name][~inner]), name
+    assert np.max(np.abs(expected["Gt0"][inner])) > 1e-5
+
+
+def test_the_layer_damps_z_with_the_metrics_own_connection(z4_setup):
+    """With the metric disturbed, ``Z_i`` is the gap between ``Gammahat^i`` and the metric's own.
+
+    ``gammabar_01`` alone, ``Gammahat^i = 0``: ``d_j gammabar^ij`` is
+    ``-d_1 gammabar_01`` for ``i = 0`` and ``-d_0 gammabar_01`` for ``i = 1``
+    to first order, and the damping is ``kappa_1`` times it, against the
+    closed-form derivative of the Gaussian.
+    """
+    plain, damped, mesh = z4_setup
+    inner, _ = plain.masks()
+    r = np.sqrt(sum(m**2 for m in mesh))
+    bump = 1e-5 * np.exp(-((r - 3.5) ** 2))
+    state = _flat(Z4_NAMES)
+    state["gt01"] = bump
+    added = {k: v - _rates(plain, state)[k] for k, v in _rates(damped, state).items()}
+    slope = -2 * (r - 3.5) * bump / r
+    for i, axis in ((0, 1), (1, 0)):
+        expected = KAPPA * slope * mesh[axis]  # -kappa (d_j gammabar^ij) = +kappa d gt01
+        scale = np.max(np.abs(expected[inner]))
+        assert np.max(np.abs(added[f"Gt{i}"] - expected)[inner]) < 2e-2 * scale, i
+    assert np.max(np.abs(added["Gt2"][inner])) < 1e-12 * scale
+
+
+def test_damping_wants_theta_and_z4s_signs(setup, z4_setup):
+    """BSSN has no ``Theta`` to damp, and ``kappa_1 < 0`` or ``kappa_2 <= -1`` grow instead."""
+    layer, _ = setup
+    plain, _, _ = z4_setup
+    with pytest.raises(ValueError, match="Z4 system"):
+        boundary.ConstraintPreserving(layer.evolution, layer.boundary, damping=1.0)
+    for options in ({"damping": -1.0}, {"damping": 1.0, "damping_mix": -1.0}):
+        with pytest.raises(ValueError, match="kappa"):
+            boundary.ConstraintPreserving(plain.evolution, plain.boundary, **options)
+
+
+def _violation_left_inside(layer, mesh, final=6.0):
+    """A ``Theta`` violation at the centre, evolved; what is left inside the zone at ``final``.
+
+    Linearised Z4 carries ``Theta`` at the speed of light, so a central
+    violation reaches the zone at ``t`` of about two and is gone from the
+    interior by four, unless the boundary sends it back.
+    """
+    from particlesim.solvers.nr.stepping import operations
+
+    r2 = sum(m**2 for m in mesh)
+    state = layer.start(_flat(Z4_NAMES))
+    state["Theta"] = 1e-4 * np.exp(-r2)
+    step = layer.time_step
+    steps = int(round(final / step))
+    advance, finish, _ = operations("jax")
+    current = dict(state)
+    for _ in range(steps):
+        first = layer.right_hand_side(current)
+        second = layer.right_hand_side(advance(current, first, step / 2))
+        third = layer.right_hand_side(advance(current, second, step / 2))
+        fourth = layer.right_hand_side(advance(current, third, step))
+        current = finish(current, first, second, third, fourth, step)
+    inside = ~layer.boundary.mask()
+    return float(np.sqrt(np.mean(np.asarray(current["Theta"])[inside] ** 2))) / 1e-4
 
 
 @pytest.mark.slow
-def test_the_linearised_system_is_the_generated_kernels_linearisation(setup):
-    """What the fast tests used is BSSN's principal part on a flat background.
+def test_a_constraint_violation_leaves_through_the_damped_layer(z4_setup):
+    """What the rim sends back of an outgoing ``Theta`` wave, the damping absorbs on the way in.
+
+    A Gaussian ``Theta`` at the centre of the box of 8 at 24 points, through
+    the linearised layer to ``t = 6``. Measured, the RMS of ``Theta`` left
+    inside the zone, over the initial peak, is 0.56 undamped, and 0.12,
+    0.10 and 0.20 at ``kappa_1`` = 2, 4 and 10. The best value is where the
+    damping rate ``kappa_1 / 2`` of a mode with ``k > kappa_1 / 2`` meets the
+    ``k^2 / kappa_1`` of a longer one, near the wave numbers here. A minute
+    of stepping a 24^3 grid twice, hence slow.
+    """
+    plain, damped, mesh = z4_setup
+    left_plain = _violation_left_inside(plain, mesh)
+    left_damped = _violation_left_inside(damped, mesh)
+    assert np.isfinite(left_plain) and np.isfinite(left_damped)
+    assert left_damped < 0.3 * left_plain, (left_plain, left_damped)
+
+
+# --- the linearisation is BSSN's, and CCZ4's -------------------------------
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("z4", [False, True], ids=["bssn", "ccz4"])
+def test_the_linearised_system_is_the_generated_kernels_linearisation(setup, z4_setup, z4):
+    """What the fast tests used is the principal part on a flat background.
 
     The generated kernel at flat space plus ``eps X``, minus flat space,
     over ``eps``, against the hand-linearised kernel on ``X``: they differ
     by ``O(eps)``. A wrong coefficient in the linearisation -- the ``4/3``,
-    a missing ``phi`` term -- shows at order one.
+    a missing ``phi`` term, CCZ4's ``H + 2 d_k Z_k`` -- shows at order one.
+    CCZ4's kernel is the undamped one, as the layer uses it.
     """
-    layer, _ = setup
-    full = bssn.rhs_kernel(slicing="harmonic", shift_condition="frozen")
+    if z4:
+        from particlesim.solvers.nr import ccz4
+
+        layer = z4_setup[0]
+        names = Z4_NAMES
+        full = ccz4.rhs_kernel(slicing="harmonic", shift_condition="frozen", damping=0.0)
+    else:
+        layer = setup[0]
+        names = STATE_NAMES
+        full = bssn.rhs_kernel(slicing="harmonic", shift_condition="frozen")
     rng = np.random.default_rng(11)
     n, h = 16, 0.25
     axis = np.arange(n) * h
     x, y, z = np.meshgrid(axis, axis, axis, indexing="ij")
     k = 2 * np.pi / (n * h)
-    flat = {name: np.zeros((n, n, n)) for name in STATE_NAMES}
+    flat = {name: np.zeros((n, n, n)) for name in names}
     flat["alpha"] = np.ones((n, n, n))
     for i in INDICES:
         flat[f"gt{i}{i}"] = np.ones((n, n, n))
     perturbation = {}
-    for name in STATE_NAMES:
+    for name in names:
         if name.startswith(("beta", "B")):
             perturbation[name] = np.zeros((n, n, n))
             continue
@@ -368,16 +520,66 @@ def test_the_linearised_system_is_the_generated_kernels_linearisation(setup):
 
     linear = layer.evolution.kernel(perturbation, (h,) * 3)
     for eps in (1e-5, 1e-6):
-        perturbed = {name: flat[name] + eps * perturbation[name] for name in STATE_NAMES}
+        perturbed = {name: flat[name] + eps * perturbation[name] for name in names}
         rates = full(perturbed, (h,) * 3)
         base = full(flat, (h,) * 3)
-        for name in STATE_NAMES:
+        for name in names:
             difference = np.broadcast_to(
                 (np.asarray(rates[name]) - np.asarray(base[name])) / eps - np.asarray(linear[name]),
                 (n, n, n),
             )
             scale = max(1.0, float(np.max(np.abs(np.asarray(linear[name])))))
             assert np.max(np.abs(difference)) < 200 * eps * scale, (name, eps)
+
+
+@pytest.mark.slow
+def test_the_layers_damping_is_the_generated_kernels_kappa_term():
+    """The layer's hand-written damping is what CCZ4's kernel does with ``kappa_1``.
+
+    The damping is linear in ``kappa_1``, so the kernel derived at 0.1 less
+    the one at zero is 0.1 times it exactly. On random smooth data, every
+    variable ten per cent from flat, the layer's damping at 0.1 on the
+    undamped kernel matches that difference in the layer to 1e-15, and is
+    zero outside it. The ``Gammahat`` part needs the exact inverse metric
+    and its derivative at that amplitude, which a linearised check would
+    not see.
+    """
+    from particlesim.solvers.nr import ccz4
+
+    n, h = 20, 0.3
+    axis = (np.arange(n) - n / 2 + 0.5) * h
+    mesh = tuple(np.meshgrid(axis, axis, axis, indexing="ij"))
+    rng = np.random.default_rng(3)
+    k = 2 * np.pi / (n * h)
+    state = {}
+    for name in Z4_NAMES:
+        background = 1.0 if name == "alpha" or (name[:2] == "gt" and name[2] == name[3]) else 0.0
+        size = 0.0 if name.startswith(("beta", "B")) else 0.05
+        a, b, c = rng.normal(size=3)
+        state[name] = background + size * np.sin(k * mesh[0] + a) * np.cos(
+            k * mesh[1] + b
+        ) * np.sin(2 * k * mesh[2] + c)
+    undamped = ccz4.build((h,) * 3, slicing="harmonic", shift_condition="frozen", damping=0.0)
+    damped = ccz4.build((h,) * 3, slicing="harmonic", shift_condition="frozen", damping=0.1)
+    expected = {
+        name: np.broadcast_to(
+            np.asarray(damped.kernel(state, (h,) * 3)[name])
+            - np.asarray(undamped.kernel(state, (h,) * 3)[name]),
+            (n, n, n),
+        )
+        for name in Z4_NAMES
+    }
+    zone = boundary.Radiative(coords=mesh, spacing=(h,) * 3, axes=(0, 1, 2), width=7)
+    plain = boundary.ConstraintPreserving(undamped, zone)
+    layer = boundary.ConstraintPreserving(undamped, zone, damping=0.1)
+    inner, _ = plain.masks()
+    start = plain.start(state)
+    p, d = plain.right_hand_side(start), layer.right_hand_side(start)
+    for name in Z4_NAMES:
+        added = np.asarray(d[name]) - np.asarray(p[name])
+        assert np.max(np.abs(added - expected[name])[inner]) < 1e-14, name
+        assert not np.any(added[~inner]), name
+    assert max(np.max(np.abs(expected[v][inner])) for v in ("Theta", "trK", "Gt0")) > 1e-3
 
 
 # --- issue #132's acceptance, on the documented setup ---------------------------
@@ -416,7 +618,14 @@ def _reflect(state):
     return out
 
 
-def _octant_teukolsky(n: int, condition, final: float = 10.5, every: float = 0.5):
+def _octant_teukolsky(
+    n: int,
+    condition,
+    final: float = 10.5,
+    every: float = 0.5,
+    formulation: str = "bssn",
+    amplitude: float = 1e-6,
+):
     """The measurement of ``docs/benchmarks.md``'s tables, on one octant.
 
     Linear Teukolsky wave, ``a = 1e-6``, ``λ = 1``, a box of 12, the zone the
@@ -428,6 +637,10 @@ def _octant_teukolsky(n: int, condition, final: float = 10.5, every: float = 0.5
     of points as on the full grid's positive faces, and the cube norms are
     weighted so they are the full cube's. That is what makes the 72-point
     run affordable; the 96-point one was run the same way.
+
+    ``formulation`` is ``"bssn"`` or ``"ccz4"``; CCZ4 runs the undamped
+    kernel, with ``Theta = 0`` at the start, so that any damping is the
+    condition's. ``condition(evolution, zone)`` builds the boundary.
 
     Returns ``(t, largest |h|, RMS error, ||H||, ||M||)`` samples over the
     cube, all divided by the amplitude.
@@ -442,7 +655,6 @@ def _octant_teukolsky(n: int, condition, final: float = 10.5, every: float = 0.5
     # converting the data first makes it float32, and the error at t = 0 is
     # then 0.05 instead of zero.
     jnp = bssn._module("jax")
-    amplitude = 1e-6
     full, spacing = teukolsky.teukolsky_wave(
         shape=(n, n, n), amplitude=amplitude, width=1.0, extent=TEUKOLSKY_EXTENT, backend="numpy"
     )
@@ -453,7 +665,13 @@ def _octant_teukolsky(n: int, condition, final: float = 10.5, every: float = 0.5
     h = spacing[0]
     axis = (np.arange(n - low) - GHOSTS) * h
     mesh = tuple(np.meshgrid(axis, axis, axis, indexing="ij"))
-    evolution = bssn.Evolution.build(spacing, slicing="harmonic", shift_condition="frozen")
+    if formulation == "ccz4":
+        from particlesim.solvers.nr import ccz4
+
+        evolution = ccz4.build(spacing, slicing="harmonic", shift_condition="frozen", damping=0.0)
+        state["Theta"] = jnp.zeros_like(state["phi"])
+    else:
+        evolution = bssn.Evolution.build(spacing, slicing="harmonic", shift_condition="frozen")
     zone = _Octant(coords=mesh, spacing=spacing, axes=(0, 1, 2), width=int(round(1.0 / h)))
     bounded = condition(evolution, zone)
 
@@ -529,34 +747,45 @@ def _acceptance(samples):
     )
 
 
+#: Z4's damping in the layer, ``kappa_1``. The interior is undamped CCZ4.
+LAYER_DAMPING = 4.0
+
+
+def _z4_layer(evolution, zone):
+    """The acceptance's condition: the layer on CCZ4, its constraint modes damped."""
+    return boundary.ConstraintPreserving(evolution, zone, damping=LAYER_DAMPING)
+
+
 @pytest.mark.slow
 @pytest.mark.benchmark
-# The 72-point octant alone is over ten minutes on a quiet machine, so the
-# project's 600 s default cannot hold it; at a load average of fifteen the
-# pair took an hour.
-@pytest.mark.timeout(3600)
-@pytest.mark.parametrize("condition", [boundary.ConstraintPreserving])
-def test_a_teukolsky_wave_leaves_through_the_layer_without_a_reflection(condition):
+# The 72-point CCZ4 octant is twenty minutes at a load average of fourteen,
+# so the project's 600 s default cannot hold the pair.
+@pytest.mark.timeout(5400)
+@pytest.mark.parametrize(("formulation", "condition"), [("ccz4", _z4_layer)])
+def test_a_teukolsky_wave_leaves_through_the_layer_without_a_reflection(formulation, condition):
     """Issue #132's acceptance on the documented setup, at 48 and 72 points.
 
-    Box of 12, zone from ``|x_i| = 5``, cube ``|x_i| <= 2.5``, as multiples of
-    the amplitude. Measured with the layer:
+    Box of 12, zone from ``|x_i| = 5``, cube ``|x_i| <= 2.5``, ``a = 1e-6``,
+    as multiples of the amplitude. Measured with the layer on CCZ4, damped
+    at ``kappa_1 = 4`` in the layer and undamped inside:
 
         n     truncation   after      ratio   ||H|| after   left
-        48    7.06e-02     3.18e-02   0.45    3.80e-02      0.129
-        72    1.48e-02     5.44e-03   0.37    1.13e-02      0.022
-        order 3.9          4.4                3.0
+        48    7.07e-02     3.16e-02   0.45    3.98e-02      0.131
+        72    1.48e-02     5.52e-03   0.37    8.06e-03      0.023
+        order 3.85         4.30               3.94
 
-    and, from ``docs/benchmarks.md``, with Bayliss and Turkel's second
-    condition on its own: after 3.2e-02 and 1.35e-02, ratio 0.45 and 0.91,
-    order 2.1; ``||H||`` 3.4e-02 and 1.6e-02, order 1.9. The bounds below sit
-    between the two. Run once with ``condition = SecondOrder`` on this same
-    octant, the test fails: 0.83 of the truncation error at 72 points
-    against 0.5, at order 2.5 against 3.5, and ``||H||`` at order 2.0
-    against 2.5.
+    The ``||H||`` bound is the one that changed. The same layer on BSSN,
+    the previous condition, gives 3.80e-02 and 1.13e-02, order 3.0: BSSN
+    with a frozen shift holds 4/3 of the Teukolsky data's own quadratic
+    violation at the centre for good, and cannot damp the constraint
+    violation the boundary sends in. Run once with ``("bssn",
+    ConstraintPreserving)`` the test fails on that bound alone: every other
+    bound holds, with 0.37 of the truncation error after the reflection at
+    order 4.4, and the ``||H||`` order is 3.00 against 3.5. See
+    ``docs/benchmarks.md``.
     """
-    coarse = _acceptance(_octant_teukolsky(48, condition))
-    fine = _acceptance(_octant_teukolsky(72, condition))
+    coarse = _acceptance(_octant_teukolsky(48, condition, formulation=formulation))
+    fine = _acceptance(_octant_teukolsky(72, condition, formulation=formulation))
     truncation, after, left, hamiltonian = fine
     order = np.log(coarse[1] / fine[1]) / np.log(1.5)
     constraint_order = np.log(coarse[3] / fine[3]) / np.log(1.5)
@@ -567,5 +796,5 @@ def test_a_teukolsky_wave_leaves_through_the_layer_without_a_reflection(conditio
     # What comes back is below the truncation error and converges as fast.
     assert after < 0.5 * truncation, (coarse, fine)
     assert order > 3.5, (coarse, fine, order)
-    # And so does the constraint, though more slowly than the interior.
-    assert constraint_order > 2.5, (coarse, fine, constraint_order)
+    # And so does the constraint, at the interior's order.
+    assert constraint_order > 3.5, (coarse, fine, constraint_order)

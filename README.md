@@ -14,8 +14,10 @@ lattice fields, string EFT modules, structure formation, adapters, and run
 dashboards, and matrix models. The child issues for milestones M0–M3 and
 M5–M9 are closed.
 
-The remaining M4 work includes long-lived punctures and binary benchmarks,
-constraint-preserving outer boundaries, and modified CCZ4 evolution. IKKT
+The remaining M4 work is the long-lived puncture and binary acceptances,
+fourth-order constraint convergence through the outer boundary, and the
+strong-coupling check that would let `string.eft4d.dgb` declare modified
+CCZ4, which is now implemented and verified at weak coupling. IKKT
 complex Langevin reproduces a published **bosonic** dimension profile at
 `N = 32`; it omits fermions and does not establish three-dimensional space.
 A closed child issue does not imply every method

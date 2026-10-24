@@ -1,6 +1,6 @@
 # Milestone status
 
-Issue audit: 2026-10-04. This distinguishes the implementation state recorded
+Issue audit: 2026-10-04, local suite verification 2026-10-24. This distinguishes the implementation state recorded
 by GitHub from benchmark acceptance. Each milestone requires all its child
 issues to be closed **and** its benchmarks to pass in CI.
 
@@ -19,8 +19,22 @@ issues to be closed **and** its benchmarks to pass in CI.
 
 At the audit, repository-level GitHub Actions was disabled. That explains
 the missing recent workflow runs; a queued historical run is not evidence
-that current benchmarks passed. Local verification is recorded in the PRs,
-and the CI completion gate remains pending until a current run succeeds.
+that current benchmarks passed. A `workflow_dispatch` of CI on `main` sent on
+2026-10-24 also stayed queued, so the CI gate cannot run until Actions is
+re-enabled for the repository.
+
+In its place, the suites CI runs were executed locally on 2026-10-24 on the
+v0.5.0 branch (main plus PR #216), on a 4-core machine shared with other
+jobs: `ruff check` and `ruff format --check` pass on Python 3.13 and 3.12;
+`pytest -m "not slow"` passed 1903 of 1910 tests on 3.13 and 1906 of 1910 on
+3.12, the only failures being timeouts under load (three first-use kernel
+derivations that pass alone once cached, and `test_the_app_is_served`, whose
+server answers HTTP 200 in 5 to 8 s against the test's 5 s per-request
+limit); `pytest -m "benchmark and not slow"` passed 171 of 171; and
+`particlesim check-limits` reports every plugin's GR limit ok. The slow job
+is being rerun on the integrated branch; its result is recorded in the
+pull request. The research-marked reruns (Choptuik at research resolution,
+IKKT at `N = 32`) belong to the nightly workflow and were not run.
 
 ## IKKT scope
 
@@ -36,28 +50,44 @@ are in [Benchmarks](benchmarks.md#bosonic-lorentzian-ikkt-dimension-benchmark).
 
 ## Remaining acceptance work
 
+Version 0.5.0 moves each of these; none is closed by it.
+
 - [#48: Fixed mesh refinement](https://github.com/nosam1998/ParticleSim/issues/48).
-  Prolongation, restriction, subcycling and stage buffers exist. The required
-  Schwarzschild puncture stable to `t = 1000 M` on two levels has not passed.
-  Version 0.4.0 adds cell-centred levels and an optional stationary trumpet
-  boundary reference. At 40 M on two levels, the hole remains centred and
-  its mass error is 0.42%, against 4.5% with the flat reference. This short
-  measurement does not establish the required 1000 M evolution.
+  Prolongation, restriction, subcycling and stage buffers exist. On the
+  cell-centred two-level grids of v0.4.0, an octant evolution
+  (`solvers/nr/octant.py`) holds the puncture at its centre to rounding. The
+  `M/8` two-level run meets a stability definition written down in advance
+  (finite, horizon found, mass within 5%, centred, constraints bounded) to
+  130 M and fails the mass criterion at 140 M, its mass error matching the
+  earlier five-level `M/8` run to 2e−3, so the drift is set by the finest
+  spacing. At `M/12` the mass error is 10 to 20 times smaller (0.26% at
+  130 M) and still growing slowly; that run is being continued toward
+  1000 M and its state is recorded in [Benchmarks](benchmarks.md). The
+  1000 M acceptance has not been reached.
 - [#51: 3D NR benchmarks](https://github.com/nosam1998/ParticleSim/issues/51).
-  Gauge-wave and evolved Teukolsky-wave convergence are implemented.
-  The long puncture and a head-on binary whose final mass and radiated
-  energy agree with literature within 5% remain outstanding.
+  Gauge-wave and evolved Teukolsky-wave convergence are implemented. A
+  head-on Brill–Lindquist collision from rest at `z₀ = 0.3 M`, compared
+  with the Abrahams–Price close limit recomputed here by a Zerilli
+  evolution, gives a final horizon mass within 0.3% and a radiated energy
+  within 1% under a `1/R²` extrapolation of the extraction radius but
+  −10% with a free `1/R` term, at one resolution. The single puncture to
+  1000 M is #48's run. Neither item meets its acceptance in full.
 - [#52: Modified CCZ4](https://github.com/nosam1998/ParticleSim/issues/52).
-  The dilaton–Gauss–Bonnet plugin, static spherical scalarized holes,
-  leading and second-order order reduction, and refusal of unsupported 3D
-  runs are implemented. The full modified CCZ4 evolution is not. The
-  plugin must keep declaring `order_reduced` until that solver is verified.
+  Modified CCZ4 is implemented (`symbolic/modified_ccz4.py`,
+  `symbolic/esgb.py`, `solvers/nr/modified.py`): the modified gauge reduces
+  to CCZ4 at `a = b = 0`, the constraint and lapse modes travel at the
+  predicted speeds, the gauge wave converges at fourth order, static hairy
+  holes stay static at fourth order, and weak-coupling hair growth matches
+  the decoupling limit to 1.6%. The plugin still declares `order_reduced`
+  until the strong-coupling comparison against the static solutions is
+  measured. On the way, CCZ4's conformal Ricci tensor was found to count the
+  Z terms twice; the fix changes the CCZ4 damping table.
 - [#132: Outer boundary](https://github.com/nosam1998/ParticleSim/issues/132).
-  Sommerfeld and second-order absorbing conditions exist, with measured
-  reflection and constraint errors. Version 0.2.0 adds explicitly bounded
-  code generation and preserves the requested stencil order at edges.
-  Characteristic/constraint-preserving treatment and fourth-order constraint
-  convergence after an outgoing Teukolsky wave are still required.
+  A constraint-preserving absorbing layer (`boundary.ConstraintPreserving`)
+  lets the Teukolsky wave leave by 6300× at 96 points with the reflection at
+  0.38 of the truncation error, converging at 3.8. The Hamiltonian constraint
+  after the reflection converges at 2.8 between 72 and 96 points, against
+  the interior's 3.9, so the third acceptance item still fails.
 
 See [Benchmarks](benchmarks.md) for the measurements and
 [CONTRIBUTING](../CONTRIBUTING.md) for the reproducible checks. Keep these

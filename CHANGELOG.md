@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.0 (2026-10-24)
+
+- Fix CCZ4's conformal Ricci tensor, which counted the Z terms twice: a
+  constraint-violation wave now travels at 1.000 instead of 1.414, the kernel
+  version is `ccz4-4`, and the damping measurements are redone.
+- Add modified CCZ4 with the modified gauge, a minimally coupled scalar and
+  Gauss–Bonnet effective matter solved per point, verified against CCZ4,
+  the predicted mode speeds, static hairy holes and the decoupling limit.
+  ADR-008 accepts `modified_ccz4`; `string.eft4d.dgb` keeps `order_reduced`
+  until the strong-coupling check is measured.
+- Add a constraint-preserving absorbing layer for the outer boundary; the
+  Teukolsky wave leaves by 6300× with no reflection above the truncation
+  error, and the post-reflection constraint converges at 2.8.
+- Evolve reflection-symmetric punctures on an octant, compile the BSSN kernel
+  apart from dissipation and upwinding on CPU (2.5× faster per point), and
+  add two-puncture Brill–Lindquist data, a resumable head-on driver and a
+  close-limit Zerilli benchmark.
+- Measure the two-level puncture at `M/8` and `M/12` and a close-limit
+  head-on collision; the 1000 M and 5% acceptances remain open.
+
 ## 0.4.0 (2026-10-04)
 
 - Add point-sampled cell-centred refinement with second-, fourth- and

@@ -37,6 +37,7 @@ generated kernel. The measurements are in ``docs/benchmarks.md``, under
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -45,6 +46,7 @@ import numpy as np
 import sympy as sp
 
 from particlesim.solvers.nr import bssn as bssn_solver
+from particlesim.solvers.nr import octant as octants
 from particlesim.symbolic import cache, codegen
 from particlesim.symbolic import modified_ccz4 as symbolic
 from particlesim.symbolic.bssn import from_state
@@ -493,6 +495,26 @@ class ModifiedEvolution(bssn_solver.Evolution):
         return self._rates(dict(state))
 
 
+@dataclass(frozen=True)
+class OctantModifiedEvolution(octants.OctantEvolution, ModifiedEvolution):
+    """:class:`ModifiedEvolution` on an octant, for a problem with the three reflections.
+
+    :class:`~particlesim.solvers.nr.octant.OctantEvolution` reflects the
+    state and the rates across the low faces around this class's
+    right-hand side, so a hole at the centre costs an eighth of the grid.
+    The high faces are an edge, and need
+    :class:`~particlesim.solvers.nr.octant.OctantRadiative` through
+    :class:`~particlesim.solvers.nr.octant.OctantBounded`.
+    """
+
+    @classmethod
+    def from_evolution(cls, evolution: ModifiedEvolution, ghosts: int = octants.GHOSTS):
+        """The octant form of what :func:`build` returned."""
+        values = {f.name: getattr(evolution, f.name) for f in dataclasses.fields(evolution)}
+        values["ghosts"] = ghosts
+        return cls(**values)
+
+
 def admit_theory(theory, dimensions: int = 3) -> None:
     """ADR-008 for this solver: what ``nr.modified`` evolves, and what it refuses.
 
@@ -645,6 +667,11 @@ def static_schwarzschild(shape, extent, mass: float = 1.0, backend: str = "jax")
         lengths = lengths * DIMENSION
     centre = [lengths[i] / 2 + spacing[i] / 2 for i in INDICES]
     radius = np.sqrt(sum((np.asarray(mesh[i]) - centre[i]) ** 2 for i in INDICES))
+    state = _schwarzschild_fields(radius, mass)
+    return {k: module.asarray(v) for k, v in state.items()}, spacing, radius
+
+
+def _schwarzschild_fields(radius, mass):
     psi = 1 + mass / (2 * radius)
     lapse = (1 - mass / (2 * radius)) / psi * (1 - np.exp(-((radius / (0.35 * mass)) ** 8)))
     zero = np.zeros_like(radius)
@@ -658,7 +685,28 @@ def static_schwarzschild(shape, extent, mass: float = 1.0, backend: str = "jax")
         for j in range(i, DIMENSION):
             state[f"gt{i}{j}"] = np.full_like(radius, 1.0 if i == j else 0.0)
             state[f"At{i}{j}"] = zero
-    return {k: module.asarray(v) for k, v in state.items()}, spacing, radius
+    return state
+
+
+def octant_schwarzschild(cells: int, half: float, mass: float = 1.0, backend: str = "jax"):
+    """:func:`static_schwarzschild` on the octant of a box ``2 half`` wide, ``cells`` across.
+
+    The octant ``x, y, z > 0`` with :data:`~particlesim.solvers.nr.octant.GHOSTS`
+    mirror cells below each plane, ``cells / 2 + GHOSTS`` per axis; the hole
+    is half a cell off every grid point, as there. Returns
+    ``(state, spacing, R, coords)``, with ``coords`` the Cartesian
+    coordinates from the hole that
+    :class:`~particlesim.solvers.nr.octant.OctantRadiative` takes.
+    """
+    module = bssn_solver._module(backend)
+    if cells % 2:
+        raise ValueError("an octant needs an even number of cells across")
+    h = 2 * half / cells
+    axis = (np.arange(cells // 2 - octants.GHOSTS, cells) - cells / 2 + 0.5) * h
+    coords = tuple(np.meshgrid(axis, axis, axis, indexing="ij"))
+    radius = np.sqrt(sum(c**2 for c in coords))
+    state = _schwarzschild_fields(radius, mass)
+    return {k: module.asarray(v) for k, v in state.items()}, (h, h, h), radius, coords
 
 
 @dataclass(frozen=True)
@@ -849,11 +897,13 @@ __all__ = [
     "IsotropicHole",
     "ModifiedEvolution",
     "ModifiedKernel",
+    "OctantModifiedEvolution",
     "admit_theory",
     "build",
     "gauss_bonnet_expressions",
     "gauss_bonnet_kernel",
     "matter_constraints",
+    "octant_schwarzschild",
     "rhs_expressions",
     "rhs_kernel",
     "scalar_gauge_wave",

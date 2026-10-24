@@ -32,9 +32,10 @@ nowhere else. Restriction runs right up to the symmetry plane, because the
 mirrored fine cells are valid data; only the parent's own ghost cells are
 excluded, and the next right-hand side refills them.
 
-The octant is a sixth of the full grid's points at the sizes used here
-(``(n/2 + 4)^3`` against ``n^3``), and an octant run agrees with the
-reflection-symmetric full-grid run to rounding (``tests/unit/test_octant.py``).
+An octant of ``n`` cells across has ``(n/2 + 4)^3`` points against ``n^3``:
+a quarter at ``n = 32``, a fifth at 48, approaching an eighth. An octant run
+agrees with the reflection-symmetric full-grid run to rounding
+(``tests/unit/test_octant.py``).
 """
 
 from __future__ import annotations

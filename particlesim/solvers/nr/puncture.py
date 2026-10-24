@@ -559,8 +559,8 @@ class NestedPuncture:
         ``octant=True`` evolves only the octant ``x, y, z > 0`` of each
         level about the common centre, with reflection ghosts below each
         symmetry plane (:mod:`~particlesim.solvers.nr.octant`). It is the
-        same restriction as ``reflection_symmetry`` at a sixth of the
-        points. The states are octant arrays; :meth:`full_states` unfolds
+        same restriction as ``reflection_symmetry`` at a quarter to a fifth
+        of the points. The states are octant arrays; :meth:`full_states` unfolds
         them, and :meth:`diagnostics` measures the unfolded grid.
 
         ``punctures`` replaces the single hole with Brill-Lindquist data for

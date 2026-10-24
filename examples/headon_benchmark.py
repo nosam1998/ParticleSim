@@ -198,23 +198,30 @@ def common_horizon(setup, full, guess=1.0, reach=None, level=None):
     )
 
 
-def radiated_energy(times, series, areal, start=None):
-    """``(R^2 / 16 pi) int |N|^2 dt`` with the news ``N = int_start^t Psi_4 dt``.
+def radiated_energy(times, series, areal, start=None, fixed="start"):
+    """``(R^2 / 16 pi) int |N|^2 dt`` with the news ``N = int Psi_4 dt``.
 
     ``series`` is one mode of ``Psi_4`` sampled at ``times``, ``areal`` the
-    sphere's areal radius. Both integrals are trapezoidal. ``start`` is where
-    the news is taken to vanish, the first sample if not given; anything
-    before it is discarded.
+    sphere's areal radius. Both integrals are Simpson's: sampled every 0.5 M,
+    the close limit's own waveform gives its energy to 2e-05 this way, and
+    to 0.7% with the trapezoidal rule. ``start`` discards the samples before
+    it. ``fixed`` says where the news is taken to vanish: at the first sample
+    (``"start"``, right for time-symmetric data) or at the last (``"end"``,
+    a stationary final state).
     """
+    from scipy.integrate import cumulative_simpson, simpson
+
     times = np.asarray(times, dtype=float)
     values = np.asarray(series, dtype=complex)
     if start is not None:
         keep = times >= start
         times, values = times[keep], values[keep]
-    steps = np.diff(times)
-    news = np.concatenate(([0.0], np.cumsum(0.5 * steps * (values[1:] + values[:-1]))))
-    power = np.abs(news) ** 2
-    return float(areal**2 / (16 * np.pi) * np.sum(0.5 * steps * (power[1:] + power[:-1])))
+    news = cumulative_simpson(values, x=times, initial=0.0)
+    if fixed == "end":
+        news = news - news[-1]
+    elif fixed != "start":
+        raise ValueError("fixed must be 'start' or 'end'")
+    return float(areal**2 / (16 * np.pi) * simpson(np.abs(news) ** 2, x=times))
 
 
 def checkpoint(path, states, clock, config, extra):

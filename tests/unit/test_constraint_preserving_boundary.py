@@ -531,6 +531,10 @@ def _acceptance(samples):
 
 @pytest.mark.slow
 @pytest.mark.benchmark
+# The 72-point octant alone is over ten minutes on a quiet machine, so the
+# project's 600 s default cannot hold it; at a load average of fifteen the
+# pair took an hour.
+@pytest.mark.timeout(3600)
 @pytest.mark.parametrize("condition", [boundary.ConstraintPreserving])
 def test_a_teukolsky_wave_leaves_through_the_layer_without_a_reflection(condition):
     """Issue #132's acceptance on the documented setup, at 48 and 72 points.

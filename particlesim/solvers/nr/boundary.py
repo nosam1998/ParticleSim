@@ -93,7 +93,10 @@ a relaxation of the transverse-traceless incoming radiation towards the
 value Bayliss and Turkel's second condition gives it, carried by a surface
 auxiliary that uses only derivatives tangential to spheres. The rim keeps
 :class:`SecondOrder`. Damping the constraint modes as well was tried and is
-unstable in BSSN; see its docstring and ``docs/benchmarks.md``.
+unstable in BSSN; see its docstring and ``docs/benchmarks.md``. On CCZ4,
+where ``Theta`` and ``Z_i`` carry the constraint modes at the speed of
+light, ``damping`` adds Z4's own damping terms in the layer, which are
+stable there. That is the condition issue #132's acceptance is met with.
 
 **The cost that is real is arithmetic.** :meth:`Radiative.rates` takes three
 bounded-domain derivatives per variable per stage over the *whole* array,
@@ -122,6 +125,7 @@ from particlesim.solvers.nr.bssn import (
 )
 from particlesim.solvers.nr.stepping import operations
 from particlesim.symbolic import codegen
+from particlesim.symbolic.threeplusone import inverse_metric
 
 #: What each evolved variable tends to at large radius, in vacuum.
 #:
@@ -678,6 +682,23 @@ class ConstraintPreserving(Bounded):
     root for every ``sigma > 0``, about ``k / sqrt(3)`` for ``sigma >> k``. On
     the Teukolsky wave at 48 points it grew threefold every half unit.
 
+    **On a Z4 system they are damped.** With ``damping = kappa_1 > 0`` and
+    ``damping_mix = kappa_2``, the layer adds CCZ4's own damping terms,
+
+        d_t Theta    -= alpha kappa_1 (2 + kappa_2) Theta
+        d_t K        -= 3 alpha kappa_1 (1 + kappa_2) Theta
+        d_t Gammahat -= 2 alpha kappa_1 gammabar^ij Z_j
+
+    with ``2 gammabar^ij Z_j = Gammahat^i + d_j gammabar^ij``, in the layer
+    and nowhere else, so an undamped interior stays undamped. They are linear
+    in ``kappa_1``, and on the undamped kernel they reproduce the damped
+    kernel's rates to rounding. Linearised, Z4's constraints obey wave
+    equations at the speed of light, so nothing is left behind where it was
+    made, and the damped system has no growing root for ``kappa_1 > 0`` and
+    ``kappa_2 > -1``: short modes decay at ``kappa_1 / 2``, long ones at
+    about ``k^2 / kappa_1``. Undamped, the layer on CCZ4 is unstable on the
+    Teukolsky wave at 48 points.
+
     The rim's reflection is an incoming mode at the layer's outer face, and
     the layer absorbs its radiative part on the way in. A narrower rim than
     the dissipation's stencil is allowed because the dissipation here is
@@ -685,8 +706,8 @@ class ConstraintPreserving(Bounded):
     :func:`particlesim.core.grid.kreiss_oliger` does.
 
     **Measured** on the Teukolsky wave of :mod:`particlesim.solvers.nr.teukolsky`
-    (box of 12, zone from ``|x_i| = 5``, cube ``|x_i| <= 2.5``, one octant),
-    as multiples of the amplitude:
+    (box of 12, zone from ``|x_i| = 5``, cube ``|x_i| <= 2.5``, one octant,
+    ``a = 1e-6``), as multiples of the amplitude. On BSSN:
 
         n     truncation   after      ratio   |H| after   left
         48    7.06e-02     3.18e-02   0.45    3.80e-02    0.129
@@ -696,15 +717,36 @@ class ConstraintPreserving(Bounded):
     What comes back stays below the truncation error and converges at 4.4
     and 3.8 against its 3.9; :class:`SecondOrder` alone reaches 1.26 of it at
     96 points. The Hamiltonian constraint after the reflection converges at
-    3.0 and 2.8, not at the interior's order. ``docs/benchmarks.md`` has the
-    rest, including a part of it that stops converging past 72 points.
+    3.0 and 2.8, not at the interior's order: BSSN with a frozen shift keeps
+    4/3 of the data's own quadratic violation at the centre, and cannot damp
+    what the boundary sends in. On undamped CCZ4, with ``damping = 4``:
+
+        n     truncation   after      ratio   |H| after   left
+        48    7.07e-02     3.16e-02   0.45    3.98e-02    0.131
+        72    1.48e-02     5.52e-03   0.37    8.06e-03    0.023
+        96    4.82e-03     1.91e-03   0.40    2.50e-03    0.0081
+
+    The constraint now converges at 3.9 and 4.1, the interior's order.
+    ``docs/benchmarks.md`` has the rest.
     """
 
     strength: float = 20.0
     rim: int = 2
+    damping: float = 0.0
+    damping_mix: float = 0.0
 
     def __post_init__(self) -> None:
         radius = self.evolution.order // 2
+        if self.damping < 0.0 or self.damping_mix <= -1.0:
+            raise ValueError(
+                f"Z4's damping needs kappa_1 >= 0 and kappa_2 > -1, not {self.damping} "
+                f"and {self.damping_mix}"
+            )
+        kernel = getattr(self.evolution, "kernel", None)
+        if self.damping > 0.0 and kernel is not None and "Theta" not in kernel.outputs:
+            raise ValueError(
+                "constraint damping in the layer needs a Z4 system: the evolution has no Theta"
+            )
         if self.rim < radius:
             raise ValueError(
                 f"a rim of {self.rim} points is narrower than the stencil radius {radius}: "
@@ -757,7 +799,14 @@ class ConstraintPreserving(Bounded):
     def _compiled(self, names: tuple[str, ...]):
         b = self.boundary
         cache = _STACKED.setdefault(b, {})
-        key = ("constraint-preserving", names, self.strength, self.rim)
+        key = (
+            "constraint-preserving",
+            names,
+            self.strength,
+            self.rim,
+            self.damping,
+            self.damping_mix,
+        )
         if key in cache:
             return cache[key]
         import jax
@@ -804,6 +853,39 @@ class ConstraintPreserving(Bounded):
             moved = 0.5 * c**2 * angular_laplacian(jnp, departure, coords, spacing)
             return jnp.where(layer, moved * inverse**2 - c * carried * inverse, 0.0)
 
+        damped = self.damping > 0.0
+        if damped and "Theta" not in names:
+            raise ValueError(
+                "constraint damping in the layer needs a Z4 system: the state has no Theta"
+            )
+        kappa, mix = float(self.damping), float(self.damping_mix)
+
+        def damping(geometry, rate):
+            # Z4's damping terms, kappa_1 in the layer and zero elsewhere:
+            #   d_t Theta    -= alpha kappa_1 (2 + kappa_2) Theta
+            #   d_t K        -= 3 alpha kappa_1 (1 + kappa_2) Theta
+            #   d_t Gammahat -= 2 alpha kappa_1 gammabar^ij Z_j
+            # with 2 gammabar^ij Z_j = Gammahat^i + d_j gammabar^ij, as in
+            # symbolic.ccz4.z_vector. Linear in kappa_1, so the undamped
+            # kernel plus these is the damped kernel exactly.
+            g = [[geometry[f"gt{min(i, j)}{max(i, j)}"] for j in INDICES] for i in INDICES]
+            inverse = inverse_metric(g)
+            stacked = jnp.stack([geometry[n] for n in METRIC])
+            d = [_stacked_edge_derivative(jnp, stacked, axis, spacing[axis]) for axis in INDICES]
+            d_metric = {n: [d[k][m] for k in INDICES] for m, n in enumerate(METRIC)}
+            lapse, theta = geometry["alpha"], geometry["Theta"]
+            weight = jnp.where(layer, kappa * lapse, 0.0)
+            rate["Theta"] = rate["Theta"] - weight * (2.0 + mix) * theta
+            rate["trK"] = rate["trK"] - weight * 3.0 * (1.0 + mix) * theta
+            for i in INDICES:
+                divergence = -sum(
+                    inverse[i][a] * inverse[j][b] * d_metric[f"gt{min(a, b)}{max(a, b)}"][j]
+                    for j in INDICES
+                    for a in INDICES
+                    for b in INDICES
+                )
+                rate[f"Gt{i}"] = rate[f"Gt{i}"] - weight * (geometry[f"Gt{i}"] + divergence)
+
         def combine(geometry, auxiliary, einstein):
             stack = jnp.stack([geometry[n] for n in names])
             rates = jnp.stack([jnp.broadcast_to(einstein[n], stack.shape[1:]) for n in names])
@@ -811,6 +893,8 @@ class ConstraintPreserving(Bounded):
                 rates = rates + dissipation(stack)
             rate = {name: rates[index] for index, name in enumerate(names)}
             out = {}
+            if damped:
+                damping(geometry, rate)
 
             # The radiative modes, through Abar_ij, in the layer.
             flat = jnp.asarray([1.0 if n[2] == n[3] else 0.0 for n in METRIC])

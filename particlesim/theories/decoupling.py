@@ -1,9 +1,10 @@
 """Einstein-scalar-Gauss-Bonnet at the leading order of order reduction (issue #52).
 
 Einstein-scalar-Gauss-Bonnet gravity has no well-posed evolution in the
-gauges the 3-D solvers use, which is why ``string.eft4d.dgb`` declares
-``order_reduced`` and ADR-008 refuses it a strong-field 3-D run. Order
-reduction is the standard way around that: expand in the coupling, and solve
+gauges the vacuum 3-D solvers use, which is why ADR-008 refuses an
+``order_reduced`` plugin a strong-field 3-D run there. (``string.eft4d.dgb``
+now declares ``modified_ccz4`` and is evolved in 3-D by ``nr.modified``.)
+Order reduction is the standard way around that: expand in the coupling, and solve
 at each order equations that are well posed because the higher-derivative
 terms only ever act on the solution of the order below. At leading order the
 metric is General Relativity's, and the scalar obeys

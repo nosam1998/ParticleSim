@@ -527,18 +527,21 @@ class DilatonGaussBonnet(Theory):
     coupling is ``alpha = lambda^2``, and General Relativity sits at
     ``alpha = 0``, where the scalar is free and decoupled.
 
-    **Formulation: ``order_reduced``.** Einstein-scalar-Gauss-Bonnet is not
-    strongly hyperbolic in the usual gauges. The known well-posed route is
-    modified CCZ4 (Kovacs and Reall 2020; Areste Salo, Clough and Figueras
-    2022), which :mod:`particlesim.solvers.nr.modified` implements. Its
-    static-hole and weak-coupling checks pass; the comparison at stronger
-    coupling with the static solutions does not exist yet, so the plugin
-    still declares ``order_reduced`` and ADR-008 applies:
-    :func:`~particlesim.theories.base.require_well_posed` refuses a
-    strong-field 3-D run with this plugin, and says why.
-    ``nr.modified.build(coupling=..., coupling_squared=...)`` runs the
-    theory without it. The static, spherically symmetric holes of this
-    module need no evolution and are unaffected.
+    **Formulation: ``modified_ccz4``.** Einstein-scalar-Gauss-Bonnet is not
+    strongly hyperbolic in the usual gauges. The well-posed route at weak
+    coupling is modified CCZ4 (Kovacs and Reall 2020; Areste Salo, Clough
+    and Figueras 2022), which :mod:`particlesim.solvers.nr.modified`
+    implements and ADR-008 admits; the vacuum solvers still refuse the
+    plugin, and name ``nr.modified``. What the declaration rests on: a
+    static hole of this module is static on the 3-D grid to fourth order,
+    the coupling's GR limit is linear in ``lambda^2``, and hair grown from
+    rest in 3-D follows the same problem solved in spherical symmetry from
+    the action (:mod:`~particlesim.theories.esgb_spherical`) at
+    ``lambda^2 = 0.3 M^2``, where the metric's answer raises the hair by
+    9%. The hyperbolicity itself is proved for weak coupling only, and
+    nothing checks that a run stays there. The order-reduced evolutions of
+    :mod:`~particlesim.theories.decoupling` and
+    :mod:`~particlesim.theories.backreaction` still apply to this coupling.
 
     ``effective_stress_energy`` returns ``G / 8 pi``: everything the scalar
     and the Gauss-Bonnet term do is attributed to effective matter, the
@@ -547,7 +550,7 @@ class DilatonGaussBonnet(Theory):
 
     id = "string.eft4d.dgb"
     frame = "einstein"
-    formulation = "order_reduced"
+    formulation = "modified_ccz4"
     couplings = [Coupling("alpha", 0.0, units="length^2", bounds=POSITIVE)]
     provenance = (
         "Einstein-dilaton-Gauss-Bonnet, the leading alpha' correction of the heterotic "
@@ -555,8 +558,8 @@ class DilatonGaussBonnet(Theory):
         "Yazadjiev 2018; the static equations are derived here from the reduced action"
     )
     validity_statement = (
-        "first order in alpha'; curvatures below 1/alpha; static solutions only, since "
-        "the theory has no well-posed evolution here (formulation order_reduced)"
+        "first order in alpha'; curvatures below 1/alpha; 3-D evolution through modified "
+        "CCZ4 (nr.modified), whose well-posedness is proved for weak coupling only"
     )
     coupling_function = DILATONIC
 
@@ -572,7 +575,7 @@ class DilatonGaussBonnet(Theory):
             "gauss_bonnet_coupling": alpha,
             "coupling_function": self.coupling_function.name,
             "black_holes_have_scalar_hair": alpha > 0.0,
-            "well_posed_evolution": False,
+            "well_posed_evolution": True,
         }
 
 

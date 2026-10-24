@@ -5,7 +5,8 @@ is the same physical restriction as an octant domain with symmetry faces
 (e.g. Imbiriba et al., gr-qc/0403048, section IV), implemented here by group
 averaging on the full grid. Scalars are even, a vector changes sign in its
 own direction, and a rank-two component changes sign for each reflected
-index. Auxiliary radiation fields inherit their evolved field's parity.
+index. The scalar of ``nr.modified``, ``sf`` and ``Ksf``, is even.
+Auxiliary radiation fields inherit their evolved field's parity.
 
 This projects out asymmetric perturbations. It must be explicitly selected
 for a symmetric problem; it is not evidence of stability against general
@@ -21,7 +22,7 @@ def parity(name):
     """Three reflection signs for a Cartesian evolved component."""
     if name.startswith("aux:"):
         return parity(name[4:])
-    if name in {"phi", "W", "alpha", "trK", "Theta"}:
+    if name in {"phi", "W", "alpha", "trK", "Theta", "sf", "Ksf"}:
         return (1, 1, 1)
     for prefix, rank in (("beta", 1), ("Gt", 1), ("B", 1), ("gt", 2), ("At", 2)):
         if name.startswith(prefix):

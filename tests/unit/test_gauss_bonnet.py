@@ -136,20 +136,47 @@ def test_the_dilatonic_coupling_gives_every_hole_hair():
     assert all(horizon_slope(3.0, q, DILATONIC) is None for q in np.linspace(-1.0, 0.0, 11))
 
 
+class OrderReducedGaussBonnet(DilatonGaussBonnet):
+    """The plugin as it was declared before modified CCZ4 was verified: ``order_reduced``."""
+
+    id = "test.dgb.order_reduced"
+    formulation = "order_reduced"
+
+
 def test_the_dgb_plugin_is_registered_and_passes_the_gr_limit():
     assert list_theories()["string.eft4d.dgb"] is DilatonGaussBonnet
     report = check_gr_limit(DilatonGaussBonnet, check_action=False)
     assert report.checked and report.passed, report.reasons
-    assert DilatonGaussBonnet.formulation == "order_reduced"
+    assert DilatonGaussBonnet.formulation == "modified_ccz4"
     predictions = DilatonGaussBonnet(alpha=0.2).observable_predictions()
     assert predictions["black_holes_have_scalar_hair"]
-    assert not predictions["well_posed_evolution"]
+    assert predictions["well_posed_evolution"]
 
 
-def test_adr_008_refuses_a_strong_field_3d_run_with_an_order_reduced_plugin():
+def test_adr_008_admits_the_dgb_plugin_to_modified_ccz4_and_nowhere_else():
+    """``nr.modified`` evolves it; ``require_well_posed`` passes it; the vacuum solvers refuse it.
+
+    The refusal names ``nr.modified``, which is where the plugin runs.
+    """
+    from particlesim.solvers.nr import modified
+    from particlesim.solvers.nr.bssn import admit_theory
+
     theory = DilatonGaussBonnet(alpha=0.1)
+    require_well_posed(theory, dimensions=3, strong_field=True)
+    modified.admit_theory(theory)
+    with pytest.raises(NotImplementedError, match="nr.modified"):
+        admit_theory(theory)
+
+
+def test_adr_008_still_refuses_a_strong_field_3d_run_with_an_order_reduced_plugin():
+    """The same plugin declaring ``order_reduced`` is refused in 3-D, by ``nr.modified`` too."""
+    from particlesim.solvers.nr import modified
+
+    theory = OrderReducedGaussBonnet(alpha=0.1)
     with pytest.raises(IllPosedRun, match="ADR-008"):
         require_well_posed(theory, dimensions=3, strong_field=True)
+    with pytest.raises(IllPosedRun, match="ADR-008"):
+        modified.admit_theory(theory)
     require_well_posed(theory, dimensions=1, strong_field=True)
     require_well_posed(theory, dimensions=3, strong_field=False)
 
@@ -157,18 +184,25 @@ def test_adr_008_refuses_a_strong_field_3d_run_with_an_order_reduced_plugin():
 def test_the_3d_solvers_ask_before_building_anything():
     """The check runs first in ``Evolution.build`` and ``ccz4.build``, before any kernel is derived.
 
-    At its GR limit a plugin is GR and is admitted. A standard-formulation
-    plugin away from its limit is refused too, because the 3-D solvers
-    evolve vacuum GR and would silently ignore it.
+    At its GR limit a plugin is GR and is admitted. An ``order_reduced``
+    plugin away from its limit is refused with ``IllPosedRun``. The
+    ``modified_ccz4`` plugin is refused too, with the solver that runs it
+    named, and so is a standard-formulation plugin, because the vacuum
+    solvers evolve vacuum GR and would silently ignore it.
     """
     from particlesim.solvers.nr import ccz4
     from particlesim.solvers.nr.bssn import Evolution, admit_theory
 
     with pytest.raises(IllPosedRun):
-        Evolution.build((0.1, 0.1, 0.1), theory=DilatonGaussBonnet(alpha=0.1))
+        Evolution.build((0.1, 0.1, 0.1), theory=OrderReducedGaussBonnet(alpha=0.1))
     with pytest.raises(IllPosedRun):
+        ccz4.build((0.1, 0.1, 0.1), theory=OrderReducedGaussBonnet(alpha=0.1))
+    with pytest.raises(NotImplementedError, match="nr.modified"):
+        Evolution.build((0.1, 0.1, 0.1), theory=DilatonGaussBonnet(alpha=0.1))
+    with pytest.raises(NotImplementedError, match="nr.modified"):
         ccz4.build((0.1, 0.1, 0.1), theory=DilatonGaussBonnet(alpha=0.1))
     admit_theory(DilatonGaussBonnet())
+    admit_theory(OrderReducedGaussBonnet())
     admit_theory(None)
     coupling = EMDA.couplings[0].name
     with pytest.raises(NotImplementedError, match="vacuum"):

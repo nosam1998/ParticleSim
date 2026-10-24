@@ -1116,7 +1116,10 @@ why damping it damps the constraint.
 
 **None of these rows exercise the Z terms.** `2D_iZ^i`, `2D_(iZ_j)` and the
 damping all vanish identically wherever `Θ` and `Z_i` do. Only the runs
-below touch them.
+below touch them. That is how the Z terms came to be counted twice without
+any test noticing: see
+[A bug in CCZ4 that the speeds found](#a-bug-in-ccz4-that-the-speeds-found).
+The numbers below are with them counted once, kernel version `ccz4-4`.
 
 ### What the damping is worth
 
@@ -1131,22 +1134,27 @@ an envelope:
 | t | 0 | 1 | 2 | 3 | 4 | `H(4)/H(0)` |
 |---|---|---|---|---|---|---|
 | BSSN | 1.504e−3 | 2.382e−2 | 4.805e−2 | 7.412e−2 | 1.032e−1 | **68.6** |
-| CCZ4, κ₁ = 0 | 1.504e−3 | 5.723e−3 | 2.714e−3 | 3.768e−3 | 4.861e−3 | **3.2** |
-| CCZ4, κ₁ = 0.1 | 1.504e−3 | 6.226e−3 | 2.579e−3 | 3.347e−3 | 4.583e−3 | **3.0** |
+| CCZ4, κ₁ = 0 | 1.504e−3 | 1.411e−3 | 1.328e−3 | 1.267e−3 | 1.243e−3 | **0.83** |
+| CCZ4, κ₁ = 0.1 | 1.504e−3 | 1.407e−3 | 1.577e−3 | 1.939e−3 | 2.414e−3 | **1.61** |
 
-**The formulation is the effect; the damping is a refinement.** BSSN's
-violation grows roughly linearly to sixty-nine times its initial size while
-both CCZ4 runs stay near three — a factor of twenty-one between them, and it
-is there at `κ₁ = 0`, where there is no damping term at all. That is Z4
-making constraint propagation a bounded hyperbolic problem rather than an
-unconstrained one.
+**The formulation is the effect.** BSSN's violation grows roughly linearly
+to sixty-nine times its initial size. Undamped CCZ4 brings it down, to 0.83
+of where it started. That is Z4 making constraint propagation a hyperbolic
+problem in which a violation travels away at the speed of light rather than
+accumulating.
 
-`κ₁` is the smaller effect and shows up where it acts, on `Θ` itself: over
-the same four crossing times `max|Θ|` falls from 1.042e−02 to 7.219e−03,
-about a third. It is worth saying plainly that this is not the exponential
-collapse of `‖H‖₂` that a reader might expect from the phrase "constraint
-damping" — at this `κ₁`, on this data, over this duration, it is a six per
-cent improvement on a quantity that was already bounded.
+**On this data the damping does not damp.** At `κ₁ = 0.1` the violation
+ends at 1.61 of its start, and `max|Θ|` at `t = 4` is 1.18e−3 against
+6.82e−4 undamped. Reading `K − 2Θ` in the slicing, as Alic et al. write it,
+gives 1.76. These numbers replace ones measured while the Z terms were
+counted twice: 3.2 and 3.0, with a peak of `Θ` that fell by a third. See
+[A bug in CCZ4 that the speeds found](#a-bug-in-ccz4-that-the-speeds-found).
+The test that asserted the damping lowers `Θ`'s peak here now checks it
+where the claim has a closed form. A `Θ` wave on flat space with the gauge
+frozen lives in the linearised constraint system `(Θ, Z, H, M)`, and its
+envelope falls to 0.522 of its start by `t = 4` at `κ₁ = 0.1`. Why the
+damping term does not pull this violation down, in harmonic slicing on a
+gauge wave, is not resolved here.
 
 ### The gauge wave cannot tell the two apart, and `Θ` says why
 
@@ -1157,8 +1165,8 @@ wave, as it must.
 
 `Θ` does not *stay* at zero, and should not. The discrete solution violates
 the constraints at truncation level, `∂_tΘ = α H / 2`, so `Θ` picks up
-exactly that: at 32 points it reaches 8.0e−05 against a solution error of
-9.2e−05. A CCZ4 run that reproduced BSSN bit for bit on this data would mean
+exactly that: at 32 points it reaches 7.6e−05, the size of the truncation
+error. A CCZ4 run that reproduced BSSN bit for bit on this data would mean
 the Z terms were dead code.
 
 ### Cost
@@ -1170,6 +1178,11 @@ the Z terms were dead code.
 | After global CSE | 3 017 | 7 145 |
 | Stencils | 129 | 132 |
 | Derivation, cold | 208 s | 665 s |
+
+The CCZ4 column is the kernel from before the Z terms were counted once,
+in the default gauge. With the fix, the harmonic-slicing, frozen-shift
+kernel the tests use has 3 017 793 operations as written, 7 014 after
+elimination and 132 stencils.
 
 Two and a half times the operations for one more equation, which is what the
 Z terms cost: `H` in two right-hand sides, the covariant derivative of `Z_i`
@@ -4517,9 +4530,10 @@ and the divergence as `f_A → 0`.
 Issue #52. `particlesim.theories.gauss_bonnet` adds the scalar-Gauss–Bonnet
 class, `R − 2(∇φ)² + λ² f(φ) 𝒢`, and the plugin `string.eft4d.dgb` with the
 heterotic string's coupling `f = e^{−2φ}`. The acceptance is that an EsGB
-scalarized black hole is reproduced. This does that in spherical symmetry.
-The 3-D evolution the issue also asks for is not here; see the end of this
-section.
+scalarized black hole is reproduced. This does that in spherical symmetry. The 3-D evolution the issue also
+asks for, modified CCZ4, is in the subsections from
+[Modified CCZ4: three speeds where there was one](#modified-ccz4-three-speeds-where-there-was-one)
+on, and what it does not yet do is at the end of this section.
 
 ### The equations are derived, not transcribed
 
@@ -4608,8 +4622,10 @@ sourced with one sign, so `φ_H < 0`, and a regular horizon then needs
 
 `string.eft4d.dgb` declares `formulation = "order_reduced"`. The well-posed
 alternative is modified CCZ4 (Kovács–Reall; Aresté Saló–Clough–Figueras),
-and it is not implemented. `Evolution.build` and `ccz4.build` call
-`admit_theory` before they derive anything:
+which `nr.modified` now implements, below. `require_well_posed` accepts a
+plugin that declares `modified_ccz4` instead of raising, and
+`nr.modified.admit_theory` admits a Gauss–Bonnet one. `Evolution.build` and
+`ccz4.build` call `admit_theory` before they derive anything:
 - A plugin at its GR limit is GR, and is admitted.
 - An `order_reduced` plugin away from its limit raises `IllPosedRun`,
   which says why.
@@ -4770,14 +4786,445 @@ first-order scalar has no source, so the expansion gives no hair at any
 order, and `SecondOrder` refuses it. The 40% gap in `φ_H` at
 `M/λ = 0.5`, above, is not perturbative in `λ`.
 
+### Modified CCZ4: three speeds where there was one
+
+Issue #52's first task, in `particlesim.symbolic.modified_ccz4`,
+`particlesim.symbolic.esgb` and `particlesim.solvers.nr.modified`
+(`nr.modified` in design doc Section 5.4). In the puncture gauge the gauge
+modes, the constraint violations and the gravitational waves of General
+Relativity all travel on the light cone. A Gauss–Bonnet term of any size
+can split that degenerate characteristic into a growing pair, which is why
+the theory has no well-posed evolution there. Kovács and Reall separated the
+three speeds in harmonic gauge with two auxiliary metrics,
+
+```
+g̃^ab = g^ab − a(x) n^a n^b      in the gauge condition
+ĝ^ab = g^ab − b(x) n^a n^b      in the constraint-addition term
+```
+
+and Aresté Saló, Clough and Figueras carried the construction to CCZ4 and
+the puncture gauge. The Z4 equations become
+
+```
+G^ab + 2 P̂_c^(d ab) ∇_d Z^c − κ₁[2 n^(a Z^b) + κ₂ n·Z g^ab] = 8π T^ab
+P̂_c^(d ab) = δ_c^(a ĝ^b)d − ½ δ_c^d ĝ^ab
+```
+
+and at `a = b = 0` they are CCZ4.
+
+**The papers could not be fetched; the equations are derived.** The proxy
+refuses arXiv, so the 3+1 form below is the decomposition of the covariant
+equation, worked out here and checked by what it implies, not transcribed.
+Search-engine excerpts of the papers confirm the working values
+`a = 0.2`, `b = 0.4`, constant in space, the modified slicing
+`∂_⊥α = −2α(K − 2Θ)/(1 + a)` and the shift
+`∂_⊥β^i = (3/4)Γ̂^i/(1 + a) − a α D^iα/(1 + a)`. They do not show the `Θ`,
+`K` and `Γ̂` equations, so those are this derivation's, and the tests below
+are what stand behind them. With `β_b = b/(1 + b)`, the difference from
+CCZ4 is
+
+```
+∂_t Θ    += −β_b α (H/2 − κ₁(2 + κ₂)Θ)
+∂_t K    += (3/2) × the same
+∂_t Γ̂^i  += −2 β_b α γ̃^ij (M_j + ∂_jΘ − K_jk Z^k − κ₁ Z_j)
+```
+
+and nothing else. `H` and `M_i` are the constraints with their matter in
+them, so the `b` terms vanish on any solution that starts with
+`Θ = Z_i = 0`. The `nn` projection of the modified term is exactly
+`(1 + b)` times CCZ4's, so solving it for `∂_tΘ` divides only `H` and the
+damping by `1 + b`. The `ni` projection multiplies only the time derivative
+of `Z_i` by `1 + b`. The `ij` projection is unchanged, but trace reversal
+moves `b` times the `nn` part into `∂_tK_ij` as a pure trace. Linearised on
+flat space, `(1 + b)∂_t² = ∇²` for `Θ` and for every `Z_i`, and the
+coefficient of the `K` term is the one that cancels `∂_iH` in the `Z_i`
+equation, so it is not a free choice.
+
+The gauge takes the same change the modified harmonic condition
+`g̃^bc Γ^a_bc = 0` makes to the harmonic one. Its time part is
+`∂_⊥α = −α²K/(1 + a)` and its space part
+`∂_⊥β^i = α²Γ^i/(1 + a) − αD^iα`. So the slicing rate, whichever slicing,
+is divided by `1 + a`, and the Gamma driver becomes
+`∂_tβ^i = (3/4)B^i/(1 + a) − (a/(1 + a))αD^iα`. That is the excerpted form
+with this repository's `B^i` in place of `Γ̂^i`, and its `K` in place of
+`K − 2Θ`, which is what the CCZ4 here has always used; `theta_in_slicing=True`
+reads `K − 2Θ` as the papers do.
+
+**Matter enters linearly, and outside the kernel.** A scalar and the
+Gauss–Bonnet term are effective matter, and the `b` terms see `ρ` through
+`H` and `S_i` through `M_i`, so the map from `(ρ, S_i, S_ij)` to the rates
+is not CCZ4's:
+
+```
+∂_t K     += 4πα(S − 3ρ) + 12π β_b α ρ
+∂_t Θ     += −8παρ/(1 + b)
+∂_t Γ̂^i   += −16πα γ̃^ij S_j/(1 + b)
+∂_t Ã_ij  += −8πα e^(−4φ)(S_ij − γ_ij S/3)
+```
+
+`matter_terms` applies it to arrays. Keeping it out of the generated kernel
+means one derivation serves vacuum, the scalar and the Gauss–Bonnet term.
+That is right only if the map is the one the equations apply, and a test
+checks it against the symbolic equations with symbolic matter in them.
+
+### Modified CCZ4: the checks in General Relativity
+
+**At `a = b = 0` it is CCZ4.** The test uses random smooth periodic data at
+16³, every variable about ten per cent from flat. `Θ` is non-zero, and so is
+`Z_i`, because `Γ̂^i` is random. Every one of the 25 rates agrees with
+`ccz4.build`'s kernel to 1e−12 relative, at `κ₁ = 0` and at `0.1`. The two
+are separate derivations with different expression trees, so the agreement
+is to round-off, not to the bit. With `b = 0.4` the rates that change are
+`K`, `Θ` and `Γ̂^i`, and no others.
+
+**The speeds are the claim, and they are measured.** On flat space, a
+`10⁻⁶` wave of one variable along `x` on `(32, 8, 8)`, no damping, no
+dissipation; the fitted frequency of its fundamental is the speed:
+
+| wave | `a` | `b` | expected | measured |
+|---|---|---|---|---|
+| `Θ`, frozen gauge | 0 | 0 | 1 | 0.999996 |
+| | 0 | 0.4 | `1/√1.4` = 0.845154 | 0.845176 |
+| | 0.2 | 0.4 | 0.845154 | 0.845176 |
+| `α`, harmonic slicing | 0 | 0 | 1 | 0.999958 |
+| | 0.2 | 0 | `1/√1.2` = 0.912871 | 0.912824 |
+| | 0.2 | 0.4 | 0.912871 | 0.912861 |
+
+The constraint violation moves at `1/√(1 + b)` whatever `a` is, the gauge at
+`1/√(1 + a)` whatever `b` is, and with `0 < a < b` the three speeds are
+distinct. The pure-lapse data is flat spacetime in another slicing, so
+nothing physical moves. The CCZ4 bug below was found by the first row.
+
+**The gauge wave keeps fourth-order constraint convergence.** At
+`t = 0.5`, amplitude 0.1, harmonic slicing, frozen shift, `κ₁ = 0`:
+
+| `N` | `a = 0.2, b = 0.4`: ‖H‖₂ | ‖M‖₂ | `a = 0, b = 0.4`: ‖H‖₂ | error |
+|---|---|---|---|---|
+| 16 | 1.376e−3 | 5.309e−4 | 1.039e−3 | 4.032e−3 |
+| 32 | 9.218e−5 | 3.723e−5 | 7.086e−5 | 2.985e−4 |
+| 64 | 5.780e−6 | 2.367e−6 | 4.472e−6 | 1.919e−5 |
+| ratios | 14.9, **15.9** | 14.3, **15.7** | 14.7, **15.8** | 13.5, **15.6** |
+
+With `a` on, the slicing is no longer harmonic, so the solution leaves the
+gauge wave. Its distance from it is 0.138 at every resolution: it is still
+flat spacetime, in another gauge. With only `b` on, the gauge wave is an
+exact solution, because the `b` terms vanish on it, and the solution error
+converges too.
+
+### A bug in CCZ4 that the speeds found
+
+The CCZ4 here built the conformal Ricci tensor with the evolved `Γ̂^i` and
+then added `2D_(iZ_j)` to it. The first step already adds `2D̃_(iZ_j)` —
+the conformal covariant derivative — because `γ̃_k(i∂_j)(2Z̃^k) +
+2Z̃^kΓ̃_(ij)k = 2∂_(iZ_j) − 2Γ̃^k_ijZ_k`. So the Z terms were counted twice
+in the principal part of `∂_tÃ_ij`, `∂_tK` and `∂_tΘ`. Linearised on flat
+space that makes `∂_t²Θ = 2∇²Θ + ∂·M`, and a pure `Θ` wave travels at
+`√2`. Measured, with the kernel derived from the original module and the
+same flat-space `Θ` wave as in the table above:
+
+| CCZ4 | `Θ` wave speed |
+|---|---|
+| as it was | 1.41422 |
+| `√2` | 1.41421 |
+| fixed (modified CCZ4 at `a = b = 0`) | 0.999996 |
+
+Nothing that existed could see it. The exact reduction identities hold at
+`Θ = Z_i = 0`, where the Z terms vanish. The gauge wave starts on the
+constraint surface. And the violation test only asks that the violation
+stay bounded, which a Z4-like system with the wrong coefficients still
+does. Now only `−(Γ^k_ij − Γ̃^k_ij)Z_k`, the part of the physical
+covariant derivative carried by the conformal factor, is added by hand
+(`connection_z_terms`), and a slow test checks that the `Γ̂` substitution
+adds `2D̃_(iZ_j)`, exactly, for a polynomial `Z_i` put in by hand. The
+speed test above would now fail on the old kernel. The kernel version is
+`ccz4-4`, and the fix changed what CCZ4's damping does, as the CCZ4 section
+records.
+
+### Modified CCZ4: a scalar
+
+`sf` and `Ksf` join the state, `φ` and `K_φ = −n^a∂_aφ`, with
+`∂_tφ = β^k∂_kφ − αK_φ` and
+`∂_tK_φ = β^k∂_kK_φ + α(KK_φ − D^iD_iφ + s) − D^iαD_iφ` for `□φ = s`. In
+this repository's normalisation, `R − 2(∇φ)²`, its stress-energy is
+
+```
+ρ    = (K_φ² + D_kφ D^kφ)/8π
+S_i  = K_φ ∂_iφ/4π
+S_ij = (∂_iφ∂_jφ − γ_ij(D_kφD^kφ − K_φ²)/2)/4π
+```
+
+and goes in through the map above.
+
+**A closed form that is not flat.** The gauge wave is
+`H(−dt² + dx²) + dy² + dz²`, conformally flat in the plane it moves in, and
+the wave operator of a field of `t` and `x` alone is `(−∂_t² + ∂_x²)/H`
+there. So `φ = A sin 2π(x + t)`, moving against the gauge wave, solves
+`□φ = 0` on it exactly, through a lapse and a metric that both vary. With
+`A = 10⁻⁶` its stress-energy is below the truncation error. From `t = 0`
+to `0.5`, gauge-wave amplitude 0.1, harmonic slicing, `b = 0.4`, on
+`(N, 8, 8)`:
+
+| `N` | φ error / `A` | ratio | `K_φ` error / `A` | ratio |
+|---|---|---|---|---|
+| 16 | 2.904e−4 | — | 1.673e−3 | — |
+| 32 | 1.825e−5 | 15.9 | 1.069e−4 | 15.6 |
+| 64 | 1.142e−6 | **16.0** | 6.745e−6 | **15.8** |
+
+### Modified CCZ4: the Gauss–Bonnet term, solved for at every point
+
+The field equations of `R − 2(∇φ)² + λ² f(φ) 𝒢` are
+
+```
+G_ab = 2 ∂_aφ ∂_bφ − g_ab (∇φ)² − 4λ² P_acbd ∇^c∇^d f
+□φ   = −(λ²/4) f′(φ) 𝒢
+```
+
+with `P_abcd` the double dual of the Riemann tensor, whose trace is `−G_bd`.
+The `−4` is not quoted. The static spherical ansatz goes through this
+tensor, and its `tt` and `rr` components have to be proportional, with one
+constant, to the Euler–Lagrange expressions `static_equations` derives from
+the reduced action. Solving for the constant and the factor at two radii
+gives `−4`, the other two radii then agree to thirty digits, and `+4` or
+`−2` misses by more than `10⁻³`.
+
+`particlesim.symbolic.esgb` writes all of it in the frame `(n, ∂_i)`,
+where the spacetime metric is `diag(−1, γ_ij)` and every Riemann component
+is a 3+1 quantity:
+
+```
+R_ijkl = R⁽³⁾_ijkl + K_ik K_jl − K_il K_jk           Gauss
+R_ijkn = D_j K_ik − D_i K_jk                         Codazzi
+R_ninj = (∂_0 K_ij + D_iD_jα)/α + K_ik K^k_j         Ricci
+∇_n∇_n φ = −(∂_0 K_φ + D^iα D_iφ)/α
+```
+
+with `∂_0 = ∂_t − L_β` and `K_φ = −n^a∂_aφ`. In three dimensions `R⁽³⁾_ijkl`
+is algebraic in the Ricci tensor. The second time derivatives enter only
+through `R_ninj` and `∇_n∇_nφ`, and the antisymmetry of `P` allows at
+most one of each per term. So `S_ij` and the scalar's source are affine in
+the seven unknowns `X = (∂_0K_ij, ∂_0K_φ)`, while `ρ` and `S_i`, the
+constraints, do not depend on them. At every point the evolution solves
+
+```
+(1 − J) X = X̄ + Ξ₀
+```
+
+where `X̄` is the rate without the dependent part, and `Ξ₀` and `J` come
+out of a generated kernel. No division by the lapse survives, because the
+`1/α` in both places is multiplied by the `α` the `K_ij` and `K_φ`
+equations carry. That matters at a static horizon, where the lapse is zero.
+
+**The frame is checked against four dimensions, exactly.** The test
+spacetime has a lapse, a shift and a spatial metric, all depending on time
+and space, and a scalar that solves nothing. Its four-dimensional curvature
+is computed at a rational point from exact values of `g`, `∂g` and `∂∂g`,
+and the 3+1 quantities from closed forms of `K_ij` and `K_φ`.
+
+| Check | Against | Agreement |
+|---|---|---|
+| all 256 frame components of `R_abcd` | 4-D Riemann tensor projected on `(n, ∂_i)` | exact |
+| the same with the Codazzi sign flipped | | fails |
+| `∇_a∇_bφ` in the frame | 4-D Hessian projected | exact |
+| `𝒢` and `R` | 4-D contractions | exact |
+| `P_acbd ∇^c∇^d f`, `f = e^{−2φ}` | 4-D tensor projected | 1e-25 of 30 digits |
+| `Ξ₀ + J X` with the true `X` | `−8πα(S_ij − γ_ij S/2)` and `αs` of the full tensor, less static parts | double precision |
+| `∂ρ/∂X`, `∂S_i/∂X` | zero | exact |
+
+### Modified CCZ4: a static hairy hole is static, to fourth order
+
+The acceptance for the whole right-hand side, without a long run. A static
+hole of the theory solves the evolution equations with every time
+derivative zero, in its own static lapse and zero shift. On the grid they
+are truncation error, and they have to fall at the scheme's order.
+
+**The hole comes from somewhere else.** `static_black_hole` shoots the
+equations `static_equations` derives from the reduced action, in areal
+coordinates, which are singular at the horizon. `IsotropicHole` integrates
+them again with the proper distance and `ρ = ln(R/R_H)` carried along,
+`dρ/dℓ = 1/r`, which maps them to isotropic coordinates,
+`ψ⁴(dR² + R²dΩ²)`. The static slice through the bifurcation sphere is two
+copies of the exterior glued at the horizon. So `ψ` and `φ` are even in `ρ`
+and the static lapse is odd: it changes sign at the horizon, and the slice
+is regular there. On Schwarzschild the construction gives back
+`ψ = 1 + M/2R` and `α = (1 − M/2R)/(1 + M/2R)` to 2e−8. That residual is the
+truncated `M²/r²` tail of the far-field normalisation, a rescaling of `R`
+that leaves the slice exact.
+
+The measurement uses L2 norms over `0.8 R_H < R < 1.6 R_H`, which includes
+both sides of the horizon. Each grid is a periodic box around the shell
+with five cells to spare, so the wrap at its faces reaches nothing that is
+measured, and the hole is half a cell off every grid point. The rates of
+`φ`, `γ̃_ij` and `Γ̂^i` vanish identically on time-symmetric data with zero
+shift, and they come out zero and 1e−17. The first hole is the scalarized
+one of `f = (1 − e^{−6φ²})/12` at `M = λ/2`, `r_H = 0.8993λ`,
+`φ_H = 0.406`, the point the decoupling limit was compared with. The
+coupling there is not weak:
+
+| `h` | `∂_tK` | `∂_tÃ_ij` | `∂_tΘ` | `∂_tK_φ` |
+|---|---|---|---|---|
+| `R_H/8` | 2.100e−4 | 2.851e−4 | 7.166e−5 | 4.131e−4 |
+| `R_H/12` | 4.330e−5 | 6.033e−5 | 1.530e−5 | 8.769e−5 |
+| `R_H/16` | 1.378e−5 | 1.913e−5 | 4.634e−6 | 2.778e−5 |
+| `R_H/24` | 2.745e−6 | 3.782e−6 | 9.198e−7 | 5.496e−6 |
+| order, 12 → 16 | 3.98 | 3.99 | 4.15 | 4.00 |
+| order, 16 → 24 | **3.98** | **4.00** | **3.99** | **4.00** |
+| coupling off, `R_H/8` | 7.916e−3 | 2.499e−2 | 2.174e−2 | 1.227e−1 |
+| coupling off, `R_H/16` | 7.913e−3 | 2.497e−2 | 2.168e−2 | 1.229e−1 |
+
+With the Gauss–Bonnet term switched off, the same data is a scalar on
+nothing that holds it, and its rates do not fall at all. That is the
+control, and the reason a static solution is a test: the coupling is what
+makes it static. The largest pointwise residual sits at the region's inner
+edge, toward the other asymptotic end, where `ψ` steepens. In the max norm
+the order is 3.7 to 3.9 between `R_H/16` and `R_H/24`, and outside the
+horizon alone it is 3.9 to 4.0.
+
+The string's own coupling, `f = e^{−2φ}`, at `r_H = 6λ` (`M = 3.034λ`,
+`φ_H = −0.1253`):
+
+| `h` | `∂_tK` | `∂_tÃ_ij` | `∂_tΘ` | `∂_tK_φ` |
+|---|---|---|---|---|
+| `R_H/8` | 4.640e−6 | 3.862e−6 | 9.982e−7 | 9.733e−7 |
+| `R_H/12` | 9.687e−7 | 7.940e−7 | 2.120e−7 | 2.105e−7 |
+| `R_H/16` | 2.941e−7 | 2.510e−7 | 6.395e−8 | 6.673e−8 |
+| order, 12 → 16 | **4.14** | **4.00** | **4.17** | **3.99** |
+
+**A bug the first run found.** In a tree of bare symbols, the products of
+two `R_ninj` components cancel only after expansion. So the derivative of
+`S_ij` by one of them still contained the others, and the first
+Gauss–Bonnet kernel read symbols nothing supplied. The coefficients are now
+taken at zero. That is exact exactly when `S_ij` and `𝒢` are affine in the
+second time derivatives. The 4-D test asserts it, with exact arithmetic,
+for every second derivative by them, and the kernel builder refuses to emit an
+expression that still holds an internal symbol.
+
+### Modified CCZ4: hair growing from rest, against the decoupling limit
+
+The one comparison here that is an evolution of the coupled theory in 3-D.
+The hole is Schwarzschild in isotropic coordinates, `M = 1`, with its static
+lapse frozen and zero shift, so coordinate time is Killing time.
+`decoupling.py` evolves in the same time, so the two can be compared event
+by event without tracking anything. Inside the horizon the lapse goes
+smoothly to zero near `R = 0`, the other asymptotic end, which the
+exterior's domain of dependence does not include. With the static lapse
+left there, at `−1`, the puncture's truncation error runs away. The
+scalar starts from nothing, `φ = K_φ = 0`. The dilatonic coupling at
+`λ² = 0.05 M²` grows hair. The full coupled system runs, Gauss–Bonnet
+solve and all, and the metric's response enters at `λ⁴`, so the decoupling
+limit should be accurate:
+
+| `t/M` | 1 | 2 | 3 | largest difference, `0 ≤ t ≤ 3.25` |
+|---|---|---|---|---|
+| `r = 2.5M`, 3-D | −4.867e−4 | −1.868e−3 | −3.901e−3 | |
+| `r = 2.5M`, 1-D | −4.840e−4 | −1.862e−3 | −3.948e−3 | **1.6%** |
+| `r = 3M`, 3-D | −2.742e−4 | −1.088e−3 | −2.410e−3 | |
+| `r = 3M`, 1-D | −2.728e−4 | −1.083e−3 | −2.394e−3 | **0.8%** |
+
+That is on `40³` over a box of `10M`, so `h = M/4` and the isotropic
+horizon's radius is two cells. The 1-D answer is fourth order on 8 001 points in `r*`,
+and the 3-D value at a radius is a quadratic fit over a thin shell of grid
+points.
+
+**What ends it is the box.** The static data is not periodic, so at the
+faces it meets its periodic image with a kink. The disturbance from there
+reaches the probes after about `3M`, and at `t = 3.5M` it had turned into
+a NaN at `r = 3M`. Before that, `|K|` in the region the
+faces have not reached stays below 1e−2.
+
+**At stronger coupling the two separate, and only one direction is
+measured.** At `λ² = 0.3M²`, close to the largest at which a dilatonic
+hole of this size can have a regular horizon (`r_H > 3.3λ`), the 3-D hair
+is larger in magnitude than the decoupled hair at both probes. By `t = 3M`, `φ` at `r = 2.5M` is −2.566e−2 against
+−2.386e−2, 7.5% more, and at `r = 3M` it is −1.502e−2 against −1.443e−2,
+4.1% more. At `λ² = 0.05` the differences were 1.6% and 0.8%, of mixed
+sign, which is the discretisation at `h = M/4`. The issue asked for the
+static solutions' prediction of that direction, and it is not here. The
+decoupled dilatonic scalar at this coupling does not settle: relaxed for
+600M, `e^{−2φ}` overflows. And the bracket tried for a coupled static hole of
+mass `M` returned none. So the 7.5% is a measured difference whose sign has
+not been checked against anything.
+
+### Modified CCZ4: what it costs
+
+| | geometry kernel | Gauss–Bonnet kernel |
+|---|---|---|
+| Outputs | 97 | 67 |
+| Operations as written | 4 830 046 | 341 199 |
+| After global CSE | 11 748 | 4 470 |
+| Temporaries | 2 056 | 1 058 |
+| Stencils | 144 | 0 |
+| Derivation | 2 544 s | 391 s |
+
+The geometry kernel is the modified-CCZ4 right-hand side and the scalar's
+wave equation, plus 7 gauge ingredients and 63 tensors the Gauss–Bonnet
+kernel reads: `γ_ij`, `γ^ij`, `K_ij`, `R_ij`, `D_kK_ij`, `D_iD_jα`,
+`D_iD_jφ`, `L_βK_ij`. `b`, `κ₁` and `κ₂` are fields it reads, so one
+derivation serves every value, `b` varying in space included. `a` enters only
+the gauge, which is assembled outside the kernel. The Gauss–Bonnet kernel is
+pure algebra on those tensors, with no stencils.
+
+All the derivation times were measured with the machine's load average
+between 15 and 30 on four cores, and are wall-clock times for one
+single-threaded process. They are not comparable with the 665 s for CCZ4
+above.
+
+**One `jit` around the whole right-hand side is the slow way.**
+`bssn.Evolution` compiles its rates as a single XLA module, which is right
+for BSSN. Here, at 40³ under the same load:
+
+| | compile | per call |
+|---|---|---|
+| whole right-hand side in one module | 759 s | 84 s |
+| the two kernels compiled separately, the rest eager | 55 s + 24 s | 1.4 s + 0.9 s |
+
+The second is 37 times faster per call. The first is a schedule XLA builds
+for two kernels with 3 000 temporaries between them, the matter, a batched
+`solve` and the gauge in one graph. So `build` returns a `ModifiedEvolution`,
+which is `Evolution` with the outer `jit` taken off; the kernels are compiled
+anyway. The 0.9 s is the Gauss–Bonnet kernel, the batched 7 × 7 `solve` and
+the matter and gauge arithmetic together.
+
 ### What is not here
 
-- **Modified CCZ4, and any 3-D evolution of this theory.** The issue's first
-  task stays open.
+- **`string.eft4d.dgb` still declares `order_reduced`.** It switches to
+  `modified_ccz4` once the coupled evolution is verified three ways, and two
+  of them are: the coupling's GR limit, and a static hairy hole that is
+  static to fourth order, at strong coupling and at the string's own. The
+  third, hair grown in 3-D against the decoupling limit, holds at weak
+  coupling, to 1.6%. At stronger coupling the direction of the difference is
+  measured but not checked against the static solutions.
+  `require_well_posed` already accepts `modified_ccz4`, and
+  `nr.modified.admit_theory` admits a Gauss–Bonnet plugin that declares it,
+  so the switch is one line. Until then, `nr.modified` runs the theory from
+  `coupling=` and `coupling_squared=` directly.
+- **The papers.** The proxy refused arXiv, so the `Θ`, `K` and `Γ̂^i`
+  equations are this repository's derivation. They are checked by their
+  consequences — the speeds and the reduction to CCZ4 — and not against
+  the published equations. The gauge was checked against excerpts. ACF's
+  slicing reads `K − 2Θ`, which is `theta_in_slicing=True`. The default
+  reads `K`, as this repository's CCZ4 always has. ACF's shift driver is the
+  integrated `Γ̂^i` form, and here it is the `B^i` form with the same
+  change.
+- **A black hole in the moving-puncture gauge, and anything long.** The 3-D
+  runs here are a frozen static gauge on a periodic box, and they last
+  about `3M` before the disturbance from the box's faces reaches the
+  probes. A puncture with 1+log slicing, the Gamma driver and `a`, `b` on,
+  with a radiative boundary and refinement, is the run the formulation
+  exists for. Nothing here has done it. The strong hyperbolicity it buys is
+  proved by Aresté Saló, Clough and Figueras for weak coupling, and is not
+  measured here.
+- **A free scalar pulse on the hole.** A sourceless scalar on the hole,
+  against the 1-D evolution at `λ = 0`, was not run. The hair runs compare
+  the same scalar sector, on the same frozen background, with the
+  Gauss–Bonnet source on.
+- **`a(x)` and `b(x)` varying in space.** The kernel reads `b` as a field
+  and the gauge takes `a` as one, so a profile that switches them off inside
+  the horizon is a callable away. Every run here used constants.
 - **Order reduction past second order, and for scalarization couplings.**
   The first needs the scalar's `λ⁶` correction, which the second-order
-  metric sources. Scalarization needs the full equations, which
-  `static_black_hole` solves statically and nothing here evolves.
+  metric sources. Scalarization needs the full equations. Those are now
+  evolved, but for `3M`, not the hundreds of `M` that scalarization takes to
+  saturate.
 - **Stability.** A scalarized branch can be linearly unstable, and the
   quadratic coupling's is. Radial perturbations are not computed here.
 

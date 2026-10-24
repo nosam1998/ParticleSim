@@ -228,6 +228,12 @@ def checkpoint(path, states, clock, config, extra):
     temporary.replace(path)
 
 
+def saved_levels(path):
+    """How many levels a checkpoint holds: fewer than configured once it has been coarsened."""
+    with np.load(path, allow_pickle=False) as data:
+        return 1 + max(int(key.split(":")[0]) for key in data.files if ":" in key)
+
+
 def restore(path, states, config, backend):
     with np.load(path, allow_pickle=False) as data:
         if json.loads(str(data["configuration"])) != json.loads(json.dumps(config, sort_keys=True)):
@@ -266,16 +272,35 @@ def run(
     output=None,
     resume=False,
     progress=None,
+    coarsen_at=None,
+    accept_source_change=False,
 ):
-    setup, states = puncture.NestedPuncture.build(**config, backend=backend)
+    """Evolve, extract and record; with ``coarsen_at``, drop the finest level from that time.
+
+    Once the punctures have merged and the common horizon is well inside
+    the next level's evolved interior, the finest level costs most of the
+    run and resolves nothing the waves need. From ``coarsen_at`` on the run
+    continues on the coarser levels' states as they are, unchanged.
+    """
+    output = None if output is None else Path(output)
+    levels = config["levels"]
+    if resume and saved_levels(output.with_suffix(".npz")) < levels:
+        levels -= 1
+    setup, states = puncture.NestedPuncture.build(**{**config, "levels": levels}, backend=backend)
     plan = extraction_plan(setup, radii)
     clock = 0.0
-    extra = dict(waves=[], records=[])
-    output = None if output is None else Path(output)
+    extra = dict(waves=[], records=[], events=[])
+    history = []
     if resume:
         states, clock, extra = restore(output.with_suffix(".npz"), states, config, backend)
-        if json.loads(output.read_text())["source_sha256"] != source_digest():
-            raise ValueError("checkpoint source differs; start a new experiment")
+        extra.setdefault("events", [])
+        previous = json.loads(output.read_text())
+        history = previous.get("source_history", [])
+        if previous["source_sha256"] != source_digest():
+            if not accept_source_change:
+                raise ValueError("checkpoint source differs; start a new experiment")
+            history = [*history, dict(time=clock, source_sha256=previous["source_sha256"])]
+            extra["events"].append(dict(time=clock, event="source changed on resume"))
     metadata = dict(
         configuration=config,
         backend=backend,
@@ -284,6 +309,8 @@ def run(
         plan=plan,
         adm_mass=puncture.brill_lindquist_adm_mass([m for m, _ in config["punctures"]]),
         close_limit_energy=close_limit_energy(config["punctures"][0][1][2]),
+        coarsen_at=coarsen_at,
+        source_history=history,
     )
     start = time.monotonic()
     tolerance = 1e-9
@@ -316,6 +343,17 @@ def run(
                 temporary.replace(output)
         if clock >= stop - tolerance:
             return {**metadata, **extra}
+        if (
+            coarsen_at is not None
+            and clock >= coarsen_at - tolerance
+            and levels == config["levels"]
+        ):
+            levels -= 1
+            setup, _ = puncture.NestedPuncture.build(
+                **{**config, "levels": levels}, backend=backend
+            )
+            states = states[:levels]
+            extra["events"].append(dict(time=clock, event=f"finest level dropped: {levels} remain"))
         target = min(stop, clock + extract_every)
         while clock < target - tolerance:
             step = min(setup.time_step, target - clock)
@@ -334,6 +372,14 @@ def main():
     parser.add_argument("--z0", type=float, default=0.3)
     parser.add_argument("--radii", type=float, nargs="+", default=[6, 8, 10, 12, 16, 20, 24])
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--coarsen-at", type=float, default=None, help="drop the finest level from this time"
+    )
+    parser.add_argument(
+        "--accept-source-change",
+        action="store_true",
+        help="resume although the code changed, recording the earlier digests",
+    )
     args = parser.parse_args()
     config = configuration(
         n=args.n, extent=args.extent, box=args.box, levels=args.levels, z0=args.z0
@@ -347,6 +393,8 @@ def main():
         output=args.output,
         resume=args.resume,
         progress=lambda row: print(json.dumps(row), flush=True),
+        coarsen_at=args.coarsen_at,
+        accept_source_change=args.accept_source_change,
     )
 
 

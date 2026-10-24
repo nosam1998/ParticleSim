@@ -508,6 +508,7 @@ class NestedPuncture:
         reflection_symmetry: bool = False,
         octant: bool = False,
         punctures: tuple[tuple[float, tuple[float, ...]], ...] | None = None,
+        courant: float = bssn.COURANT,
     ) -> tuple[NestedPuncture, list[dict[str, Any]]]:
         """The setup and one initial state per level, coarsest first.
 
@@ -568,6 +569,9 @@ class NestedPuncture:
         starts at ``psi^-2`` and the shift at zero, so ``data`` must be
         ``"brill_lindquist"``. On an octant the set must be symmetric under
         the three reflections, e.g. an equal pair on the ``z`` axis.
+
+        ``courant`` is the coarsest level's Courant factor; every finer level
+        takes two steps for each of its parent's, so it is the same on all.
         """
         if octant and (
             centering != "cell"
@@ -685,6 +689,7 @@ class NestedPuncture:
             evolution = (octants.OctantEvolution if octant else bssn.Evolution).build(
                 (spacing,) * DIMENSION,
                 backend=backend,
+                courant=courant,
                 dissipation=dissipation,
                 upwind=upwind,
                 advect=advect,

@@ -26,7 +26,14 @@ from particlesim.solvers.nr import bssn, puncture
 
 
 def configuration(
-    *, n=48, extent=8.0, box=32, background="trumpet", reflection_symmetry=False, octant=False
+    *,
+    n=48,
+    extent=8.0,
+    box=32,
+    background="trumpet",
+    reflection_symmetry=False,
+    octant=False,
+    courant=None,
 ):
     config = dict(
         n=n,
@@ -46,6 +53,8 @@ def configuration(
     # existed still match their configuration.
     if octant:
         config["octant"] = True
+    if courant is not None:
+        config["courant"] = float(courant)
     return config
 
 
@@ -236,6 +245,7 @@ def main():
         action="store_true",
         help="Evolve only the octant x, y, z > 0, with reflection ghosts (same restriction)",
     )
+    parser.add_argument("--courant", type=float, default=None, help="Courant factor (default 0.25)")
     args = parser.parse_args()
     run_benchmark(
         config=configuration(
@@ -245,6 +255,7 @@ def main():
             background=args.background,
             reflection_symmetry=args.reflection_symmetry,
             octant=args.octant,
+            courant=args.courant,
         ),
         stop=args.stop,
         interval=args.interval,

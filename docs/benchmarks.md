@@ -2000,8 +2000,40 @@ The horizon's residual rises from 0.0005 to 0.0033, the smallest lapse is
   At its present 3.8e−05 it would be 1.035; if the rate kept growing as it
   has, more than 1.05.
 
-The run continues from its checkpoint; this records it at 100 M, after 40
-to 117 s per M.
+**The `M/12` run reached 1000 M, and it is not stable by the definition
+above.** Every record is finite and the horizon finder returns a surface at
+every one, so the weakest reading of "stable" holds. The mass does not:
+
+| t / M | 100 | 200 | 300 | 400 | 500 | 550 | 600 | 650 | 700 | 750 | 800 | 850 | 900 | 950 | 1000 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| horizon mass | 1.0014 | 1.0047 | 0.9970 | 0.9757 | 0.9767 | 1.0066 | 1.0601 | 1.1270 | 1.1678 | 1.1257 | 0.9846 | 0.7626 | 0.7029 | 0.6122 | 0.5548 |
+| horizon residual | 0.0033 | 0.0016 | 0.0039 | 0.0040 | 0.0039 | 0.0039 | 0.0039 | 0.0039 | 0.0039 | 0.0040 | 0.0068 | 0.046 | 0.032 | 0.041 | 0.028 |
+| coarse `‖H‖`, `r > 2 M` | 2.2e−04 | 5.5e−04 | 1.5e−03 | 2.5e−03 | 3.2e−03 | 5.1e−03 | 8.2e−03 | 1.1e−02 | 1.1e−02 | 1.4e−02 | 2.3e−02 | 3.3e−02 | 4.1e−02 | 5.3e−02 | 6.8e−02 |
+| fine `‖H‖`, `r > 2 M` | 8.5e−04 | 2.0e−03 | 4.1e−03 | 3.7e−03 | 1.0e−02 | 1.6e−02 | 1.8e−02 | 1.5e−02 | 2.3e−02 | 4.2e−02 | 6.0e−02 | 8.8e−02 | 8.7e−02 | 9.0e−02 | 9.4e−02 |
+| smallest lapse | 0.038 | 0.039 | 0.040 | 0.041 | 0.036 | 0.033 | 0.031 | 0.031 | 0.037 | 0.054 | 0.080 | 0.140 | 0.117 | 0.105 | 0.087 |
+
+- **Criterion 3 fails at 600 M.** The mass leaves 5% of one at 600 M
+  (1.0601), peaks at 1.168 at 700 M, passes back through one near 800 M and
+  falls to 0.555 at 1000 M. The levelling-off that the first 100 M suggested
+  did not last: the error turned over at 220 M, fell to −2.8% by 450 M, and
+  then grew with a period of a few hundred M and a growing amplitude.
+- **Criterion 2 fails from 850 M**, where the horizon's expansion residual
+  rises above 0.01 (0.046 at 850 M).
+- **Criterion 5 fails.** The coarse constraint outside 2 M is 313 times its
+  value at 100 M, the fine one 110 times; over the last 300 M they e-fold
+  every 155 M and 271 M.
+- **The `M/8` run failed the same criterion at 140 M**, the `M/12` run at
+  600 M: the finer spacing bought 4.3 times the time, more than the 1.5 in
+  spacing but far from the ten that 1000 M would need at this rate.
+- **Cost.** 22.9 s per M from 500 to 1000 M on two CPU threads, 18.4 s per M
+  once it ran alone, so 1000 M of this grid is about six hours; the whole
+  run took 4.8 hours of wall time across three sessions and two reboots,
+  resumed from its checkpoint each time.
+
+So a two-level puncture that stays within 5% of its mass to 1000 M needs
+either finer spacing again at the hole, or the cause of the slow mass
+oscillation, which the comparison with the five-level runs puts at the
+finest spacing but does not explain. Issue #48's acceptance is not met.
 
 The two runs, and how to continue them from their checkpoints (each holds
 a committed snapshot of the code it runs, so its source digests match on
@@ -2036,9 +2068,10 @@ at this length the mass bound checks the run's health, not its centring.
 
 ### What is not here
 
-- **1000 M.** The `M/8` run is stable by the definition above to 130 M and
-  no further; the `M/12` run had not reached 1000 M when this was written.
-  Issue #48's acceptance is not met.
+- **1000 M within 5% of the mass.** The `M/8` run is stable by the
+  definition above to 130 M and the `M/12` run to 590 M; the `M/12` run
+  reaches 1000 M finite with a horizon, at 0.555 of its mass. Issue #48's
+  acceptance is not met.
 - **Asymmetric perturbations.** Both long runs are octants, so the hole
   cannot move, and the five-level runs' failure, the hole drifting out of
   the finest box, is excluded by construction rather than cured. The full-grid

@@ -1,6 +1,6 @@
 # Milestone status
 
-Issue audit: 2026-10-04. This distinguishes the implementation state recorded
+Issue audit: 2026-10-04, local suite verification 2026-10-24. This distinguishes the implementation state recorded
 by GitHub from benchmark acceptance. Each milestone requires all its child
 issues to be closed **and** its benchmarks to pass in CI.
 
@@ -19,8 +19,22 @@ issues to be closed **and** its benchmarks to pass in CI.
 
 At the audit, repository-level GitHub Actions was disabled. That explains
 the missing recent workflow runs; a queued historical run is not evidence
-that current benchmarks passed. Local verification is recorded in the PRs,
-and the CI completion gate remains pending until a current run succeeds.
+that current benchmarks passed. A `workflow_dispatch` of CI on `main` sent on
+2026-10-24 also stayed queued, so the CI gate cannot run until Actions is
+re-enabled for the repository.
+
+In its place, the suites CI runs were executed locally on 2026-10-24 on the
+v0.5.0 branch (main plus PR #216), on a 4-core machine shared with other
+jobs: `ruff check` and `ruff format --check` pass on Python 3.13 and 3.12;
+`pytest -m "not slow"` passed 1903 of 1910 tests on 3.13 and 1906 of 1910 on
+3.12, the only failures being timeouts under load (three first-use kernel
+derivations that pass alone once cached, and `test_the_app_is_served`, whose
+server answers HTTP 200 in 5 to 8 s against the test's 5 s per-request
+limit); `pytest -m "benchmark and not slow"` passed 171 of 171; and
+`particlesim check-limits` reports every plugin's GR limit ok. The slow job
+is being rerun on the integrated branch; its result is recorded in the
+pull request. The research-marked reruns (Choptuik at research resolution,
+IKKT at `N = 32`) belong to the nightly workflow and were not run.
 
 ## IKKT scope
 
@@ -36,28 +50,58 @@ are in [Benchmarks](benchmarks.md#bosonic-lorentzian-ikkt-dimension-benchmark).
 
 ## Remaining acceptance work
 
+Version 0.5.0 moves each of these and completes #52 and #132.
+
 - [#48: Fixed mesh refinement](https://github.com/nosam1998/ParticleSim/issues/48).
-  Prolongation, restriction, subcycling and stage buffers exist. The required
-  Schwarzschild puncture stable to `t = 1000 M` on two levels has not passed.
-  Version 0.4.0 adds cell-centred levels and an optional stationary trumpet
-  boundary reference. At 40 M on two levels, the hole remains centred and
-  its mass error is 0.42%, against 4.5% with the flat reference. This short
-  measurement does not establish the required 1000 M evolution.
+  Prolongation, restriction, subcycling and stage buffers exist. On the
+  cell-centred two-level grids of v0.4.0, an octant evolution
+  (`solvers/nr/octant.py`) holds the puncture at its centre to rounding. A
+  stability definition was written down before the runs (finite, horizon
+  found with residual below 0.01, mass within 5%, centred, constraints
+  bounded). The `M/8` two-level run meets it to 130 M; the `M/12` run meets
+  it to 590 M and then, though it stays finite with a horizon all the way
+  to 1000 M, its mass leaves the 5% band at 600 M, peaks at 1.168 at 700 M
+  and ends at 0.555, with the constraints e-folding every 155 to 271 M. The
+  1000 M acceptance is not met; the full record is in
+  [Benchmarks](benchmarks.md).
 - [#51: 3D NR benchmarks](https://github.com/nosam1998/ParticleSim/issues/51).
-  Gauge-wave and evolved Teukolsky-wave convergence are implemented.
-  The long puncture and a head-on binary whose final mass and radiated
-  energy agree with literature within 5% remain outstanding.
+  Gauge-wave and evolved Teukolsky-wave convergence are implemented. A
+  head-on Brill–Lindquist collision from rest at `z₀ = 0.3 M`, compared
+  with the Abrahams–Price close limit recomputed here by a Zerilli
+  evolution, gives a final horizon mass within 0.3% and a radiated energy
+  within 1% under a `1/R²` extrapolation of the extraction radius but
+  −10% with a free `1/R` term, at one resolution. The single puncture to
+  1000 M is #48's run. Neither item meets its acceptance in full.
 - [#52: Modified CCZ4](https://github.com/nosam1998/ParticleSim/issues/52).
-  The dilaton–Gauss–Bonnet plugin, static spherical scalarized holes,
-  leading and second-order order reduction, and refusal of unsupported 3D
-  runs are implemented. The full modified CCZ4 evolution is not. The
-  plugin must keep declaring `order_reduced` until that solver is verified.
+  Modified CCZ4 is implemented (`symbolic/modified_ccz4.py`,
+  `symbolic/esgb.py`, `solvers/nr/modified.py`): the modified gauge reduces
+  to CCZ4 at `a = b = 0`, the constraint and lapse modes travel at the
+  predicted speeds, the gauge wave converges at fourth order, static hairy
+  holes stay static at fourth order, and the hair's growth matches an
+  independent spherical solver of the same problem at weak coupling and at
+  strong coupling (3-D excess over the decoupling limit +9.03% and +3.50%
+  against the 1-D prediction +9.09% and +3.49%; a sign-flipped control
+  fails). `string.eft4d.dgb` now declares `modified_ccz4`, and ADR-008
+  still refuses plugins that only declare `order_reduced`. Every task of
+  the issue is done; what is not here is a long dynamical 3-D run or 3-D
+  scalarization, which no acceptance of the issue asks for. On the way,
+  CCZ4's conformal Ricci tensor was found to count the Z terms twice; the
+  fix changes the CCZ4 damping table.
 - [#132: Outer boundary](https://github.com/nosam1998/ParticleSim/issues/132).
-  Sommerfeld and second-order absorbing conditions exist, with measured
-  reflection and constraint errors. Version 0.2.0 adds explicitly bounded
-  code generation and preserves the requested stencil order at edges.
-  Characteristic/constraint-preserving treatment and fourth-order constraint
-  convergence after an outgoing Teukolsky wave are still required.
+  A constraint-preserving absorbing layer (`boundary.ConstraintPreserving`)
+  relaxes the incoming radiation modes toward Bayliss–Turkel's second
+  condition through a surface auxiliary, and on CCZ4 damps the constraint
+  modes inside the layer only. On the Teukolsky wave (box of 12, zone from
+  `r = 5`, 48/72/96 points) the wave leaves by 5900×, what returns is 0.40
+  of the truncation error, and the Hamiltonian and momentum constraints
+  after the reflection converge at 4.1 and 4.2 between 72 and 96 points
+  against the interior's 3.9. All three acceptance items pass. The
+  previous BSSN layer fails the same test at order 3.0, because BSSN with
+  a frozen shift has a zero-speed constraint mode that keeps the Teukolsky
+  data's own `O(a²)` violation in place. Measured in harmonic slicing with
+  a frozen shift on one octant; not yet run with 1+log slicing or a moving
+  shift, and the incoming constraint data is damped across a layer rather
+  than imposed at a surface.
 
 See [Benchmarks](benchmarks.md) for the measurements and
 [CONTRIBUTING](../CONTRIBUTING.md) for the reproducible checks. Keep these

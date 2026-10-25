@@ -162,6 +162,10 @@ UPWIND_CORRECTIONS = {
     ),
 }
 
+#: Whether :meth:`Evolution.right_hand_side` compiles the kernel, dissipation
+#: and upwinding as one JAX function. ``None`` fuses them except on a CPU.
+FUSE_RATES: bool | None = None
+
 _RHS_CACHE: dict[tuple, codegen.Kernel] = {}
 _CONSTRAINT_CACHE: dict[tuple, codegen.Kernel] = {}
 _RATES: dict[Any, Callable] = {}
@@ -744,17 +748,38 @@ class Evolution:
         return apply
 
     def right_hand_side(self, state: Mapping[str, Any]) -> dict[str, Any]:
-        """The kernel's output plus dissipation and upwinding, one entry per variable."""
+        """The kernel's output plus dissipation and upwinding, one entry per variable.
+
+        On an accelerator the whole right-hand side is compiled as one
+        function. On a CPU it is two: the kernel, and everything added to
+        its rates (:meth:`_corrections`). Compiled together, XLA's fusion of
+        the kernel's temporaries with the rest costs 11 to 12 us per point
+        at 28^3 to 36^3 on one thread, against 4.2 to 5.4 us apart
+        (``docs/benchmarks.md``). Both give the same rates to rounding.
+        """
         if self.backend == "jax":
             import jax
 
             if self not in _RATES:
-                _RATES[self] = jax.jit(self._rates)
+                fuse = jax.default_backend() != "cpu" if FUSE_RATES is None else FUSE_RATES
+                if fuse:
+                    _RATES[self] = jax.jit(self._rates)
+                else:
+                    corrections = jax.jit(self._corrections)
+
+                    def composed(state):
+                        return corrections(state, self.kernel(dict(state), self.spacing))
+
+                    _RATES[self] = composed
             return _RATES[self](dict(state))
         return self._rates(state)
 
     def _rates(self, state):
-        rates = dict(self.kernel(dict(state), self.spacing))
+        return self._corrections(state, self.kernel(dict(state), self.spacing))
+
+    def _corrections(self, state, rates):
+        """Dissipation, upwinding and the driver's advection, added to the kernel's ``rates``."""
+        rates = dict(rates)
         module = _module(self.backend)
         if self.dissipation > 0.0:
             names = list(state)

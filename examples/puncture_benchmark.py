@@ -6,6 +6,9 @@ single-hole stability experiment, not a binary or a constraint-preserving
 boundary benchmark. Checkpoints permit continuing the same experiment.
 
     uv run python examples/puncture_benchmark.py --stop 1000 --output puncture.json
+
+``--octant`` evolves one eighth of the same reflection-symmetric problem
+(:mod:`particlesim.solvers.nr.octant`); its records are of the unfolded grid.
 """
 
 from __future__ import annotations
@@ -22,8 +25,17 @@ from particlesim.analysis.horizon import Slice, find_apparent_horizon
 from particlesim.solvers.nr import bssn, puncture
 
 
-def configuration(*, n=48, extent=8.0, box=32, background="trumpet", reflection_symmetry=False):
-    return dict(
+def configuration(
+    *,
+    n=48,
+    extent=8.0,
+    box=32,
+    background="trumpet",
+    reflection_symmetry=False,
+    octant=False,
+    courant=None,
+):
+    config = dict(
         n=n,
         extent=extent,
         box=box,
@@ -37,11 +49,27 @@ def configuration(*, n=48, extent=8.0, box=32, background="trumpet", reflection_
         boundary_background=background,
         reflection_symmetry=reflection_symmetry,
     )
+    # Only recorded when set, so that checkpoints written before the octant
+    # existed still match their configuration.
+    if octant:
+        config["octant"] = True
+    if courant is not None:
+        config["courant"] = float(courant)
+    return config
 
 
 def measure(setup, states):
+    """Diagnostics, the lapse-weighted centre, and the apparent horizon on the finest level.
+
+    ``centre`` is the offset from the puncture's initial position, per axis,
+    of the region where the lapse is below one half, weighted by ``1/2 - alpha``.
+
+    An octant's states are unfolded first. A horizon the finder cannot
+    place is recorded as missing rather than ending the run.
+    """
     result = setup.diagnostics(states)
-    axis = setup.axes[-1]
+    states = setup.full_states(states)
+    axis = setup.full_axis(setup.levels - 1)
     lapse = np.asarray(states[-1]["alpha"])
     weights = np.maximum(0.5 - lapse, 0)
     grids = np.meshgrid(*(axis,) * 3, indexing="ij")
@@ -58,20 +86,25 @@ def measure(setup, states):
             (setup.spacing(setup.levels - 1),) * 3,
             centre=tuple(p - axis[0] for p in setup.position),
         )
-        horizon = find_apparent_horizon(
-            geometry,
-            float(puncture.trumpet_isotropic_radius(2)),
-            theta_count=16,
-            phi_count=32,
-            tolerance=0.004,
-            max_iterations=200,
-        )
-        result.update(
-            horizon_mass=horizon.irreducible_mass,
-            horizon_residual=horizon.residual,
-            horizon_radius=float(np.mean(horizon.radii)),
-            horizon_converged=bool(horizon.converged),
-        )
+        try:
+            horizon = find_apparent_horizon(
+                geometry,
+                float(puncture.trumpet_isotropic_radius(2)),
+                theta_count=16,
+                phi_count=32,
+                tolerance=0.004,
+                max_iterations=200,
+            )
+        except RuntimeError as error:
+            result.update(horizon_found=False, horizon_error=str(error))
+        else:
+            result.update(
+                horizon_found=True,
+                horizon_mass=horizon.irreducible_mass,
+                horizon_residual=horizon.residual,
+                horizon_radius=float(np.mean(horizon.radii)),
+                horizon_converged=bool(horizon.converged),
+            )
     return result
 
 
@@ -122,6 +155,7 @@ def source_digest():
         "mesh.py",
         "stepping.py",
         "symmetry.py",
+        "octant.py",
     )
     return {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in names}
 
@@ -187,7 +221,7 @@ def run_benchmark(
         while clock < target - 1e-9:
             step = min(setup.time_step, target - clock)
             states = setup.step(states, step)
-            clock += step
+            clock = round(clock + step, 12)
 
 
 def main():
@@ -206,6 +240,12 @@ def main():
         action="store_true",
         help="Restrict the single-hole experiment to coordinate reflections",
     )
+    parser.add_argument(
+        "--octant",
+        action="store_true",
+        help="Evolve only the octant x, y, z > 0, with reflection ghosts (same restriction)",
+    )
+    parser.add_argument("--courant", type=float, default=None, help="Courant factor (default 0.25)")
     args = parser.parse_args()
     run_benchmark(
         config=configuration(
@@ -214,6 +254,8 @@ def main():
             box=args.box,
             background=args.background,
             reflection_symmetry=args.reflection_symmetry,
+            octant=args.octant,
+            courant=args.courant,
         ),
         stop=args.stop,
         interval=args.interval,

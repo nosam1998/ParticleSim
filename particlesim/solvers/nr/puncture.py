@@ -432,6 +432,7 @@ class NestedPuncture:
     axes: tuple[np.ndarray, ...]
     zone: int
     mass: float = 1.0
+    reflection_symmetry: bool = False
 
     @classmethod
     def build(
@@ -453,7 +454,10 @@ class NestedPuncture:
         conformal: str = "phi",
         formulation: str = "bssn",
         constraint_damping: float | None = None,
-        offset: int = 1,
+        offset: int | None = None,
+        centering: str = "vertex",
+        boundary_background: str = "flat",
+        reflection_symmetry: bool = False,
     ) -> tuple[NestedPuncture, list[dict[str, Any]]]:
         """The setup and one initial state per level, coarsest first.
 
@@ -481,6 +485,25 @@ class NestedPuncture:
         that allows. :func:`staggered_offset` gives the multiple that keeps it
         furthest from every level's points instead, which for five levels is
         eleven, 0.69 M off centre at ``M/8``.
+
+        ``centering="cell"`` uses point samples at cell centres, with an
+        even ``n``. Its default ``offset=0`` puts the hole at the reflection
+        centre of every level without sampling the singular point. Both
+        transfers remain fourth order. Vertex centering keeps its existing
+        default of one finest half-spacing; explicit offsets are still
+        checked against the actual initial-data grids.
+
+        ``boundary_background="trumpet"`` applies the outer radiation
+        condition to deviations from the initial stationary trumpet. This
+        is available only for unperturbed trumpet initial data, and changes
+        no interior evolution rates. The default retains the asymptotically
+        flat reference used by the existing boundary benchmarks.
+
+        ``reflection_symmetry=True`` restricts the experiment to the three
+        coordinate reflections, as an octant domain would. Tensor-aware
+        group averaging removes roundoff asymmetries after each coarse
+        step; it does not hold any field at its initial value. It requires
+        a centred cell grid and unperturbed single-hole initial data.
         """
         if formulation not in ("bssn", "ccz4"):
             raise ValueError(f"formulation {formulation!r} is not 'bssn' or 'ccz4'")
@@ -488,7 +511,24 @@ class NestedPuncture:
             raise ValueError("the CCZ4 kernel carries phi only")
         if levels < 2:
             raise ValueError("a nested puncture needs at least two levels")
-        if offset % 2 == 0:
+        if boundary_background not in ("flat", "trumpet"):
+            raise ValueError("boundary_background must be 'flat' or 'trumpet'")
+        if boundary_background == "trumpet" and (data != "trumpet" or wave is not None):
+            raise ValueError(
+                "a trumpet boundary background requires unperturbed trumpet initial data"
+            )
+        if boundary_background == "trumpet" and advect is not False:
+            raise ValueError(
+                "the stationary trumpet boundary background needs the unadvected gauge"
+            )
+        if centering not in ("vertex", "cell"):
+            raise ValueError("centering must be 'vertex' or 'cell'")
+        if centering == "cell" and n % 2:
+            raise ValueError("a symmetric cell-centred puncture needs an even grid size")
+        offset = (0 if centering == "cell" else 1) if offset is None else offset
+        if reflection_symmetry and (centering != "cell" or offset != 0 or wave is not None):
+            raise ValueError("reflection symmetry requires centred cell grids and single-hole data")
+        if centering == "vertex" and offset % 2 == 0:
             raise ValueError(
                 f"an offset of {offset} half-spacings puts the puncture on a grid point: "
                 "it must be an odd number"
@@ -500,14 +540,23 @@ class NestedPuncture:
         finest = spacing / mesh.RATIO ** (levels - 1)
         position = ((n // 2) * spacing + offset * finest / 2,) * DIMENSION
 
-        axes = [np.arange(n) * spacing]
+        axes = [(np.arange(n) + (0.5 if centering == "cell" else 0)) * spacing]
         sizes = [n]
         regions = []
         for _ in range(1, levels):
             origin = sizes[-1] // 2 - box // 2
-            regions.append(mesh.Box(origin=(origin,) * DIMENSION, shape=(box,) * DIMENSION))
+            regions.append(
+                mesh.Box(
+                    origin=(origin,) * DIMENSION,
+                    shape=(box,) * DIMENSION,
+                    centering=centering,
+                )
+            )
             step = (axes[-1][1] - axes[-1][0]) / mesh.RATIO
-            axes.append(axes[-1][origin] + np.arange(mesh.RATIO * box) * step)
+            axes.append(
+                axes[-1][origin]
+                + (np.arange(mesh.RATIO * box) - (0.5 if centering == "cell" else 0)) * step
+            )
             sizes.append(mesh.RATIO * box)
 
         if formulation == "ccz4":
@@ -534,6 +583,11 @@ class NestedPuncture:
         width = max(3, int(round(zone / spacing)))
         coarse_mesh = np.meshgrid(axes[0], axes[0], axes[0], indexing="ij")
         relative = tuple(m - p for m, p in zip(coarse_mesh, position, strict=True))
+        reference = None
+        if boundary_background == "trumpet":
+            reference = bssn.with_conformal(
+                trumpet_state(coarse_mesh, position, mass, backend), conformal, backend
+            )
         edge = (SecondOrder if second_order else Bounded)(
             evolution,
             Radiative(
@@ -543,6 +597,7 @@ class NestedPuncture:
                 width=width,
                 backend=backend,
                 speeds=GAUGE_SPEEDS[evolution.slicing],
+                background=reference,
             ),
         )
         pairs = []
@@ -558,6 +613,7 @@ class NestedPuncture:
             axes=tuple(axes),
             zone=width,
             mass=mass,
+            reflection_symmetry=reflection_symmetry,
         )
 
         states = []
@@ -583,6 +639,10 @@ class NestedPuncture:
             states.append(state)
         if second_order:
             states[0] = edge.start(states[0])
+        if reflection_symmetry:
+            from particlesim.solvers.nr.symmetry import project
+
+            states = [project(state, backend=backend) for state in states]
         return setup, states
 
     @property
@@ -597,7 +657,13 @@ class NestedPuncture:
         return float(self.axes[level][1] - self.axes[level][0])
 
     def step(self, states, time_step: float | None = None) -> list:
-        return self.nested.step(states, time_step)
+        advanced = self.nested.step(states, time_step)
+        if self.reflection_symmetry:
+            from particlesim.solvers.nr.symmetry import project
+
+            backend = self.nested.pairs[0].coarse.backend
+            advanced = [project(state, backend=backend) for state in advanced]
+        return advanced
 
     def diagnostics(self, states, excise: float = 1.0) -> dict[str, Any]:
         """What says whether the run is healthy, as plain numbers.

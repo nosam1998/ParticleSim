@@ -164,6 +164,8 @@ UPWIND_CORRECTIONS = {
 
 _RHS_CACHE: dict[tuple, codegen.Kernel] = {}
 _CONSTRAINT_CACHE: dict[tuple, codegen.Kernel] = {}
+_RATES: dict[Any, Callable] = {}
+_PROJECTORS: dict[Any, Callable] = {}
 
 
 def rhs_expressions(
@@ -743,6 +745,15 @@ class Evolution:
 
     def right_hand_side(self, state: Mapping[str, Any]) -> dict[str, Any]:
         """The kernel's output plus dissipation and upwinding, one entry per variable."""
+        if self.backend == "jax":
+            import jax
+
+            if self not in _RATES:
+                _RATES[self] = jax.jit(self._rates)
+            return _RATES[self](dict(state))
+        return self._rates(state)
+
+    def _rates(self, state):
         rates = dict(self.kernel(dict(state), self.spacing))
         module = _module(self.backend)
         if self.dissipation > 0.0:
@@ -832,20 +843,15 @@ class Evolution:
         return {**rates, **{f"B{i}": rates[f"B{i}"] + advection[i] for i in INDICES}}
 
     def _raw_step(self, state, step):
-        names = list(state)
+        from particlesim.solvers.nr.stepping import operations
 
-        def advance(base, rates, factor):
-            return {name: base[name] + factor * rates[name] for name in names}
+        advance, finish, _ = operations(self.backend)
 
         first = self.right_hand_side(state)
         second = self.right_hand_side(advance(state, first, step / 2))
         third = self.right_hand_side(advance(state, second, step / 2))
         fourth = self.right_hand_side(advance(state, third, step))
-        return {
-            name: state[name]
-            + (step / 6) * (first[name] + 2 * second[name] + 2 * third[name] + fourth[name])
-            for name in names
-        }
+        return finish(state, first, second, third, fourth, step)
 
     def project(self, state: Mapping[str, Any]) -> dict[str, Any]:
         """Put the state back on ``det gammabar = 1`` and ``gammabar^ij Abar_ij = 0``.
@@ -863,6 +869,15 @@ class Evolution:
 
         costs two determinants and is what every production code does.
         """
+        if self.backend == "jax":
+            import jax
+
+            if self not in _PROJECTORS:
+                _PROJECTORS[self] = jax.jit(self._project)
+            return _PROJECTORS[self](dict(state))
+        return self._project(state)
+
+    def _project(self, state):
         metric = [[state[f"gt{min(i, j)}{max(i, j)}"] for j in INDICES] for i in INDICES]
         scale = determinant(metric) ** (-1.0 / 3.0)
         metric = [[scale * metric[i][j] for j in INDICES] for i in INDICES]
@@ -878,14 +893,14 @@ class Evolution:
     def step(self, state: Mapping[str, Any], time_step: float | None = None):
         """One classical fourth-order Runge-Kutta step.
 
-        The right-hand side is compiled and the four-stage combination is
-        not, which is the opposite of what one would try first. Compiling
+        The right-hand side and the small stage combinations are compiled
+        separately. Compiling
         the whole step means unrolling four copies of a kernel with four
         hundred and forty-five temporaries and a hundred and fourteen
         stencils into one graph, and XLA's fusion pass does not finish on
         it: measured here, the first call had not returned after ten
         minutes. Compiling the right-hand side alone takes seconds, and
-        what is left outside is ninety-six array operations per step.
+        the small combinations reuse their own compiled functions.
         """
         step = self.time_step if time_step is None else float(time_step)
         advanced = self._raw_step(dict(state), step)

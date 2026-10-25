@@ -22,7 +22,14 @@ is the difference, and the difference is small enough to read:
   removes by substituting the Hamiltonian constraint, because Z4 is the
   statement that the constraint is *not* assumed; then the ``Z`` terms;
 * ``d_t Abar_ij`` gets the trace-free part of ``2 alpha D_(i Z_j)`` and the
-  ``-2 alpha Theta Abar_ij`` that turns ``K`` into ``K - 2 Theta``;
+  ``-2 alpha Theta Abar_ij`` that turns ``K`` into ``K - 2 Theta``. Most of
+  ``2 D_(i Z_j)`` arrives without being asked for: the conformal Ricci
+  tensor is built with the evolved ``Gammahat^i``, and that alone adds
+  ``2 Dbar_(i Z_j)``. Only the difference between the physical and the
+  conformal covariant derivative is added by hand
+  (:func:`connection_z_terms`). An earlier version added all of it again,
+  which counted the Z terms twice and sent a constraint violation at
+  ``sqrt(2)`` times the speed of light;
 * ``d_t Gammahat^i`` gets the gradient of ``Theta`` and a damping term;
 * ``Theta`` is new, and its equation is the Hamiltonian constraint.
 
@@ -230,7 +237,7 @@ def _hamiltonian(variables: BSSNVariables, scalar, density=0.0):
     return scalar + 2 * variables.mean_curvature**2 / 3 - square - 16 * math.pi * density
 
 
-def ccz4_rhs(
+def ccz4_parts(
     variables: BSSNVariables,
     theta,
     d_theta,
@@ -242,9 +249,16 @@ def ccz4_rhs(
     damping: float = DAMPING,
     damping_mix: float = DAMPING_MIX,
 ):
-    """The CCZ4 right-hand sides, keyed the way the state is.
+    """The CCZ4 right-hand sides and the pieces they were built from.
 
-    Returns the five BSSN keys -- ``phi``, ``conformal_metric``,
+    Returns ``(rates, parts)``. ``rates`` is what :func:`ccz4_rhs` returns.
+    ``parts`` holds what a formulation built on this one needs again: the
+    Hamiltonian constraint ``hamiltonian`` (with ``density``), the conformal
+    raise ``conformal_z`` of ``Z_i``, its physical divergence
+    ``z_divergence``, the Ricci tensor ``ricci`` of the metric itself (no
+    Z terms), and the two inverse metrics.
+
+    The rates carry the five BSSN keys -- ``phi``, ``conformal_metric``,
     ``mean_curvature``, ``traceless_curvature``, ``connection`` -- plus
     ``theta``. The connection key is ``d_t Gammahat^i``, not
     ``d_t Gammabar^i``: in CCZ4 the evolved connection variable carries
@@ -282,9 +296,20 @@ def ccz4_rhs(
 
     upper_z, d_upper_z = z_vector(variables, d_connection)
     divergence, symmetric = z_derivatives(variables, upper_z, d_upper_z)
+    # The Ricci tensor above was built with the evolved Gammahat^i, and that
+    # substitution alone already adds 2 Dbar_(i Z_j) -- the *conformal*
+    # covariant derivative -- to it. What the Z4 equations want is
+    # R_ij + 2 D_(i Z_j) with the physical one, so the only Z term left to
+    # add by hand is the difference of the two covariant derivatives,
+    # -(Gamma^k_ij - Gammabar^k_ij) Z_k, which carries the conformal factor's
+    # gradient and nothing else. See :func:`connection_z_terms`.
+    correction = connection_z_terms(variables, upper_z)
+    correction_trace = trace(inverse, correction)
 
     # H = R + K^2 - K_ij K^ij, the quantity the textbook BSSN d_t K removes
-    # and Z4 puts back.
+    # and Z4 puts back. The trace of the Gammahat-built tensor is
+    # R + 2 gamma^ij Dbar_(i Z_j); the Hamiltonian constraint of the data is
+    # that less its Z part.
     #
     # Traced from the tensor above rather than called from
     # ``hamiltonian_constraint``, which builds the Ricci tensor by the other
@@ -302,7 +327,8 @@ def ccz4_rhs(
     # matter how many times the tensor was built; elimination removes the
     # duplication either way. CCZ4 is three times BSSN's size because it is
     # twenty-five equations with the Z terms, not because of this.
-    constraint = _hamiltonian(variables, trace(inverse, ricci_tensor), density)
+    connected = _hamiltonian(variables, trace(inverse, ricci_tensor), density)
+    constraint = connected - 2 * (divergence - correction_trace)
 
     # (1) d_t K. The BSSN form plus alpha H is the ADM form, which is what
     # Z4 starts from because it does not assume the constraint.
@@ -310,11 +336,12 @@ def ccz4_rhs(
     dt_mean = dt_mean + lapse * (2 * divergence - 2 * theta * mean)
     dt_mean = dt_mean - 3 * lapse * damping * (1 + damping_mix) * theta
 
-    # (2) d_t Abar_ij. The Ricci tensor gains 2 D_(i Z_j), trace-free and
-    # conformally weighted like the rest of that bracket; and ``K`` in the
-    # quadratic term becomes ``K - 2 Theta``.
+    # (2) d_t Abar_ij. The Ricci tensor needs 2 D_(i Z_j), trace-free and
+    # conformally weighted like the rest of that bracket, of which the
+    # Gammahat-built tensor already holds all but ``correction``; and ``K``
+    # in the quadratic term becomes ``K - 2 Theta``.
     extra = _trace_free(
-        [[2 * lapse * symmetric[i][j] for j in INDICES] for i in INDICES],
+        [[2 * lapse * correction[i][j] for j in INDICES] for i in INDICES],
         physical.metric,
         inverse,
     )
@@ -347,7 +374,7 @@ def ccz4_rhs(
     for k in INDICES:
         dt_theta = dt_theta + shift[k] * d_theta[k]
 
-    return {
+    rates = {
         "phi": geometry["phi"],
         "conformal_metric": geometry["conformal_metric"],
         "mean_curvature": dt_mean,
@@ -355,6 +382,96 @@ def ccz4_rhs(
         "connection": dt_connection,
         "theta": dt_theta,
     }
+    # R_ij itself, without Z: the Gammahat-built tensor less 2 Dbar_(i Z_j).
+    ricci_of_metric = [
+        [ricci_tensor[i][j] - 2 * (symmetric[i][j] - correction[i][j]) for j in INDICES]
+        for i in INDICES
+    ]
+    parts = {
+        "hamiltonian": constraint,
+        "conformal_z": upper_z,
+        "z_divergence": divergence,
+        "ricci": ricci_of_metric,
+        "inverse": inverse,
+        "conformal_inverse": conformal_inverse,
+    }
+    return rates, parts
+
+
+def ccz4_rhs(
+    variables: BSSNVariables,
+    theta,
+    d_theta,
+    density=0.0,
+    stress=None,
+    momentum=None,
+    d_connection=None,
+    dd_shift=None,
+    damping: float = DAMPING,
+    damping_mix: float = DAMPING_MIX,
+):
+    """The CCZ4 right-hand sides, keyed the way the state is.
+
+    Returns the five BSSN keys -- ``phi``, ``conformal_metric``,
+    ``mean_curvature``, ``traceless_curvature``, ``connection`` -- plus
+    ``theta``. The connection key is ``d_t Gammahat^i``, not
+    ``d_t Gammabar^i``: in CCZ4 the evolved connection variable carries
+    ``Z_i``, and every place the BSSN equations use the evolved connection
+    (the conformal Ricci tensor above all) uses ``Gammahat^i`` here.
+
+    ``theta`` and ``d_theta`` are the field and its gradient. ``damping`` is
+    ``kappa_1`` and ``damping_mix`` is ``kappa_2``; ``kappa_3`` is one.
+    """
+    rates, _ = ccz4_parts(
+        variables,
+        theta,
+        d_theta,
+        density=density,
+        stress=stress,
+        momentum=momentum,
+        d_connection=d_connection,
+        dd_shift=dd_shift,
+        damping=damping,
+        damping_mix=damping_mix,
+    )
+    return rates
+
+
+def connection_z_terms(variables: BSSNVariables, upper_z):
+    """``D_(i Z_j) - Dbar_(i Z_j) = -(Gamma^k_ij - Gammabar^k_ij) Z_k``.
+
+    The conformal Ricci tensor written with ``Gammahat^i`` in place of
+    ``Gammabar^i`` -- the substitution that keeps CCZ4 strongly hyperbolic --
+    is ``Rbar_ij + 2 Dbar_(i Z_j)``, exactly: the extra
+    ``gammabar_k(i d_j) (2 Zbar^k) + 2 Zbar^k Gammabar_(ij)k`` is
+    ``2 d_(i Z_j) - 2 Gammabar^k_ij Z_k``. So the covariant derivative of
+    ``Z`` is already in it, with the conformal connection, and what is
+    missing to make it the physical ``2 D_(i Z_j)`` the Z4 equations ask for
+    is this difference, which only the conformal factor's gradient carries:
+
+        Gamma^k_ij - Gammabar^k_ij = 2 (delta^k_i d_j phi + delta^k_j d_i phi
+                                        - gammabar_ij gammabar^kl d_l phi)
+
+    The first version of this module added the whole ``2 D_(i Z_j)`` on top
+    of the ``Gammahat`` tensor, which counts the Z terms twice in the
+    principal part: a constraint violation then travels at ``sqrt(2)``
+    rather than at the speed of light. ``upper_z`` is ``gammabar^ij Z_j``.
+    """
+    conformal = variables.conformal_slice
+    conformal_inverse = inverse_metric(conformal.metric)
+    lower = [sum(conformal.metric[i][j] * upper_z[j] for j in INDICES) for i in INDICES]
+    d_phi = variables.d_phi
+    raised = [sum(conformal_inverse[k][m] * d_phi[m] for m in INDICES) for k in INDICES]
+    out = []
+    for i in INDICES:
+        row = []
+        for j in INDICES:
+            # -sum_k (Gamma - Gammabar)^k_ij Z_k, written out.
+            total = -2 * (lower[i] * d_phi[j] + lower[j] * d_phi[i])
+            total = total + 2 * conformal.metric[i][j] * sum(raised[k] * lower[k] for k in INDICES)
+            row.append(total)
+        out.append(row)
+    return out
 
 
 def constraint_identity(variables: BSSNVariables, density=0.0):
@@ -380,7 +497,9 @@ __all__ = [
     "DERIVATIVE_ORDERS",
     "STATE_NAMES",
     "abstract_state",
+    "ccz4_parts",
     "ccz4_rhs",
+    "connection_z_terms",
     "constraint_identity",
     "z_derivatives",
     "z_vector",

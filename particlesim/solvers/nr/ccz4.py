@@ -41,7 +41,7 @@ from particlesim.symbolic.bssn import from_state
 from particlesim.symbolic.threeplusone import DIMENSION, INDICES
 
 #: Bumped when the generated equations change, so stale cache entries miss.
-KERNEL_VERSION = "ccz4-3"
+KERNEL_VERSION = "ccz4-4"
 
 _RHS_CACHE: dict[tuple, codegen.Kernel] = {}
 

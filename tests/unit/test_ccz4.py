@@ -193,9 +193,10 @@ def test_z4_keeps_a_constraint_violation_bounded_where_bssn_does_not():
     the phase fixed and the series is an envelope rather than a sampled
     wave; sampled off the period it oscillates and the ratios mean nothing.
 
-    Measured: BSSN grows roughly linearly to 69 times its initial value,
-    both CCZ4 runs stay near 3. The damping is the *smaller* effect here and
-    shows up mostly in ``Theta`` -- see the test below.
+    Measured: BSSN grows roughly linearly to 69 times its initial value;
+    CCZ4 ends at 1.6 times it with ``kappa_1 = 0.1``, and at 0.83 times it
+    undamped. Before the Z terms were counted once, both CCZ4 runs ended
+    near 3.
     """
     state, spacing = _violating()
     final, periods = 4.0, 4
@@ -226,30 +227,70 @@ def test_z4_keeps_a_constraint_violation_bounded_where_bssn_does_not():
 
 @pytest.mark.slow
 @pytest.mark.benchmark
-def test_the_damping_term_damps_theta():
-    """``kappa_1`` is what makes ``Z_a = 0`` an attractor rather than merely preserved.
+def test_the_damping_term_damps_a_theta_wave_at_the_linear_rate():
+    """``kappa_1`` against the linearised constraint system, where it has a closed form.
 
-    Undamped Z4 already keeps the violation bounded -- that is the
-    formulation, not the damping -- so the damping has to be looked for
-    where it acts, which is on ``Theta`` itself. Over four crossing times at
-    ``kappa_1 = 0.1`` the peak drops by about a third against the undamped
-    run, measured 1.042e-02 to 7.219e-03.
+    On flat space with the gauge frozen, a violation of wavenumber ``k``
+    lives in ``(Theta, Z_parallel, H, M_parallel)``, with
 
-    Two kernels, so this pays two derivations the first time it runs.
+        d_t Theta = H/2 + i k Z - 2 kappa_1 Theta      d_t H = -2 i k M
+        d_t Z     = M + i k Theta - kappa_1 Z          d_t M = -i k H/2 + 2 i k kappa_1 Theta
+
+    for ``kappa_2 = 0``, so a pure ``Theta`` wave evolves as the first
+    entry of a matrix exponential. Its envelope falls at rates 0.05 and 0.1
+    at ``kappa_1 = 0.1`` and does not fall at ``kappa_1 = 0``.
+
+    This replaces a test that asserted ``kappa_1 = 0.1`` lowers the peak of
+    ``Theta`` on the gauge wave with a bump in ``K``. That held only while
+    the Z terms were counted twice. Counted once, undamped Z4 already brings
+    the violation down (``H(4)/H(0)`` = 0.83). At ``kappa_1 = 0.1`` with
+    harmonic slicing it rises to 1.61, and to 1.76 with the slicing reading
+    ``K - 2 Theta``, and the peak of ``Theta`` is 1.18e-3 against 6.82e-4.
+    The damping analysis that guarantees decay is the linear one checked
+    here.
+
+    Run with :mod:`particlesim.solvers.nr.modified` at ``a = b = 0``, which
+    ``test_modified_ccz4.py`` checks is this CCZ4, rate for rate, so no
+    third CCZ4 kernel is derived for a frozen slicing.
     """
-    state, spacing = _violating()
-    final = 4.0
-    peaks = {}
-    for damping in (0.0, 0.1):
-        evolution = ccz4_solver.build(
-            spacing, slicing="harmonic", shift_condition="frozen", damping=damping
-        )
-        steps = max(1, int(round(final / evolution.time_step)))
-        history = evolution.run(state, steps, time_step=final / steps)
-        peaks[damping] = float(np.max(np.abs(np.asarray(history.state["Theta"]))))
+    from scipy.linalg import expm
 
-    assert peaks[0.0] > 0.0
-    assert peaks[0.1] < 0.85 * peaks[0.0], peaks
+    from particlesim.solvers.nr import modified
+
+    k = 2 * np.pi
+    final = 4.0
+    measured, expected = {}, {}
+    for damping in (0.0, 0.1):
+        state, spacing = bssn_solver.gauge_wave(shape=(32, 8, 8), amplitude=0.0, extent=1.0)
+        state = modified.with_scalar(state)
+        x = np.linspace(0, 1, 32, endpoint=False)[:, None, None] * np.ones((32, 8, 8))
+        mode = np.sin(2 * np.pi * x)
+        state["Theta"] = state["Theta"] + 1e-6 * mode
+        evolution = modified.build(
+            spacing,
+            slicing="frozen",
+            shift_condition="frozen",
+            gauge_function=0.0,
+            constraint_function=0.0,
+            damping=damping,
+            dissipation=0.0,
+        )
+        steps = int(round(final / evolution.time_step))
+        history = evolution.run(state, steps, time_step=final / steps)
+        measured[damping] = 2 * float(np.mean(np.asarray(history.state["Theta"]) * mode)) / 1e-6
+        matrix = np.array(
+            [
+                [-2 * damping, 1j * k, 0.5, 0],
+                [1j * k, -damping, 0, 1],
+                [0, 0, 0, -2j * k],
+                [2j * k * damping, 0, -0.5j * k, 0],
+            ]
+        )
+        expected[damping] = float(np.real(expm(matrix * final)[0, 0]))
+    print("Theta(4)/Theta(0): measured", measured, "linear theory", expected)
+    for damping in (0.0, 0.1):
+        assert measured[damping] == pytest.approx(expected[damping], abs=2e-3), (measured, expected)
+    assert expected[0.1] < 0.8 * expected[0.0]
 
 
 # --- the gauge wave, which cannot tell them apart ------------------------

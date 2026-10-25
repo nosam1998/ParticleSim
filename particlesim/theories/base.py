@@ -176,8 +176,11 @@ def require_well_posed(theory: Theory, dimensions: int, strong_field: bool) -> N
     iterates. That sidesteps ill-posedness, but only while the correction is
     small, which a strong-field region does not promise. A weak-field or
     lower-dimensional run is allowed, and so is a static solve.
-    ``modified_ccz4`` would be the well-posed alternative, and is refused
-    too, as not implemented, rather than silently run as something else.
+
+    ``modified_ccz4`` is the well-posed alternative and is accepted:
+    :mod:`particlesim.solvers.nr.modified` evolves it. Its well-posedness
+    is that of Aresté Saló, Clough and Figueras, proved for weak coupling,
+    and nothing here checks that a run stays there.
     """
     if dimensions < 3 or not strong_field:
         return
@@ -187,9 +190,4 @@ def require_well_posed(theory: Theory, dimensions: int, strong_field: bool) -> N
             "beyond-GR terms perturbatively; a strong-field 3-D run leaves the regime "
             "where that is valid, so ADR-008 refuses it. A modified-CCZ4 formulation "
             "(Kovacs-Reall; Areste Salo-Clough-Figueras) would be needed"
-        )
-    if theory.formulation == "modified_ccz4":
-        raise NotImplementedError(
-            f"{theory.id} declares 'modified_ccz4', which the 3-D solvers do not "
-            "implement yet (issue #52)"
         )

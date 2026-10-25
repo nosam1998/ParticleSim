@@ -691,3 +691,122 @@ def test_hair_grows_from_rest_as_the_decoupling_limit_says():
     # The hair is there to be compared: a coupling ten times smaller would be
     # ten times smaller, and the sign is the dilatonic one.
     assert three_d[-1, 0] < -3e-3
+
+
+#: Areal radii of the hair probes on the initial slice, and their isotropic radii (M = 1).
+HAIR_PROBES = np.array([2.5, 3.0])
+HAIR_ISOTROPIC = (HAIR_PROBES - 1 + np.sqrt(HAIR_PROBES**2 - 2 * HAIR_PROBES)) / 2
+
+
+def octant_hair(cells, coupling_squared, final=3.0, half=5.0, kernel=None):
+    """Dilatonic hair from rest on frozen-gauge Schwarzschild, on an octant: ``phi`` at the probes.
+
+    The box is ``2 half`` wide and ``cells`` across, of which the octant
+    holds ``cells / 2`` and four mirror cells per axis. Its high faces carry
+    the Sommerfeld condition on the departure from the initial
+    Schwarzschild data. ``phi`` at a radius is a quadratic fit over a thin
+    shell of the octant's own cells, which for a mirror-symmetric field is
+    the fit over the whole shell. ``kernel``, if given, maps the evolution's
+    kernel to the one run. Returns ``(times, phi)``, every ``M/4``.
+    """
+    import dataclasses
+
+    from particlesim.solvers.nr import octant as octants
+    from particlesim.theories.gauss_bonnet import DILATONIC
+
+    state, spacing, radius, coords = modified.octant_schwarzschild(cells, half)
+    evolution = modified.build(
+        spacing,
+        slicing="frozen",
+        shift_condition="frozen",
+        gauge_function=0.0,
+        constraint_function=0.4,
+        coupling=DILATONIC,
+        coupling_squared=coupling_squared,
+    )
+    if kernel is not None:
+        evolution = dataclasses.replace(evolution, kernel=kernel(evolution.kernel))
+    bounded = octants.OctantBounded(
+        modified.OctantModifiedEvolution.from_evolution(evolution),
+        octants.OctantRadiative(
+            coords=coords,
+            spacing=spacing,
+            axes=(0, 1, 2),
+            width=4,
+            background={name: np.asarray(value) for name, value in state.items()},
+        ),
+    )
+    own = (coords[0] > 0) & (coords[1] > 0) & (coords[2] > 0)
+    h = spacing[0]
+    masks = [own & (np.abs(radius - target) < 1.5 * h) for target in HAIR_ISOTROPIC]
+
+    def sample(field):
+        values = np.asarray(field)
+        return [
+            float(np.polyfit(radius[mask] - target, values[mask], 2)[-1])
+            for target, mask in zip(HAIR_ISOTROPIC, masks, strict=True)
+        ]
+
+    steps = int(round(final / bounded.time_step))
+    step = final / steps
+    every = int(round(0.25 / step))
+    times, values = [0.0], [sample(state["sf"])]
+    current = octants.reflect(state)
+    for index in range(1, steps + 1):
+        current = bounded.step(current, step)
+        if index % every == 0:
+            times.append(index * step)
+            values.append(sample(current["sf"]))
+    return np.array(times), np.array(values)
+
+
+@pytest.mark.slow
+@pytest.mark.benchmark
+def test_strong_coupling_hair_carries_the_metric_answer_the_spherical_theory_predicts():
+    """Stage 3 at strong coupling: the 3-D hair against the same problem in 1-D, from the action.
+
+    The dilatonic coupling at ``lambda^2 = 0.3 M^2``, hair grown from rest
+    on Schwarzschild with its static lapse frozen and zero shift, as in the
+    weak-coupling test above, on an octant with a radiative edge. The
+    prediction is :class:`~particlesim.theories.esgb_spherical.CoupledSpherical`:
+    the same theory, gauge and data in spherical symmetry, with field
+    equations varied from the reduced action rather than split 3+1, and
+    nothing of this module in it. Held with the metric fixed it is the
+    decoupling limit, and the difference is the metric's answer, which
+    raises the hair by 9.1% at ``r = 2.5M`` and 3.5% at ``3M`` by
+    ``t = 3M``.
+
+    The assertion is that the 3-D hair departs from the 1-D coupled hair by
+    less than 15% of that answer, at every sample and both probes. Measured
+    at ``h = M/6``: 7.7% at worst, at ``r = 2.5M`` and ``t = 3M``, and
+    under 1% at ``3M``; at ``h = M/4``, 19%, and at ``M/8``, 0.8%. The
+    control is the same 3-D run with the Gauss-Bonnet stress-energy negated
+    in the metric's equations and the scalar's left alone. Its hair is
+    *smaller* than the decoupled hair, by 6.8% and 3.2% at ``t = 3M``, as the
+    1-D theory flipped the same way says (7.2% and 3.1%). Through this
+    assertion at ``h = M/6`` it departs from the true prediction by 175% to
+    195% of the answer, and fails.
+    """
+    from particlesim.theories.esgb_spherical import CoupledSpherical
+    from particlesim.theories.gauss_bonnet import DILATONIC
+
+    coupling_squared, final = 0.3, 3.0
+    times, three_d = octant_hair(60, coupling_squared, final=final)
+    one_d = {}
+    for backreaction in (True, False):
+        model = CoupledSpherical(DILATONIC, coupling_squared, points=300, backreaction=backreaction)
+        t1, samples, _ = model.evolve(model.schwarzschild(), final, radii=HAIR_ISOTROPIC)
+        one_d[backreaction] = np.stack([np.interp(times, t1, samples[:, k]) for k in (0, 1)], -1)
+    coupled, decoupled = one_d[True], one_d[False]
+    answer = coupled - decoupled
+    later = times >= 0.25
+    departure = np.abs(three_d - coupled)[later] / np.abs(answer[later])
+    print("t", times[later])
+    print("3-D", three_d[later].tolist())
+    print("departure / answer", departure.tolist())
+    assert np.all(np.isfinite(three_d))
+    assert np.all(departure < 0.15), departure
+    # The answer is the size the 1-D theory says, and it raises the hair.
+    excess = three_d[-1] / decoupled[-1] - 1
+    print("3-D excess over the decoupled hair at t = 3M", excess)
+    assert 0.07 < excess[0] < 0.11 and 0.025 < excess[1] < 0.045, excess

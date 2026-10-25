@@ -34,8 +34,9 @@ falling off as ``1/r`` is reflected at the amplitude of its own falloff.
 **What this is not.** It is not constraint-preserving. The condition is
 applied variable by variable to quantities that are not characteristic
 variables of the system, so it has no reason to respect the constraints and
-in general does not. Constraint-preserving boundary conditions are a harder
-problem and are not attempted here.
+in general does not. :class:`ConstraintPreserving`, below, is the condition
+that does: the zone evolves Einstein's equations there too, and only the
+incoming modes are damped.
 
 **What that costs turned out to be negative, which was not the guess.** The
 expectation was that a non-constraint-preserving boundary would make the
@@ -83,6 +84,17 @@ against Sommerfeld's 3.0e-02. Both still converge more slowly than the
 interior's 3.9, so the ratio to truncation grows, from 0.91 to 1.26 between
 72 and 96 points, but slowly.
 
+**A constraint-preserving layer.** :class:`ConstraintPreserving` keeps
+the zone but not the override. Inside a rim two points deep, the zone
+evolves the interior's own equations, so the constraints propagate there as
+they do inside, and only two terms are added: an outgoing radiation
+condition on the lapse, a choice of slicing the constraints do not see, and
+a relaxation of the transverse-traceless incoming radiation towards the
+value Bayliss and Turkel's second condition gives it, carried by a surface
+auxiliary that uses only derivatives tangential to spheres. The rim keeps
+:class:`SecondOrder`. Damping the constraint modes as well was tried and is
+unstable in BSSN; see its docstring and ``docs/benchmarks.md``.
+
 **The cost that is real is arithmetic.** :meth:`Radiative.rates` takes three
 bounded-domain derivatives per variable per stage over the *whole* array,
 which is seventy-two array passes a stage for BSSN and dominates the run at
@@ -91,6 +103,7 @@ which is seventy-two array passes a stage for BSSN and dominates the run at
 
 from __future__ import annotations
 
+import dataclasses
 import weakref
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -100,7 +113,13 @@ from typing import Any
 import numpy as np
 import sympy as sp
 
-from particlesim.solvers.nr.bssn import DIMENSION, INDICES, Evolution, _module
+from particlesim.solvers.nr.bssn import (
+    DIMENSION,
+    INDICES,
+    Evolution,
+    _module,
+    dissipation_operator,
+)
 from particlesim.solvers.nr.stepping import operations
 from particlesim.symbolic import codegen
 
@@ -583,6 +602,285 @@ class SecondOrder(Bounded):
         return self.project(out) if self.evolution.enforce else out
 
 
+# --- a constraint-preserving absorbing layer ---------------------------------
+
+
+def angular_laplacian(module, stacked, coords, spacing):
+    """``r^2`` times the Laplacian on the unit sphere, of every field in ``stacked``.
+
+    ``sum_k L_k L_k f`` with ``L_k = eps_kab x_a d_b``, the rotation
+    generators: only derivatives tangential to spheres about the origin,
+    which is what a surface formulation is allowed to use. Taken with
+    :func:`edge_derivative`'s stencils, so it does not wrap.
+    """
+
+    def rotate(field, a, b):
+        return coords[a] * _stacked_edge_derivative(module, field, b, spacing[b]) - coords[
+            b
+        ] * _stacked_edge_derivative(module, field, a, spacing[a])
+
+    return sum(rotate(rotate(stacked, a, b), a, b) for a, b in ((1, 2), (2, 0), (0, 1)))
+
+
+#: The conformal-metric components whose incoming radiation the layer relaxes.
+METRIC = tuple(f"gt{i}{j}" for i in INDICES for j in range(i, DIMENSION))
+
+#: The prefix of the rim's carried fields, distinct from the layer's surface auxiliaries.
+RIM = AUXILIARY + AUXILIARY
+
+
+@dataclass(frozen=True, eq=False)
+class ConstraintPreserving(Bounded):
+    """Einstein's equations in the zone, with only the incoming radiation changed there.
+
+    Sommerfeld's condition and :class:`SecondOrder` replace the rates in the
+    whole zone by an outgoing-wave equation for every variable separately,
+    which is why neither respects the constraints: the components of
+    ``gammabar_ij`` and ``Abar_ij`` along ``x^i / r``, and ``Gammabar^i``,
+    are tied together by the constraints and get conditions that are not.
+
+    Here the zone is split. Its outer ``rim`` points, the only ones where the
+    periodic kernel's stencil wraps, keep :class:`SecondOrder`'s treatment.
+    Everywhere inside that -- the *layer*, from the zone's inner face to the
+    rim -- the evolution is the interior's: the same kernel, the same
+    dissipation, so the constraints propagate there as they do inside and
+    nothing in the layer can put the solution off the constraint surface.
+    Two things are added in the layer, for the two kinds of incoming mode
+    that are not constraints in BSSN linearised about flat space with a
+    frozen shift:
+
+    * **the radiative modes.** ``w_ij = B1 gammabar_ij``, with Einstein's own
+      ``d_t gammabar_ij`` in it, is the incoming characteristic variable of
+      each component: zero for a wave ``f(t - r)/r`` and ``-b/r^3`` for a
+      ``b(t - r)/r^2`` part. Its part transverse and traceless with respect
+      to ``x^i / r`` -- the radiation -- is relaxed at the rate
+      ``strength`` towards the value Bayliss and Turkel's second condition
+      gives it, through ``d_t Abar_ij``. That value is a surface auxiliary,
+
+          d_t v = c^2 Delta_S u / (2 r^2) - c v / r
+
+      which is ``(d_t + c d_r + 3c/r) v = 0`` with the radial derivative
+      eliminated by the wave equation, so it is evolved at each point from
+      derivatives tangential to spheres and never read from the interior.
+      This is the only term that changes the physics, and on an outgoing
+      wave it is as large as the wave's failure of that condition.
+    * **the gauge mode.** The lapse obeys an outgoing radiation condition
+      in the layer instead of its slicing condition, with the same surface
+      auxiliary. That is a choice of slicing, which the constraints do not
+      see.
+
+    **The constraint modes are left alone, and that is measured, not
+    assumed.** Damping the connection constraint ``G^i = Gammabar^i +
+    d_j gammabar^ij`` was the obvious third term, and it is unstable: it
+    pulls ``Gammabar^i`` towards the metric's own connection, which is
+    ADM's principal part. Along ``x^i / r`` the longitudinal sector then has
+    ``(lambda + sigma)(lambda^2 + k^2) = (4/3) sigma k^2``, a positive real
+    root for every ``sigma > 0``, about ``k / sqrt(3)`` for ``sigma >> k``. On
+    the Teukolsky wave at 48 points it grew threefold every half unit.
+
+    The rim's reflection is an incoming mode at the layer's outer face, and
+    the layer absorbs its radiative part on the way in. A narrower rim than
+    the dissipation's stencil is allowed because the dissipation here is
+    switched off, per axis, within its radius of the edge, as
+    :func:`particlesim.core.grid.kreiss_oliger` does.
+
+    **Measured** on the Teukolsky wave of :mod:`particlesim.solvers.nr.teukolsky`
+    (box of 12, zone from ``|x_i| = 5``, cube ``|x_i| <= 2.5``, one octant),
+    as multiples of the amplitude:
+
+        n     truncation   after      ratio   |H| after   left
+        48    7.06e-02     3.18e-02   0.45    3.80e-02    0.129
+        72    1.48e-02     5.44e-03   0.37    1.13e-02    0.022
+        96    4.79e-03     1.83e-03   0.38    4.97e-03    0.0077
+
+    What comes back stays below the truncation error and converges at 4.4
+    and 3.8 against its 3.9; :class:`SecondOrder` alone reaches 1.26 of it at
+    96 points. The Hamiltonian constraint after the reflection converges at
+    3.0 and 2.8, not at the interior's order. ``docs/benchmarks.md`` has the
+    rest, including a part of it that stops converging past 72 points.
+    """
+
+    strength: float = 20.0
+    rim: int = 2
+
+    def __post_init__(self) -> None:
+        radius = self.evolution.order // 2
+        if self.rim < radius:
+            raise ValueError(
+                f"a rim of {self.rim} points is narrower than the stencil radius {radius}: "
+                "the kernel's wrapped rates would reach the layer"
+            )
+        if self.boundary.width <= self.rim:
+            raise ValueError(
+                f"a zone of {self.boundary.width} points leaves no layer inside a rim of {self.rim}"
+            )
+        if not self.boundary.stacked:
+            raise ValueError("the constraint-preserving layer is implemented for JAX at order 4")
+
+    def auxiliary_names(self, state) -> tuple[str, ...]:
+        """The layer's surface auxiliaries and the rim's carried fields."""
+        geometry = [name for name in state if not name.startswith(AUXILIARY)]
+        surface = tuple(AUXILIARY + name for name in (*METRIC, "alpha") if name in geometry)
+        return surface + tuple(RIM + name for name in geometry)
+
+    def start(self, state) -> dict[str, Any]:
+        """``state`` with its auxiliary fields, zero where they are missing."""
+        out = dict(state)
+        shape = np.asarray(state["alpha"]).shape
+        for name in self.auxiliary_names(state):
+            if name not in out:
+                out[name] = np.zeros(shape)
+        return out
+
+    def project(self, state) -> dict[str, Any]:
+        geometry, auxiliary = SecondOrder._split(self, state)
+        return {**self.evolution.project(geometry), **auxiliary}
+
+    def gauge_speed(self) -> float:
+        b = self.boundary
+        table = b.speeds or GAUGE_SPEEDS.get(self.evolution.slicing, {})
+        return float(table.get("alpha", b.speed))
+
+    def masks(self):
+        """``(layer, rim)``: the zone less its outer ``rim`` points, and those points."""
+        b = self.boundary
+        rim = dataclasses.replace(b, width=self.rim).mask()
+        return b.mask() & ~rim, rim
+
+    def _undissipated(self) -> Evolution:
+        cache = _STACKED.setdefault(self.boundary, {})
+        key = ("undissipated", id(self.evolution))
+        if key not in cache:
+            cache[key] = dataclasses.replace(self.evolution, dissipation=0.0)
+        return cache[key]
+
+    def _compiled(self, names: tuple[str, ...]):
+        b = self.boundary
+        cache = _STACKED.setdefault(b, {})
+        key = ("constraint-preserving", names, self.strength, self.rim)
+        if key in cache:
+            return cache[key]
+        import jax
+
+        jnp = _module("jax")
+        layer_np, rim_np = self.masks()
+        layer, rim = jnp.asarray(layer_np), jnp.asarray(rim_np)
+        rim_boundary = dataclasses.replace(b, width=self.rim)
+        radial, sommerfeld, speed, inverse = rim_boundary._compiled(names)
+        radius = np.maximum(b.radius, min(b.spacing))
+        direction = [jnp.asarray(np.asarray(b.coords[axis]) / radius) for axis in INDICES]
+        coords = [jnp.asarray(np.asarray(b.coords[axis])) for axis in INDICES]
+        spacing = tuple(b.spacing)
+        light, gauge, sigma = float(b.speed), self.gauge_speed(), float(self.strength)
+        projector = [
+            [(1.0 if i == j else 0.0) - direction[i] * direction[j] for j in INDICES]
+            for i in INDICES
+        ]
+
+        # Kreiss-Oliger dissipation as the evolution applies it, but per axis
+        # and switched off within its radius of a bounded edge.
+        ko_radius, ko_weights = dissipation_operator(self.evolution.order)
+        shape = np.asarray(b.coords[0]).shape
+        allowed = []
+        for axis in INDICES:
+            index = np.arange(shape[axis])
+            keep = np.ones(shape[axis], dtype=bool)
+            if axis in b.axes:
+                keep = (index >= ko_radius) & (index < shape[axis] - ko_radius)
+            allowed.append(jnp.asarray(keep.reshape([-1 if k == axis else 1 for k in INDICES])))
+
+        def dissipation(stack):
+            total = 0.0
+            for axis in INDICES:
+                stencil = sum(
+                    weight * jnp.roll(stack, -offset, axis=axis + 1)
+                    for offset, weight in enumerate(ko_weights, start=-ko_radius)
+                )
+                total = total + jnp.where(allowed[axis], stencil / spacing[axis], 0.0)
+            return self.evolution.dissipation * total
+
+        def surface(departure, carried, c):
+            # d_t v = c^2 Delta_S u / (2 r^2) - c v / r, in the layer only.
+            moved = 0.5 * c**2 * angular_laplacian(jnp, departure, coords, spacing)
+            return jnp.where(layer, moved * inverse**2 - c * carried * inverse, 0.0)
+
+        def combine(geometry, auxiliary, einstein):
+            stack = jnp.stack([geometry[n] for n in names])
+            rates = jnp.stack([jnp.broadcast_to(einstein[n], stack.shape[1:]) for n in names])
+            if self.evolution.dissipation > 0.0:
+                rates = rates + dissipation(stack)
+            rate = {name: rates[index] for index, name in enumerate(names)}
+            out = {}
+
+            # The radiative modes, through Abar_ij, in the layer.
+            flat = jnp.asarray([1.0 if n[2] == n[3] else 0.0 for n in METRIC])
+            metric = jnp.stack([geometry[n] for n in METRIC]) - flat.reshape((-1, 1, 1, 1))
+            incoming = jnp.stack([einstein[n] for n in METRIC]) + light * (
+                radial(metric) + metric * inverse
+            )
+            carried = jnp.stack([auxiliary[AUXILIARY + n] for n in METRIC])
+            mismatch = dict(zip(METRIC, incoming - carried, strict=True))
+            sandwiched = [
+                [
+                    sum(
+                        projector[i][a] * projector[j][c] * mismatch[f"gt{min(a, c)}{max(a, c)}"]
+                        for a in INDICES
+                        for c in INDICES
+                    )
+                    for j in INDICES
+                ]
+                for i in INDICES
+            ]
+            traced = sum(sandwiched[a][a] for a in INDICES)
+            relax = 0.5 * sigma / geometry["alpha"]
+            for i in INDICES:
+                for j in range(i, DIMENSION):
+                    transverse = sandwiched[i][j] - 0.5 * projector[i][j] * traced
+                    rate[f"At{i}{j}"] = rate[f"At{i}{j}"] + jnp.where(layer, relax * transverse, 0)
+            moved = surface(metric, carried, light)
+            out.update({AUXILIARY + n: moved[k] for k, n in enumerate(METRIC)})
+
+            # The gauge mode: the lapse radiates out, a choice of slicing.
+            lapse = (geometry["alpha"] - 1.0)[None]
+            held = auxiliary[AUXILIARY + "alpha"][None]
+            condition = -gauge * (radial(lapse) + lapse * inverse) + held
+            rate["alpha"] = jnp.where(layer, condition[0], rate["alpha"])
+            out[AUXILIARY + "alpha"] = surface(lapse, held, gauge)[0]
+
+            # The rim: SecondOrder, fed by the layer's rates.
+            dynamics = jnp.stack([rate[n] for n in names])
+            held = jnp.stack([auxiliary[RIM + n] for n in names])
+            outgoing = sommerfeld(stack)
+            carried = jnp.where(rim, held, dynamics - outgoing)
+            final = jnp.where(rim, outgoing + carried, dynamics)
+            moved = jnp.where(rim, -speed * (radial(carried) + 3.0 * carried * inverse), 0.0)
+            out.update({name: final[k] for k, name in enumerate(names)})
+            out.update({RIM + name: moved[k] for k, name in enumerate(names)})
+            return out
+
+        compiled = jax.jit(combine)
+        cache[key] = compiled
+        return compiled
+
+    def right_hand_side(self, state) -> dict[str, Any]:
+        geometry, auxiliary = SecondOrder._split(self, state)
+        names = tuple(sorted(geometry))
+        einstein = self._undissipated().right_hand_side(geometry)
+        return self._compiled(names)(geometry, auxiliary, einstein)
+
+    def step(self, state, time_step: float | None = None):
+        """One classical fourth-order step, the layer and the rim applied at each stage."""
+        step = self.time_step if time_step is None else float(time_step)
+        advance, finish, _ = operations(self.backend)
+        base = self.start(state)
+        first = self.right_hand_side(base)
+        second = self.right_hand_side(advance(base, first, step / 2))
+        third = self.right_hand_side(advance(base, second, step / 2))
+        fourth = self.right_hand_side(advance(base, third, step))
+        out = finish(base, first, second, third, fourth, step)
+        return self.project(out) if self.evolution.enforce else out
+
+
 def interior(array, width: int, axes) -> np.ndarray:
     """The physical region, with the boundary zone cut off.
 
@@ -602,9 +900,13 @@ __all__ = [
     "ASYMPTOTIC",
     "AUXILIARY",
     "GAUGE_SPEEDS",
+    "METRIC",
+    "RIM",
     "Bounded",
+    "ConstraintPreserving",
     "Radiative",
     "SecondOrder",
+    "angular_laplacian",
     "edge_derivative",
     "interior",
 ]

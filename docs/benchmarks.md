@@ -2133,13 +2133,222 @@ runs the box of 10 at 40 points from the previous section. There the error
 after the reflection is 0.038, or 0.54 of the truncation error, against
 Sommerfeld's 1.0. It is bounded at 0.7.
 
+### A constraint-preserving layer: Einstein's equations in the zone
+
+The remaining item of #132 was a constraint-preserving condition.
+`boundary.ConstraintPreserving` is the attempt at one, for BSSN; what it
+preserves and what it does not is stated below. The suggested source was
+Ruiz, Hilditch and Bernuzzi's conditions for Z4c (PRD 83, 024025, 2011).
+arXiv and its mirrors were blocked from this machine, so nothing below is
+transcribed from it. The characteristic analysis was redone here for the
+system that is evolved, and every coefficient it relies on is checked
+against the generated kernel's own linearisation (the slow test in
+`tests/unit/test_constraint_preserving_boundary.py`).
+
+BSSN rather than CCZ4, for three reasons. The acceptance tables above are
+BSSN's. The CCZ4 kernel costs two and a half times as much per step, and the
+96-point run is already the long pole. And reading `symbolic/ccz4.py` for its
+characteristic structure, its Ricci tensor is built with the evolved
+`Γ̂^i`, which already carries `2∂_(iZ_j)`, and `2D_(iZ_j)` is then added
+again. Linearised, that is `R_ij + 4∂_(iZ_j)` where Z4 has
+`R_ij + 2∂_(iZ_j)`, and the same doubling in `∂_tK` and `∂_tΘ`. That is a
+reading of the code, not a measurement, and it is reported for checking
+rather than fixed here. A Z4 condition built on it would have been built on
+a system whose constraint speeds are 1 and `√2`, not Z4's 1.
+
+**What Sommerfeld's and Bayliss and Turkel's conditions get wrong about the
+constraints.** Both give every variable its own outgoing-wave equation. In
+BSSN linearised about flat space, with harmonic slicing and a frozen shift,
+the incoming modes along `x^i/r` are six. Two are radiative: the part of
+`γ̃_ij` and `Ã_ij` transverse and traceless with respect to `x^i/r`. One is
+gauge, the lapse and `K`. Three belong to the connection constraint
+`G^i = Γ̃^i + ∂_jγ̃^ij`, which obeys a wave equation,
+
+    ∂_t G_i = 2 M_i,    ∂_t² G_i = ΔG_i + (1/3) ∂_i (H + ∂_k G_k)
+
+and carries the momentum constraint with it. The `nn` and `nA` components
+of `γ̃_ij` and `Ã_ij`, and `Γ̃^i`, are the variables those three modes live
+in. A per-variable condition gives them conditions that are not the
+constraints'.
+
+**The layer.** The zone is split. Its outer two points, the only ones where
+the periodic kernel's stencil wraps, are a rim that keeps
+`SecondOrder`'s treatment. Inside the rim, from `|x_i| = 5` to two points
+from the edge, the evolution is the interior's: the same kernel and the same
+dissipation, switched off per axis within its radius of the edge as
+`core.grid.kreiss_oliger` does. The constraints therefore propagate in the
+layer as they do inside. Two terms are added there, one for each kind of
+incoming mode that is not a constraint mode, and only the first can move
+the solution off the constraint surface:
+
+- **Radiation.** `w_ij = B₁γ̃_ij`, with Einstein's own `∂_tγ̃_ij` in it, is
+  the incoming characteristic variable of each component. It is zero for a
+  wave `f(t − r)/r` and `−b/r³` for a `b(t − r)/r²` part. Its transverse
+  traceless part is relaxed at a rate `σ = 20` towards the value Bayliss and
+  Turkel's second condition gives it, through `∂_tÃ_ij`. That value is a
+  surface auxiliary,
+
+      ∂_t v = c² Δ_S u / (2r²) − c v / r
+
+  which is `(∂_t + c∂_r + 3c/r) v = 0` with the radial derivative
+  eliminated by the wave equation. It is evolved at each point from
+  derivatives tangential to spheres, `Δ_S = Σ_k L_k L_k` with
+  `L_k = ε_kab x_a ∂_b`, and is never read from the interior. This is the
+  one term that changes the physics. On an outgoing wave it is as large as
+  the wave's failure of that condition.
+- **Gauge.** The lapse obeys an outgoing radiation condition in the layer
+  instead of harmonic slicing, with the same surface auxiliary. That is a
+  choice of slicing, which the constraints do not see.
+
+The rim's reflection arrives at the layer's outer face as an incoming mode,
+and its radiative part is absorbed on the way in.
+
+**Two things that were tried and are unstable, recorded so they are not
+tried again.**
+
+- *Damping the constraint modes.* The obvious third term was
+  `∂_tΓ̃^i −= σ_G G^i`, which vanishes on the constraint surface. It is
+  unstable. It pulls `Γ̃^i` towards the metric's own connection, which is
+  ADM's principal part. With the gauge switched off, the longitudinal
+  sector along the wave vector then has
+
+      (λ + σ_G)(λ² + k²) = (4/3) σ_G k²
+
+  whose constant term is negative for every `σ_G > 0`, so there is always a
+  positive real root: `σ_G/3` for small damping, `k/√3` for large. On the
+  Teukolsky wave at 48 points, with `σ_G = 20`, the whole grid grew
+  three- to fourfold every half unit from `t = 5.5` and was `NaN` by
+  `t = 10`. The transverse sector, `λ(λ² + σ_G λ + k²) = 0`, is damped, so damping only
+  the components of `G` transverse to `x^i/r` was not tried: for a wave
+  vector tangential to the sphere the longitudinal part is transverse to
+  `x^i/r`. In BSSN, holding `G` at zero is what makes the Hamiltonian
+  constraint's mode grow, `λ² = k²/3`. Damping it needs `Θ`, which is what Z4
+  adds.
+- *Einstein's equations to the edge.* The first version of the layer ran
+  the kernel with one-sided stencils at the box edge
+  (`codegen`'s bounded operators swapped into the cached source) and no
+  dissipation in the zone. Without the constraint damping it was worse:
+  the off-diagonal `Ã_ij` at the outermost corner grew from `t = 1.5` at 32
+  points, before the wave arrived, and four- to fivefold every half unit
+  at 48. The rim replaced it.
+
+**The measurement runs on one octant.** At a load average of thirty on four
+cores the full 96-point grid did not fit in the time available. The
+`l = 2, m = 0` wave is even under each coordinate reflection with tensor
+parity, so `x_i ≥ 0` is evolved, with three reflected ghost planes refreshed
+before every right-hand side, and the cube's norms are weighted to be the
+full cube's. The zone is the same set of points as on the full grid's
+positive faces, `|x_i| ≥ 5`. The full grid's negative faces start one point
+further out, the only geometric difference from the tables above. Before
+anything reaches the zone the octant reproduces a full-grid run to nine
+significant figures at `t = 0.5` and `t = 1`: at 48 points and
+`t = 0.5`, error 0.0374396546 and `‖H‖` 0.153290662. At 96 points the
+octant has 51³ points rather than 96³.
+
+**The measurement.** The same wave, box, zone and cube as the tables above,
+as multiples of the amplitude, with Bayliss and Turkel's numbers from the
+previous section beside them (full grid, `SecondOrder` over the whole zone):
+
+| | n = 48 | n = 72 | n = 96 | order, 48→72 | order, 72→96 |
+|---|---|---|---|---|---|
+| truncation error (`t ≤ 3`, max) | 7.06e−02 | 1.48e−02 | 4.79e−03 | 3.9 | 3.9 |
+| error after the reflection, layer | 3.18e−02 | 5.44e−03 | **1.83e−03** | 4.4 | **3.8** |
+| error after the reflection, second order | 3.2e−02 | 1.35e−02 | 6.0e−03 | 2.1 | 2.8 |
+| the ratio to truncation, layer | 0.45 | 0.37 | **0.38** | | |
+| the ratio to truncation, second order | 0.45 | 0.91 | 1.26 | | |
+| `‖H‖` after, layer | 3.80e−02 | 1.13e−02 | **4.97e−03** | 3.0 | **2.8** |
+| `‖H‖` after, second order | 3.4e−02 | 1.6e−02 | 7.4e−03 | 1.9 | 2.6 |
+| `‖M‖` after, layer | 6.07e−02 | 1.28e−02 | 5.24e−03 | 3.8 | 3.1 |
+| `‖M‖` after, second order | 5.7e−02 | 2.8e−02 | 1.3e−02 | 1.8 | 2.6 |
+| largest `\|h\|` after, layer | 0.129 | 0.022 | 0.0077 | | |
+| largest `\|h\|` after, second order | 0.081 | 0.033 | 0.014 | | |
+| error in the cube at `t = 6`, layer | 1.82e−02 | 4.05e−03 | 1.37e−03 | 3.7 | 3.8 |
+
+"After" is the maximum over `t = 8`–`10.5`, as before. At 48 points the two
+are the same, because the layer is two points deep there: a zone of four
+less a rim of two. At 72 it is four points deep and the difference opens.
+
+**An interior floor that is not the boundary.** With a frozen shift, BSSN
+has modes of zero speed, and part of the truncation error the wave deposits
+while it crosses the cube never leaves. At 48 points the error in the cube is
+already 1.8e−02 at `t = 6`, after the wave has gone and before the main
+reflection returns. The scalar wave equation with the same grid, zone and
+stencils leaves 2.5e−03. The "error after the reflection" of the tables
+includes that floor at every resolution; it converges at 3.7 from 48 to 72
+points and 3.8 from 72 to 96.
+
+That scalar model was the first diagnostic. In Teukolsky's gauge the linear
+wave is transverse and traceless, so every Cartesian component of `h_ij`
+obeys the flat wave equation, and six scalar fields with the same grid, zone,
+stencils and dissipation isolate the radiation. With the second condition
+over the zone they give 6.85e−02 of truncation and 2.66e−02 after the
+reflection at 48 points, against BSSN's 7.1e−02 and 3.2e−02, and the error
+falls to 2.4e−03 at `t = 6` before rising again: at 48 points what comes
+back is almost all reflection. With the second condition's auxiliary in the
+surface form above instead of carried out from the interior, the reflection
+at 48 points was 5.05e−02, worse. So the surface form is used only as the
+target of a relaxation, inside Einstein's equations.
+
+**So #132's acceptance is met on two counts and not on the third**, a
+different third from Sommerfeld's.
+
+- **The wave leaves.** What is left in the cube after `t = 8` is 0.0077 of
+  the wave's 48 at 96 points, 6300 times less, and 2200 and 370 times less
+  at 72 and 48.
+- **No reflection above the truncation error.** What comes back is 0.45,
+  0.37 and 0.38 of the truncation error at 48, 72 and 96 points, and
+  converges at 4.4 and then 3.8 against the truncation error's 3.9 and 3.9.
+  The second condition on its own goes 0.45, 0.91, 1.26, at 2.1 and 2.8. At
+  96 points the error after the reflection is 1.83e−03 where the interior's
+  own floor at `t = 6` is 1.37e−03.
+- **The constraints converge, but not at the interior's order.** `‖H‖`
+  after the reflection falls at 3.0 and then 2.8, and `‖M‖` at 3.8 and 3.1,
+  against an aim of 3.5. The second condition alone gives 1.9 and 2.6 for
+  `‖H‖`. At 96 points `‖H‖` is two thirds of the second condition's.
+
+**One part of `‖H‖` does not converge, and its source is not identified.**
+Around `t = 5.5`, before the main reflection, `‖H‖` in the cube is 7.5e−03,
+2.1e−03 and 2.0e−03 at 48, 72 and 96 points: it converges from 48 to 72 and
+then stops. It is two fifths of `‖H‖` after the reflection at 96 points,
+and if it persists it is a floor the constraint cannot converge below. One candidate is the radiative term, which
+changes the physics by the radiation's Bayliss-Turkel residual and acts
+over a layer that thickens with resolution, two, four and six points; that
+is not tested here.
+
+The slow benchmark
+`test_a_teukolsky_wave_leaves_through_the_layer_without_a_reflection` runs
+the 48- and 72-point octants and bounds, at 72 points, the error after the
+reflection by half the truncation error, its order from 48 by 3.5, and the
+order of `‖H‖` by 2.5. Run once with `SecondOrder` in place of the layer,
+on the same octant, it fails. The second condition there gives 3.42e−02
+and 1.24e−02 after the reflection and `‖H‖` 3.69e−02 and 1.66e−02, close to
+its full-grid numbers above. At 72 points what comes back is 0.83 of the
+truncation error against the bound of 0.5, at order 2.5 against 3.5, and
+`‖H‖` converges at 2.0 against 2.5. The layer gives 0.37, 4.4 and 3.0.
+
 ### What is not done
 
-- **Not constraint-preserving**, as above. With Sommerfeld's condition the
-  constraint violation after the reflection stops converging past 72
-  points. With the second condition it converges again, at about 2.6
-  against the interior's 3.9.
-- **Not slab-restricted, but compiled.** `Radiative.rates` took three
+- **Constraint-preserving in the zone, not at a boundary surface.**
+  `ConstraintPreserving` evolves Einstein's equations in the layer, so the
+  boundary treatment adds no constraint violation there beyond what the
+  radiative relaxation does. It does not *impose* anything on the incoming
+  constraint modes: in BSSN they cannot be damped stably, as above, and the
+  rim's `SecondOrder` treatment still sends some in. The constraint after
+  the reflection converges at 2.8 between 72 and 96 points, against the interior's 3.9 for the
+  truncation error. A Z4-family condition (Ruiz, Hilditch and Bernuzzi),
+  where `Θ` makes the Hamiltonian mode propagate and the damping stable, is
+  the next step, and wants CCZ4's `Z` terms checked first.
+- **Measured on an octant, at one boundary radius.** The 72- and 96-point
+  numbers come from one octant of the reflection-symmetric wave, which
+  agrees with the full grid at 48 points to nine significant figures before
+  anything reaches the zone. A wave without that symmetry has not been run through the layer.
+  Neither has 1+log slicing, a moving shift or CCZ4, which the class accepts
+  but nothing here measures.
+- **The cost is not measured on a quiet machine.** The layer adds the
+  angular Laplacian of seven fields, eighty-four stacked derivatives a
+  stage, and the rim's `SecondOrder` combination. On a machine at a load
+  average of twenty its 96-point octant took about 25 s a step.
+- **Compiled, not slab-restricted.** `Radiative.rates` took three
   bounded-domain derivatives per variable per stage in NumPy, one variable
   at a time. With the second condition that was more than half the
   right-hand side at 64³: 0.65 s of 1.14 s. With JAX at fourth order both
@@ -2166,7 +2375,9 @@ Sommerfeld's 1.0. It is bounded at 0.7.
     cannot resolve.
 
   A surface formulation, with the auxiliary fields on the boundary and
-  only tangential derivatives, avoids it, and is not attempted here.
+  only tangential derivatives, avoids it. The layer above uses that form
+  for the second condition's auxiliary; the third condition in it is not
+  attempted.
 
 
 ## Quasinormal modes and horizons: the one number that is not a convergence test
@@ -7636,7 +7847,9 @@ the sections above.
 - Gauge wave and Teukolsky wave convergence (issue #51) — **done** for the
   periodic evolutions. The evolved Teukolsky constraint converges near fourth
   order; constraint convergence after reflection from an outer boundary is
-  a separate, still-open acceptance in #132.
+  a separate, still-open acceptance in #132. With the constraint-preserving
+  layer the wave leaves and the reflection stays below the truncation error
+  through 96 points, but the constraint converges at 2.8, not 3.9.
 - Head-on binary black hole final mass and radiated energy, to 5% (issue #51)
 - Einstein-scalar-Gauss-Bonnet scalarized black hole (issue #52) — **done** in
   spherical symmetry: the three bifurcation points are Doneva and Yazadjiev's

@@ -2366,7 +2366,9 @@ again. Linearised, that is `R_ij + 4∂_(iZ_j)` where Z4 has
 `R_ij + 2∂_(iZ_j)`, and the same doubling in `∂_tK` and `∂_tΘ`. That is a
 reading of the code, not a measurement, and it is reported for checking
 rather than fixed here. A Z4 condition built on it would have been built on
-a system whose constraint speeds are 1 and `√2`, not Z4's 1.
+a system whose constraint speeds are 1 and `√2`, not Z4's 1. (The reading
+was right. The speeds found it independently, it is fixed, and the layer
+on the fixed CCZ4 is [two sections below](#the-layer-on-ccz4-the-constraint-modes-carried-by-θ-and-z_i-damped).)
 
 **What Sommerfeld's and Bayliss and Turkel's conditions get wrong about the
 constraints.** Both give every variable its own outgoing-wave equation. In
@@ -2518,48 +2520,233 @@ different third from Sommerfeld's.
   against an aim of 3.5. The second condition alone gives 1.9 and 2.6 for
   `‖H‖`. At 96 points `‖H‖` is two thirds of the second condition's.
 
-**One part of `‖H‖` does not converge, and its source is not identified.**
-Around `t = 5.5`, before the main reflection, `‖H‖` in the cube is 7.5e−03,
-2.1e−03 and 2.0e−03 at 48, 72 and 96 points: it converges from 48 to 72 and
-then stops. It is two fifths of `‖H‖` after the reflection at 96 points,
-and if it persists it is a floor the constraint cannot converge below. One candidate is the radiative term, which
-changes the physics by the radiation's Bayliss-Turkel residual and acts
-over a layer that thickens with resolution, two, four and six points; that
-is not tested here.
+**One part of `‖H‖` does not converge.** Around `t = 5.5`, before the main
+reflection, `‖H‖` in the cube is 7.5e−03, 2.1e−03 and 2.0e−03 at 48, 72 and
+96 points: it converges from 48 to 72 and then stops. It is two fifths of
+`‖H‖` after the reflection at 96 points, a floor the constraint cannot
+converge below. It is not the boundary. The
+[next section](#the-h-that-stopped-converging-the-waves-own-violation-parked-at-the-centre)
+finds it in the initial data.
 
 The slow benchmark
-`test_a_teukolsky_wave_leaves_through_the_layer_without_a_reflection` runs
-the 48- and 72-point octants and bounds, at 72 points, the error after the
+`test_a_teukolsky_wave_leaves_through_the_layer_without_a_reflection` ran
+the 48- and 72-point octants and bounded, at 72 points, the error after the
 reflection by half the truncation error, its order from 48 by 3.5, and the
-order of `‖H‖` by 2.5. Run once with `SecondOrder` in place of the layer,
-on the same octant, it fails. The second condition there gives 3.42e−02
-and 1.24e−02 after the reflection and `‖H‖` 3.69e−02 and 1.66e−02, close to
-its full-grid numbers above. At 72 points what comes back is 0.83 of the
-truncation error against the bound of 0.5, at order 2.5 against 3.5, and
-`‖H‖` converges at 2.0 against 2.5. The layer gives 0.37, 4.4 and 3.0.
+order of `‖H‖` by 2.5; it now runs the layer on CCZ4, below. Run once with
+`SecondOrder` in place of the layer, on the same octant, it failed. The
+second condition there gives 3.42e−02 and 1.24e−02 after the reflection and
+`‖H‖` 3.69e−02 and 1.66e−02, close to its full-grid numbers above. At 72
+points what comes back is 0.83 of the truncation error against the bound of
+0.5, at order 2.5 against 3.5, and `‖H‖` converges at 2.0 against 2.5. The
+layer gives 0.37, 4.4 and 3.0.
+
+### The `‖H‖` that stopped converging: the wave's own violation, parked at the centre
+
+The previous section left one part of `‖H‖` unexplained: around `t = 5.5`,
+before the main reflection returns, it is 7.5e−03, 2.1e−03 and 2.0e−03 at
+48, 72 and 96 points. It is not the boundary.
+
+**The control is the same wave with no boundary at all.** The wave is even
+under each reflection and the box of 12 is periodic, so mirroring the
+octant's high faces about `x_i = 6` as well gives the periodic box exactly.
+At 24 points and `t = 7` the mirrored octant and the full periodic grid
+agree to ten figures: error 0.1419117300 against 0.1419117300. The images'
+waves reach the cube at about `t = 6.5`, so until then this is the interior
+on its own. In the cube:
+
+| `‖H‖`, cube | `t = 5.5` | `t = 6` | `t = 6.5` |
+|---|---|---|---|
+| layer, 48 points | 7.52e−03 | 5.30e−03 | 9.57e−03 |
+| no boundary, 48 points | 7.71e−03 | 4.69e−03 | 4.10e−03 |
+| layer, 72 points | 2.14e−03 | 1.96e−03 | 2.49e−03 |
+| no boundary, 72 points | 2.13e−03 | 1.88e−03 | 1.84e−03 |
+| layer, 96 points | 2.02e−03 | 2.00e−03 | 2.06e−03 |
+| no boundary, 96 points | 2.02e−03 | 1.99e−03 | 1.99e−03 |
+
+At 72 and 96 points the plateau is there without the boundary, to within
+5 per cent. Binned by radius, the part that does not converge sits in
+`r < 0.5`, and it does not move: from `t = 3` to `6.5` that bin holds
+`|H|/a` = 2.2e−02, 2.7e−02 and 2.7e−02 at 48, 72 and 96 points, constant
+in time to a few per cent. Its share of the cube's RMS, a ball of volume
+0.52 in a cube of 125, is 2.7e−02 × (0.52/125)^½ = 1.8e−03, the whole of
+the plateau.
+
+**It is in the initial data, and it is not a bug.** At `t = 0` the discrete
+`H/a` at the origin is −4.834e−02, −4.838e−02 and −4.838e−02 at spacings
+1/8, 1/16 and 1/24 (a box of 3 around the origin). It does not converge.
+The same data's *linear* Hamiltonian constraint, `∂_i∂_j h_ij` with the same
+fourth-order stencils, is 2e−07 or less there. Fine differences of the
+closed form give a divergence and a `∂_i∂_j h_ij` that fall as `ε²`, at the
+origin and near it. So the closed form is transverse and traceless, and the
+−0.048 is the quadratic part of `H`. The perturbation is 48`a` at the centre,
+so `h ∂²h` is of order 2e4 `a²`, or 0.02 `a` at `a = 1e−6`. That is the
+violation [the Teukolsky section](#a-teukolsky-wave-it-leaves-and-sommerfelds-floor-shows-at-96-points)
+measures as quadratic in the amplitude, at its largest.
+
+**BSSN keeps four thirds of it, where it started.** Linearised about flat
+space with harmonic slicing and a frozen shift, BSSN's constraints obey
+
+    ∂_t G = 2M,   ∂_t M = ΔG/2 + ∇(∇·G)/6 + ∇H/6,   ∂_t H = −2∇·M
+
+with `G^i = Γ̃^i + ∂_jγ̃^ij`. Along a wave vector, the longitudinal pair
+`(G, h)` with `H = ik h` has `∂_t² = k² [[−4/3, −1/3], [4/3, 1/3]]`. Its
+eigenvalues are −1 and 0: a mode at the speed of light and one of zero
+speed, with eigenvectors `(1, −1)` and `(1, −4)`. The data has `G = 0`
+exactly, so it is `(0, h₀)`, whose zero-speed part has `h = (4/3) h₀`. The
+data's own violation in `r < 0.5` is 2.0e−02 in RMS at the finest spacing,
+and 4/3 of that is 2.7e−02, the bin above. With the amplitude at 1e−08 the
+bin falls from 2.2e−02 to 4.1e−03 at 48 points and from 2.7e−02 to
+3.6e−04 at 72, the truncation error's own share, and the cube's `‖H‖` at
+`t = 6` without a boundary from 1.88e−03 to 4.3e−04 at 72 points.
+
+So no boundary condition could have made BSSN's `‖H‖` converge past 72
+points here. At `a = 1e−6` the cube holds 1.8e−03 of the data's quadratic
+violation from `t ≈ 3` on, at every resolution, and the BSSN layer's `‖H‖`
+after the reflection at 96 points, 4.97e−03, sits on it. That is not all
+of the shortfall, though. From 48 to 72 points, where the floor changes
+`‖H‖` after the reflection by 1.3% in quadrature, the BSSN layer's order is
+already 3.0. Something at the boundary still sends constraint violation
+in: the rim's `SecondOrder` treatment, the radiative relaxation, which is
+not divergence-free, or both. Which of them is not separated here, and
+BSSN has no way to damp either.
+
+### The layer on CCZ4: the constraint modes carried by `Θ` and `Z_i`, damped
+
+Z4 changes both halves of that. Linearised the same way, undamped, its
+constraints obey
+
+    ∂_t Θ = H/2 + ∇·Z,   ∂_t Z = M + ∇Θ,   ∂_t H = −2∇·M,
+    ∂_t M = ΔZ − ∇(∇·Z) − ∇H/2
+
+so `∂_t²Θ = ΔΘ` and `∂_t²Z = ΔZ`, with `H = 2(∂_tΘ − ∇·Z)` and
+`M = ∂_tZ − ∇Θ`. Every constraint mode moves at the speed of light. There
+is no zero-speed mode, so the data's violation leaves the centre with the
+wave. Z4's damping, which BSSN cannot have, is stable. In the layer
+`ConstraintPreserving(..., damping=κ₁, damping_mix=κ₂)` adds
+
+    ∂_t Θ −= α κ₁ (2 + κ₂) Θ,   ∂_t K −= 3 α κ₁ (1 + κ₂) Θ,
+    ∂_t Γ̂^i −= α κ₁ (Γ̂^i + ∂_j γ̃^ij)
+
+with `Γ̂^i + ∂_j γ̃^ij = 2 γ̃^ij Z_j`, and adds nothing anywhere else. These
+are CCZ4's own damping terms, and they are linear in `κ₁`. On random data
+ten per cent from flat, the layer's damping at `κ₁ = 0.1` on the undamped
+CCZ4 kernel matches the `κ₁ = 0.1` kernel less the undamped one to 1.8e−15
+in the layer, and is exactly zero outside it. The interior stays undamped
+CCZ4, so the damping belongs to the boundary condition and not to the
+evolution. The rest of the layer and the rim are unchanged: the radiative
+relaxation, the lapse's radiation condition, and `SecondOrder` on the outer
+two points, where `Θ` is one more field with asymptotic value zero.
+
+**Stable where BSSN's damping was not.** Along a wave vector, the damped
+constraint system at `κ₁ = 4` has largest growth rates −0.031, −0.127,
+−0.536 and −2.0 at `k` = 0.5, 1, 2 and 4, and −2.0 beyond. Short waves are
+damped at `κ₁/2` and long ones at about `k²/κ₁`. BSSN's damping of `G` gave
++0.18 to +0.33 at `σ_G = 1`, the growing root above. On the linearised
+layer, a central `Θ` bump on a box of 8 at 24 points leaves 0.56 of its
+peak in the RMS of the interior at `t = 6` undamped, and 0.12, 0.10 and 0.20
+at `κ₁` = 2, 4 and 10. Undamped, the CCZ4 layer is also unstable on the
+Teukolsky wave at 48 points: `Θ` in the cube grows from 8e−05 at `t = 8` to
+3.1e−03 at `t = 10.5`, and `‖H‖` in the layer's faces from 0.09 to 2.6. At
+`κ₁ = 4` they stay at 6e−04 and 0.12. The undamped Z4 layer is not a
+boundary condition.
+
+**The measurement.** The same wave, box, zone, cube, octant and amplitude
+as the tables above, `a = 1e−6`. CCZ4 with harmonic slicing, a frozen
+shift, `κ₁ = 0` inside and `κ₁ = 4` in the layer, with the BSSN layer from
+the previous section beside it:
+
+| | n = 48 | n = 72 | n = 96 | order, 48→72 | order, 72→96 |
+|---|---|---|---|---|---|
+| truncation error (`t ≤ 3`, max), CCZ4 | 7.07e−02 | 1.48e−02 | 4.82e−03 | 3.9 | 3.9 |
+| truncation error, BSSN | 7.06e−02 | 1.48e−02 | 4.79e−03 | 3.9 | 3.9 |
+| error after the reflection, Z4 layer | 3.16e−02 | 5.52e−03 | 1.91e−03 | 4.3 | 3.7 |
+| error after the reflection, BSSN layer | 3.18e−02 | 5.44e−03 | 1.83e−03 | 4.4 | 3.8 |
+| the ratio to truncation, Z4 layer | 0.45 | 0.37 | 0.40 | | |
+| `‖H‖` after, Z4 layer | 3.98e−02 | 8.06e−03 | **2.50e−03** | 3.9 | **4.1** |
+| `‖H‖` after, BSSN layer | 3.80e−02 | 1.13e−02 | 4.97e−03 | 3.0 | 2.8 |
+| `‖M‖` after, Z4 layer | 6.51e−02 | 1.02e−02 | 3.01e−03 | 4.6 | 4.2 |
+| `‖M‖` after, BSSN layer | 6.07e−02 | 1.28e−02 | 5.24e−03 | 3.8 | 3.1 |
+| largest `\|h\|` after, Z4 layer | 0.131 | 0.023 | 0.0081 | | |
+| `‖H‖` in the cube at `t = 6`, Z4 layer | 8.60e−03 | 8.28e−04 | 2.31e−04 | 5.8 | 4.4 |
+| `‖H‖` in the cube at `t = 6`, BSSN layer | 5.30e−03 | 1.96e−03 | 2.00e−03 | 2.5 | −0.1 |
+| error in the cube at `t = 6`, Z4 layer | 1.82e−02 | 4.04e−03 | 1.35e−03 | 3.7 | 3.8 |
+
+"After" is the maximum over `t = 8`–`10.5`, sampled every half unit, as
+before. From `t = 4` to 8 the bin `r < 0.5` holds 8.1e−03, 6.5e−04 and
+7.3e−05 at 48, 72 and 96 points on CCZ4, against BSSN's 2.2e−02, 2.7e−02
+and 2.7e−02. The data's violation has left, and what stays converges
+faster than fourth order.
+
+**So #132's acceptance is met on all three counts**, on CCZ4.
+
+- **The wave leaves.** What is left in the cube after `t = 8` is 0.0081 of
+  the wave's 48 at 96 points, 5900 times less, and 2100 and 370 times less
+  at 72 and 48.
+- **No reflection above the truncation error.** What comes back is 0.45,
+  0.37 and 0.40 of the truncation error at 48, 72 and 96 points. It
+  converges at 4.3 and then 3.7, against the truncation error's 3.9 and
+  3.9, so the ratio creeps up between 72 and 96 points, as it did for the
+  BSSN layer between 72 and 96 (0.37 to 0.38). The radiative part of the
+  condition is unchanged, and so is what it achieves.
+- **The constraints converge at the interior's order.** `‖H‖` after the
+  reflection falls at 3.9 and then 4.1, and `‖M‖` at 4.6 and 4.2, against
+  3.9 for the truncation error and an aim of 3.5. At 96 points `‖H‖` is
+  half the BSSN layer's.
+
+The 72-to-96 orders rest on one 96-point run, 3057 s at a load average of
+thirteen on one thread. Sampled every quarter unit instead of every half,
+the orders from 72 to 96 are 3.7 for the error after the reflection and
+4.3 for `‖H‖`.
+
+The slow benchmark
+`test_a_teukolsky_wave_leaves_through_the_layer_without_a_reflection` now
+runs the Z4 layer on the 48- and 72-point octants and bounds the order of
+`‖H‖` by 3.5, with the other bounds as before. It passes, in 18 minutes at
+a load average of ten. Run once
+with the BSSN layer in its place, the control, it fails on that bound and
+no other. Its `‖H‖` after the reflection is 3.80e−02 and 1.13e−02, order
+3.00 against 3.5, while what comes back is 0.37 of the truncation error at
+order 4.4, as before. The fast tests check the damping terms term by term on
+the hand-linearised CCZ4, which a slow test holds to the generated kernel's
+linearisation. Another slow test holds the damping to the generated
+kernel's own `κ₁` terms, and a third sends a `Θ` pulse out through the
+damped layer and the undamped one and bounds what comes back.
 
 ### What is not done
 
-- **Constraint-preserving in the zone, not at a boundary surface.**
-  `ConstraintPreserving` evolves Einstein's equations in the layer, so the
-  boundary treatment adds no constraint violation there beyond what the
-  radiative relaxation does. It does not *impose* anything on the incoming
-  constraint modes: in BSSN they cannot be damped stably, as above, and the
-  rim's `SecondOrder` treatment still sends some in. The constraint after
-  the reflection converges at 2.8 between 72 and 96 points, against the interior's 3.9 for the
-  truncation error. A Z4-family condition (Ruiz, Hilditch and Bernuzzi),
-  where `Θ` makes the Hamiltonian mode propagate and the damping stable, is
-  the next step, and wants CCZ4's `Z` terms checked first.
-- **Measured on an octant, at one boundary radius.** The 72- and 96-point
-  numbers come from one octant of the reflection-symmetric wave, which
-  agrees with the full grid at 48 points to nine significant figures before
-  anything reaches the zone. A wave without that symmetry has not been run through the layer.
-  Neither has 1+log slicing, a moving shift or CCZ4, which the class accepts
-  but nothing here measures.
+- **Damped in a layer, not imposed at a surface.** On CCZ4 the layer damps
+  the constraint modes that come in from the rim, whose `SecondOrder`
+  treatment still makes them; it does not set the incoming constraint
+  characteristics to zero at a boundary surface, as Ruiz, Hilditch and
+  Bernuzzi's Z4c conditions do. The layer's radiative relaxation is not
+  divergence-free either, so it is a source of violation in the layer too;
+  how much of what the damping removes comes from it, and how much from the
+  rim, is not separated. `κ₁ = 4` was chosen on the
+  linearised layer (2, 4 and 10 tried) and one Teukolsky run at 48 points
+  each with 0 and 4; it is not tuned further. The BSSN layer stays as it
+  was, at 3.0 from 48 to 72 points: in BSSN neither the data's violation
+  nor what the boundary sends in can be damped.
+- **Measured on an octant, at one boundary radius, in one gauge.** The 72-
+  and 96-point numbers come from one octant of the reflection-symmetric
+  wave, which agrees with the full grid at 48 points to nine significant
+  figures before anything reaches the zone. A wave without that symmetry
+  has not been run through the layer. Neither have 1+log slicing or a
+  moving shift, which the class accepts but nothing here measures, nor
+  CCZ4 with `K − 2Θ` in the slicing or damping in the interior.
+- **The data's own violation is a floor for BSSN at this amplitude.** The
+  Teukolsky data solves the linearised equations only, and at `a = 1e−6`
+  BSSN with a frozen shift keeps 1.8e−03 of its quadratic violation in the
+  cube's `‖H‖` at every resolution. A BSSN measurement past 96 points would
+  want a smaller amplitude: at 1e−08 the central bin is the truncation
+  error's own, 4.1e−03 and 3.6e−04 at 48 and 72 points. The BSSN layer has
+  not been run at that amplitude.
 - **The cost is not measured on a quiet machine.** The layer adds the
   angular Laplacian of seven fields, eighty-four stacked derivatives a
-  stage, and the rim's `SecondOrder` combination. On a machine at a load
-  average of twenty its 96-point octant took about 25 s a step.
+  stage, and the rim's `SecondOrder` combination; the damping adds three
+  derivatives of the six metric components. At a load average of thirteen
+  on four cores, one thread, the CCZ4 octant took 1.3, 4.2 and 9.5 s a
+  step at 48, 72 and 96 points. The BSSN layer's 96-point octant took about
+  25 s a step at a load average of twenty, which is not comparable.
 - **Compiled, not slab-restricted.** `Radiative.rates` took three
   bounded-domain derivatives per variable per stage in NumPy, one variable
   at a time. With the second condition that was more than half the

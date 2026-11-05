@@ -2019,10 +2019,14 @@ every one, so the weakest reading of "stable" holds. The mass does not:
   then grew with a period of a few hundred M and a growing amplitude.
 - **Criterion 2 fails from 850 M**, where the horizon's expansion residual
   rises above 0.01 (0.046 at 850 M).
-- **Criterion 5 fails.** The coarse constraint outside 2 M is 313 times its
-  value at 100 M, the fine one 110 times; over the last 300 M they e-fold
-  every 155 M and 271 M.
-- **The `M/8` run failed the same criterion at 140 M**, the `M/12` run at
+- **Criterion 5 fails, and first.** The coarse constraint outside 2 M is
+  313 times its value at 100 M, the fine one 110 times; over the last 300 M
+  they e-fold every 155 M and 271 M. The coarse one passes ten times its
+  100 M value at 360 M (10.02 times; 9.51 at 350 M), so by the whole definition the run is
+  stable to 350 M, before the mass leaves the band. (This was first written
+  as 590 M, which applied criterion 3 alone; `stability_verdict`, below,
+  applies all five.)
+- **The `M/8` run failed criterion 3 at 140 M**, the `M/12` run at
   600 M: the finer spacing bought 4.3 times the time, more than the 1.5 in
   spacing but far from the ten that 1000 M would need at this rate.
 - **Cost.** 22.9 s per M from 500 to 1000 M on two CPU threads, 18.4 s per M
@@ -2069,9 +2073,9 @@ at this length the mass bound checks the run's health, not its centring.
 ### What is not here
 
 - **1000 M within 5% of the mass.** The `M/8` run is stable by the
-  definition above to 130 M and the `M/12` run to 590 M; the `M/12` run
-  reaches 1000 M finite with a horizon, at 0.555 of its mass. Issue #48's
-  acceptance is not met.
+  definition above to 130 M (criterion 3) and the `M/12` run to 350 M
+  (criterion 5; its mass leaves the band at 600 M); the `M/12` run
+  reaches 1000 M finite with a horizon, at 0.555 of its mass.
 - **Asymmetric perturbations.** Both long runs are octants, so the hole
   cannot move, and the five-level runs' failure, the hole drifting out of
   the finest box, is excluded by construction rather than cured. The full-grid

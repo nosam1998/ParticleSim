@@ -3374,6 +3374,131 @@ uv run python examples/headon_benchmark.py --z0 0.3 --stop 70 --coarsen-at 15 \
   --output runs/headon-z03/headon.json   # add --resume to continue
 ```
 
+#### Extrapolated perturbatively: the free `1/R` fit, not the `1/R²` one
+
+The two fits above differ by 10%, and both describe the five outer
+radii. Perturbation theory can choose between them, one radius at a
+time.
+`extraction.perturbative_extrapolation` removes the leading near-zone term
+of the waveform (Nakano, Healy, Lousto and Zlochower, Phys. Rev. D 91,
+104022 (2015)):
+
+    r Ψ₄(∞) = (1 − 2M/r) [r Ψ₄ − ((l−1)(l+2)/2) ∫₀ᵗ Ψ₄ dt′] + O(1/r²)
+
+Here `r` is the areal radius, and the integral starts at `t = 0`, as
+`radiated_energy`'s does.
+
+**Where the formula comes from.** The paper itself could not be opened
+here.
+- **As quoted.** Search snippets of papers that cite it give this form
+  (arXiv 2509.23028 and 1907.03790). One of them (SACRA-K, arXiv
+  2607.08743) takes the radius as `r₀(1 + m₀/2r₀)²`, the areal radius of
+  an isotropic one.
+- **Rederived.** The outgoing solution of the `s = −2` Teukolsky radial
+  equation on Schwarzschild, expanded in `1/r` with `u = t − r*`, gives
+  `r Ψ₄ = A(u) + ((l−1)(l+2)/2r) ∫A du + O(1/r²)` in Kinnersley's tetrad.
+  `M` first enters at `1/r²`.
+- **The factor.** Kinnersley's `n` is `√(f/2)` times the static
+  orthonormal frame's `(t̂ − r̂)/√2`, with `f = 1 − 2M/r`. So its `Ψ₄` is,
+  up to a constant, `f` times the one `extraction.psi4` builds for
+  observers at rest. That is the `(1 − 2M/r)`.
+
+**The check, fixed before it was run** (2026-11-05T20:10:40Z, in
+`runs/psi4-extrapolation/DECISION_RULE.md`). The check uses Teukolsky's
+`l = 2` wave in flat space, with `λ = 1` and amplitude 1e−04. Ψ₄ comes from
+this module's Weyl tensor on 9³ boxes at spacing `M/40`, one centred on
+each Gauss–Legendre node of the sphere. The `(2,0)` mode is projected at
+`r` = 6, 12 and 24, sampled every 0.05 M. `D(r, 2r)` is the largest
+difference over the pulse `|u| ≤ 3`, divided by the peak at 24. The
+rule, verbatim:
+
+```text
+(a) D_cor(r, 2r) <= D_raw(r, 2r) / 4 for both pairs (6, 12) and (12, 24);
+(b) D_cor(6,12) / D_cor(12,24) >= 3 (O(1/r^2) gives 4);
+(c) [D_cor(6,12)/D_cor(12,24)] / [D_raw(6,12)/D_raw(12,24)] >= 1.5
+(expected 2: the corrected discrepancy halves per doubling more than
+the raw one does);
+(d) the raw data behave as O(1/r): 1.5 <= D_raw(6,12)/D_raw(12,24) <= 2.5,
+else the setup is not testing what it claims and the check fails;
+(e) numerical floor: repeating at h = 0.05 changes the corrected waveform
+at each radius by less than D_cor(12,24) / 10, else inconclusive = fail.
+```
+
+| `r Ψ₄` of the `(2,0)` mode | `D(6, 12)` | `D(12, 24)` | ratio per doubling |
+|---|---|---|---|
+| raw | 4.95e−02 | 2.48e−02 | 1.99 |
+| corrected | 1.78e−03 | 4.35e−04 | 4.09 |
+| control: coefficient 1 instead of 2 | 2.49e−02 | 1.25e−02 | 2.00 |
+
+**It passes all five.** The correction cuts the discrepancy 28 times at
+6–12 M and 57 times at 12–24 M. Halving the spacing moves each
+corrected waveform by 3.4e−05 of the peak. With the coefficient halved, or
+the correction removed, the rule fails
+(`test_the_correction_turns_the_one_over_r_discrepancy_into_one_over_r_squared`,
+a minute at one thread). `M = 0` there, so **the `(1 − 2M/r)` factor is
+not tested by it**.
+
+**Applied to the 70 M record.** The record's seven spheres, at their
+time-averaged areal radii as in the table above, use the horizon's mass,
+1.003, and `M_ADM = 1` as a variant. The energy comes from the corrected
+waveform with the same Simpson integrals, `E₂₀ = (1/16π) ∫|∫ r Ψ₄(∞) dt|² dt`:
+
+| areal radius `R` | 6.81 | 8.88 | 10.93 | 12.96 | 17.00 | 21.01 | 25.01 |
+|---|---|---|---|---|---|---|---|
+| `E₂₀ / E_close limit`, raw (above) | 1.734 | 1.487 | 1.352 | 1.269 | 1.150 | 1.100 | 1.062 |
+| corrected, `M = 1.003` | 1.644 | 1.359 | 1.134 | 1.066 | 0.988 | 0.960 | 0.940 |
+| corrected, `M = 1` | 1.648 | 1.361 | 1.136 | 1.067 | 0.989 | 0.960 | 0.941 |
+| the bracket alone, `M = 0` | 3.304 | 2.268 | 1.702 | 1.492 | 1.270 | 1.173 | 1.111 |
+| `M = 1.003`, Ψ₄ before `t = R − 5` left out of the integral | 3.625 | 2.096 | 1.295 | 1.110 | 0.995 | 0.961 | 0.941 |
+
+Extrapolated to infinite radius, over the five spheres from `R = 10.93`
+(the `R ≥ 11` of the fits above):
+
+| model, radii | raw | corrected, `M = 1.003` |
+|---|---:|---:|
+| `b/R²`, `R ≥ 11` | 1.000 | 0.893 |
+| `a/R + b/R²`, `R ≥ 11` | 0.903 (`a = +3.2`) | 0.909 (`a = −0.5`) |
+| `b/R²`, `R ≥ 17` | 0.990 | 0.900 |
+| `b/R²`, `R ≥ 17`, early Ψ₄ left out of the integral | — | 0.895 |
+| no model: the value at `R = 25.01` | 1.062 | 0.940 |
+
+**For `R ≥ 11` the corrected values agree with the `a/R + b/R²` fit.**
+Their own extrapolations give 0.893 to 0.909, within 1.1% of that fit's
+0.903, and 9% to 11% below the `b/R²` fit's 1.000.
+- **No `1/R` term is left.** A free `1/R` term fitted to the corrected
+  values comes out at −0.5, against +3.2 in the raw ones.
+- **The mass makes no difference.** `M = 1` instead of 1.003 changes
+  every value by 0.25% or less.
+- **By the rule, the correction is used for #51.** It puts the `(2,0)`
+  energy at infinity at 0.89 to 0.91 of the close limit, −9% to −11%. That
+  is outside 5%, before the resolution's own error.
+
+**Most of the change is the factor the check did not test.** In the
+energy, `(1 − 2M/R)²` is −15% at 25 M and −29% at 13 M. The bracket alone
+raises the energy, from 1.062 to 1.111 at 25 M. The raw data's `+3.2/R`
+is roughly the net of the two. So the conclusion rests on the
+rederivation of the factor, which assumes observers at rest. On the 70 M
+checkpoint, the `2M` level beside the `x` axis has a lapse within 0.25%
+of `√(1 − 2M/R)` at `R ≈ 21` to 25 (`R` from `W`) and a shift below
+1e−03, which bears that out at the end of the run.
+
+**What this does not establish.**
+
+- **One resolution.** The correction removes a finite-radius error, not a
+  truncation error. `M/16` to the merger and `M/8` after are what was run.
+- **The `1 − 2M/r` factor, numerically.** The Teukolsky check has `M = 0`.
+  The factor rests on the rederivation and on the lapse at 70 M, not on a
+  measured waveform.
+- **The inner spheres.** At `t = 0`, Ψ₄ already holds the initial data's
+  static quadrupole: 0.7% of the pulse's peak at 10 M, 0.15% at 16 M. That
+  is not radiation, but the integral counts it. Leaving it out changes the
+  corrected energy by 14% at `R = 10.93`, 4% at 12.96, and under 1% from 17
+  out. So the `R ≥ 17` fits are the cleaner ones, at 0.895 to 0.900.
+- **The ringdown tail and the radius's drift.** Neither is added here. The
+  tail beyond the record is at most 0.8% of the energy at 24 M. The areal
+  radius of each sphere moves by up to 0.08 M at 24 M, and 0.46 M at 6 M,
+  over the run.
+
 #### What is not here
 
 - **A literature value beyond first order.** The comparison is with the

@@ -110,3 +110,61 @@ def test_the_modes_of_a_known_field_come_back(grid):
     assert abs(modes[(2, 0)] - (0.7 - 0.2j)) < 2e-3
     assert abs(modes[(3, 2)] - 0.3j) < 2e-3
     assert abs(modes[(2, 2)]) < 2e-3
+
+
+def _synthetic(radius, coefficient):
+    """``r Psi_4 = A(u) + (coefficient/r) int A du + c/r^2`` at ``radius``, on ``t`` from 0.
+
+    ``A`` is a Gaussian-windowed oscillation, so its integral is known in
+    closed form only numerically; it is taken on a fine grid by Simpson's
+    rule, which is accurate far beyond what the test asks.
+    """
+    from scipy.integrate import cumulative_simpson
+
+    times = np.linspace(0.0, radius + 40.0, 4 * int(radius + 40.0) * 20 + 1)
+    u = times - radius
+
+    def pulse(v):
+        return np.exp(-((v - 15.0) ** 2) / 8.0) * np.sin(1.3 * v)
+
+    a = pulse(u)
+    integral = cumulative_simpson(a, x=u, initial=0.0)
+    r_psi4 = a + coefficient * integral / radius + 0.7 * a / radius**2
+    return times, r_psi4 / radius, a
+
+
+@pytest.mark.parametrize("coefficient", [2.0, 1.0])
+def test_the_extrapolation_removes_exactly_the_one_over_r_term(coefficient):
+    """``(l-1)(l+2)/2 = 2`` leaves ``O(1/r^2)``; the control, 1 in its place, leaves ``O(1/r)``.
+
+    The largest residual against ``A(u)``, at 20 and 40 M. Measured: with
+    the true coefficient ``r^2`` times it is 7.52 at both radii; with the
+    control, ``r`` times it is 0.93 and 0.89, the size of ``int A du``
+    (0.86), and it falls by 2.1 per doubling, not 4. ``M = 0`` here; the
+    mass factor is checked on its own.
+    """
+    residual = []
+    for radius in (20.0, 40.0):
+        times, series, a = _synthetic(radius, coefficient)
+        estimate = ex.perturbative_extrapolation(times, series, radius, 0.0, 2)
+        residual.append(np.max(np.abs(estimate - a)))
+    ratio = residual[0] / residual[1]
+    if coefficient == 2.0:
+        assert ratio == pytest.approx(4.0, rel=0.02)
+        assert residual[1] * 40.0**2 < 10.0
+    else:
+        assert ratio == pytest.approx(2.0, rel=0.1)
+        assert residual[1] * 40.0 > 0.5
+
+
+def test_the_extrapolation_scales_by_one_minus_two_m_over_r_and_rejects_l_below_two():
+    times = np.linspace(0.0, 10.0, 101)
+    series = np.sin(times) + 0.5j * np.cos(times)
+    flat = ex.perturbative_extrapolation(times, series, 10.0, 0.0, 3)
+    curved = ex.perturbative_extrapolation(times, series, 10.0, 1.0, 3)
+    assert np.allclose(curved, 0.8 * flat, rtol=1e-14)
+    # l = 3: (l-1)(l+2)/2 = 5, and the integral of sin + 0.5i cos from 0 is 1 - cos + 0.5i sin.
+    expected = 10.0 * series - 5.0 * (1 - np.cos(times) + 0.5j * np.sin(times))
+    assert np.allclose(flat, expected, atol=1e-5)
+    with pytest.raises(ValueError):
+        ex.perturbative_extrapolation(times, series, 10.0, 0.0, 1)

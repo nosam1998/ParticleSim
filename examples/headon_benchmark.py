@@ -239,7 +239,9 @@ def radiated_energy(times, series, areal, start=None, fixed="start"):
 FUNDAMENTAL = complex(0.37367, -0.08896)
 
 
-def energy_table(report, reference, mode="2,0", start=None, fixed="start", mass=1.0):
+def energy_table(
+    report, reference, mode="2,0", start=None, fixed="start", mass=1.0, perturbative=None
+):
     """The energy at each sphere of a record, over ``reference``, with a bound on what is missing.
 
     One row per sphere, in order of radius: its coordinate radius and level, its areal radius
@@ -253,6 +255,10 @@ def energy_table(report, reference, mode="2,0", start=None, fixed="start", mass=
     most ``(R^2/16 pi) A_end^2 (1/(4 gamma) + 1/(4 |omega - i gamma|))``
     whatever the phase at the end. ``end`` is the record's last retarded
     time, ``t - R - 2M ln(R/2M - 1)``.
+
+    With ``perturbative`` (a mass), each sphere's waveform is first carried
+    to infinite radius with :func:`extraction.perturbative_extrapolation`
+    for that mass, at the sphere's averaged areal radius.
     """
     from scipy.integrate import cumulative_simpson
 
@@ -264,6 +270,10 @@ def energy_table(report, reference, mode="2,0", start=None, fixed="start", mass=
         radius, level = sphere["radius"], sphere["level"]
         areal = float(np.mean([w["spheres"][index]["areal"] for w in waves]))
         series = np.array([complex(*w["spheres"][index]["modes"][mode]) for w in waves])
+        if perturbative is not None:
+            l = int(mode.split(",")[0])
+            infinite = extraction.perturbative_extrapolation(times, series, areal, perturbative, l)
+            series = infinite / areal
         energy = radiated_energy(times, series, areal, start=start, fixed=fixed)
         news = cumulative_simpson(series, x=times, initial=0.0)
         last = times >= times[-1] - 2 * np.pi / omega
@@ -326,71 +336,99 @@ def richardson(fine, coarse, ratio, order):
     return np.asarray(fine) + error, error
 
 
+def _fits(label, rows, tails=True):
+    areal = [row["areal"] for row in rows]
+    columns = [("", [row["ratio"] for row in rows])]
+    if tails:
+        columns.append((" +tail", [row["ratio"] + row["tail"] for row in rows]))
+    for model in MODELS:
+        for extra, values in columns:
+            try:
+                fit = extrapolate(areal, values, model)
+            except ValueError as error:
+                print(f"  {label}{model}{extra}: {error}")
+                continue
+            terms = " ".join(f"{k}={v:+.3g}" for k, v in fit.items() if k in "ab")
+            print(f"  {label}{model}{extra}, R>=10.5: E_inf/E_ref = {fit['E']:.4f} ({terms})")
+
+
+def _final_mass(report):
+    found = [r for r in report["records"] if r.get("horizon_found")]
+    return (found[-1]["time"], found[-1]["horizon_mass"]) if found else (None, None)
+
+
 def _summary(name, report, reference):
     config = report["configuration"]
     z0 = config["punctures"][0][1][2]
     h = config["extent"] / config["n"] / 2 ** (config["levels"] - 1)
-    rows = energy_table(report, reference)
+    when, mass = _final_mass(report)
     times = [w["time"] for w in report["waves"]]
     print(f"{name}: n={config['n']} z0={z0} finest h=M/{1 / h:.4g} to t={times[-1]}")
     print(f"  reference E = {reference:.5g} M; plan {report['plan']}")
-    print("  r      level  R       E/E_ref   tail/E_ref  (E/E_ref-1)R^2  end u")
-    for row in rows:
-        excess = (row["ratio"] - 1) * row["areal"] ** 2
-        print(
-            f"  {row['radius']:<6g} {row['level']:<6d} {row['areal']:<7.2f} "
-            f"{row['ratio']:<9.4f} {row['tail']:<11.2e} {excess:<15.1f} {row['end']:.1f}"
-        )
-    areal = [row["areal"] for row in rows]
-    ratio = [row["ratio"] for row in rows]
-    tailed = [row["ratio"] + row["tail"] for row in rows]
-    for model in MODELS:
-        for label, values in (("", ratio), (" +tail", tailed)):
-            try:
-                fit = extrapolate(areal, values, model)
-            except ValueError as error:
-                print(f"  {model}{label}: {error}")
-                continue
-            terms = " ".join(f"{k}={v:+.3g}" for k, v in fit.items() if k in "ab")
-            print(f"  {model}{label}, R>=10.5: E_inf/E_ref = {fit['E']:.4f} ({terms})")
-    return rows
+    print(f"  horizon mass {mass} at t={when}; M_ADM = {report['adm_mass']}")
+    tables = {}
+    for label, correction in (("raw", None), ("perturbative", mass or 1.0)):
+        rows = energy_table(report, reference, perturbative=correction)
+        tables[label] = rows
+        print(f"  {label}: r      level  R       E/E_ref   tail/E_ref  (E/E_ref-1)R^2  end u")
+        for row in rows:
+            excess = (row["ratio"] - 1) * row["areal"] ** 2
+            print(
+                f"  {' ' * len(label)}  {row['radius']:<6g} {row['level']:<6d} "
+                f"{row['areal']:<7.2f} {row['ratio']:<9.4f} {row['tail']:<11.2e} "
+                f"{excess:<15.1f} {row['end']:.1f}"
+            )
+        _fits(f"{label} ", rows)
+    return tables
 
 
 def analyse(paths, reference=None):
-    """Print each record's energy table and extrapolations, and resolution differences.
+    """Print each record's energy tables and extrapolations, and resolution differences.
 
     ``reference`` is the energy each is divided by, ``0.0251 kappa_2^2`` of
-    each record's ``z0`` unless given. Records of the same ``z0`` at two
-    resolutions are compared radius by radius, finer minus coarser,
-    ``Delta(R)``, with Richardson's correction at orders 2 and 4.
+    each record's ``z0`` unless given. Each record is tabulated raw and
+    carried to infinity perturbatively with its final horizon mass. Records
+    of the same ``z0`` and plan at two resolutions are compared radius by
+    radius, finer minus coarser, ``Delta(R)``, with Richardson's correction
+    at orders 2 and 4, and the corrected energies are extrapolated in turn.
     """
     reports = [(str(path), json.loads(Path(path).read_text())) for path in paths]
-    tables = {}
+    tables = []
     for name, report in reports:
         z0 = report["configuration"]["punctures"][0][1][2]
-        tables[name] = (report, _summary(name, report, reference or close_limit_energy(z0)))
-    for (ra, ta), (rb, tb) in itertools.combinations(tables.values(), 2):
+        tables.append((report, _summary(name, report, reference or close_limit_energy(z0))))
+    for (ra, ta), (rb, tb) in itertools.combinations(tables, 2):
         za, zb = (r["configuration"]["punctures"][0][1][2] for r in (ra, rb))
         na, nb = ra["configuration"]["n"], rb["configuration"]["n"]
         if za != zb or na == nb or ra["plan"] != rb["plan"]:
             continue
         (fine, nf), (coarse, nc) = sorted(((ta, na), (tb, nb)), key=lambda x: -x[1])
         ratio = nf / nc
-        print(f"Delta(R) = E(n={nf}) - E(n={nc}), over the reference, ratio {ratio:.3g}:")
-        delta = [f["ratio"] - c["ratio"] for f, c in zip(fine, coarse, strict=True)]
-        for f, d in zip(fine, delta, strict=True):
-            fixed2 = richardson(f["ratio"], f["ratio"] - d, ratio, 2)[0]
-            fixed4 = richardson(f["ratio"], f["ratio"] - d, ratio, 4)[0]
+        for label in fine:
             print(
-                f"  r={f['radius']:<5g} R={f['areal']:<6.2f} Delta={d:+.4f} "
-                f"Richardson p=2 {fixed2:.4f} p=4 {fixed4:.4f}"
+                f"{label}: Delta(R) = E(n={nf}) - E(n={nc}), over the reference, ratio {ratio:.3g}"
             )
-        outer = [d for f, d in zip(fine, delta, strict=True) if f["areal"] >= 10.5]
-        print(
-            f"  R>=10.5: mean Delta {np.mean(outer):+.4f}, spread {np.ptp(outer):.4f}, "
-            f"resolution error p=2 {abs(np.mean(outer)) / (ratio**2 - 1):.4f}, "
-            f"p=4 {abs(np.mean(outer)) / (ratio**4 - 1):.4f}"
-        )
+            delta = [
+                f["ratio"] - c["ratio"] for f, c in zip(fine[label], coarse[label], strict=True)
+            ]
+            for order in (2, 4):
+                corrected = [
+                    {**f, "ratio": float(richardson(f["ratio"], f["ratio"] - d, ratio, order)[0])}
+                    for f, d in zip(fine[label], delta, strict=True)
+                ]
+                if order == 2:
+                    for f, d, c in zip(fine[label], delta, corrected, strict=True):
+                        print(
+                            f"  r={f['radius']:<5g} R={f['areal']:<6.2f} Delta={d:+.4f} "
+                            f"Richardson p=2 {c['ratio']:.4f}"
+                        )
+                _fits(f"Richardson p={order} ", corrected, tails=False)
+            outer = [d for f, d in zip(fine[label], delta, strict=True) if f["areal"] >= 10.5]
+            print(
+                f"  R>=10.5: mean Delta {np.mean(outer):+.4f}, spread {np.ptp(outer):.4f}, "
+                f"|mean|/(1.5^p - 1): p=2 {abs(np.mean(outer)) / (ratio**2 - 1):.4f}, "
+                f"p=4 {abs(np.mean(outer)) / (ratio**4 - 1):.4f}"
+            )
 
 
 def checkpoint(path, states, clock, config, extra):

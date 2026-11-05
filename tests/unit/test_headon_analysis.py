@@ -6,6 +6,8 @@ import pytest
 from examples.headon_benchmark import (
     FUNDAMENTAL,
     configuration,
+    convergence_order,
+    decision_rule,
     energy_table,
     extraction_plan,
     extrapolate,
@@ -131,3 +133,108 @@ def test_the_tail_bound_holds_the_ringdown_left_after_the_record():
     early = dict(waves=report["waves"][:11])
     (row,) = energy_table(early, whole)
     assert row["tail"] < 0.05 * (1 - row["ratio"])
+
+
+def test_convergence_order_measures_a_known_power_and_refuses_a_sequence_that_diverges():
+    """``Q(h) = 2 + 5 h^p`` at ``h``, ``h/1.5`` and ``h/2.25``: ``p`` exactly, for any ``p``.
+
+    The controls: differences that grow with refinement, or change sign,
+    measure no order.
+    """
+    for order in (1.0, 2.0, 3.7):
+        q = [2 + 5 * (0.3 / 1.5**k) ** order for k in range(3)]
+        assert convergence_order(*q, 1.5) == pytest.approx(order, rel=1e-10)
+    assert np.isnan(convergence_order(1.0, 1.1, 1.3, 1.5))
+    assert np.isnan(convergence_order(1.0, 1.2, 1.1, 1.5))
+
+
+def _rows(energies, tails=None):
+    tails = np.zeros(len(AREAL)) if tails is None else tails
+    return [
+        dict(radius=r, level=0, areal=a, energy=e, ratio=e, tail=t, end=40.0)
+        for r, a, e, t in zip(RADII, AREAL, energies, tails, strict=True)
+    ]
+
+
+def _run(energies, perturbative=None, mass=1.003, z0=0.3, tails=None):
+    perturbative = energies if perturbative is None else perturbative
+    return dict(
+        raw=_rows(energies, tails), perturbative=_rows(perturbative, tails), mass=mass, z0=z0
+    )
+
+
+def test_the_decision_rule_extrapolates_the_richardson_limit_when_the_error_depends_on_radius():
+    """``E_h(R) = E_inf (1 + 43/R^2) + C h^2 g(R)``, with ``g`` growing with ``R``.
+
+    The spread of ``Delta`` is over half its mean, so the rule takes its
+    second branch: Richardson at ``p = 2`` removes the error exactly, and
+    ``b/R^2`` gives ``E_inf``. A third resolution measures ``p = 2``, and data
+    with ``h^4`` errors measure 4. The control: the same error constant in
+    ``R`` takes the first branch, which extrapolates the medium run as it is,
+    ``C h^2`` high.
+    """
+    exact = 0.95 * (1 + 43 / AREAL**2)
+    growing = 0.4 * (AREAL / 25) ** 3
+
+    def at(h, power=2, shape=growing):
+        return exact + shape * (h / 0.0625) ** power
+
+    rule = decision_rule(_run(at(0.0625)), _run(at(0.09375)), _run(at(0.0625 / 1.5)))
+    assert rule["branch"] == 2
+    assert rule["flat"] == pytest.approx(0.95, rel=1e-10)
+    assert rule["perturbative"] == pytest.approx(0.95, rel=1e-10)
+    assert rule["order_measured"] == pytest.approx(2, rel=1e-10)
+    assert rule["resolution"] == pytest.approx(rule["size"] / 1.25, rel=1e-12)
+    quartic = decision_rule(_run(at(0.0625, 4)), _run(at(0.09375, 4)), _run(at(0.0417, 4)))
+    assert quartic["order_measured"] == pytest.approx(4, rel=1e-3)
+
+    constant = np.full(len(AREAL), 0.2)
+    control = decision_rule(
+        _run(at(0.0625, shape=constant)), _run(at(0.09375, shape=constant)), order=2
+    )
+    assert control["branch"] == 1 and control["spread"] < 1e-12
+    assert control["order_measured"] is None and control["order"] == 2
+    assert control["flat"] == pytest.approx(1.15, rel=1e-10)
+    assert control["resolution"] == pytest.approx(0.25 / 1.25, rel=1e-10)
+
+
+def test_the_decision_rule_recovers_the_second_order_and_judges_both_clauses():
+    """Two separations with ``E/E_AP = c (1 + d kappa_2)`` exactly: ``c`` and ``d`` come back.
+
+    ``c = 1.02``, ``d = -3``, with a resolution difference of 0.01 at every
+    radius and the perturbative fits 0.04 below the flat one. The energy
+    clause is then within 5% and met; the mass clause fails when the horizon
+    is 4% heavy with a 2% resolution difference. The control: the same data
+    with a resolution difference ten times larger fails the energy clause.
+    """
+    shape = 1 + 43 / AREAL**2
+
+    def pair(c, d, offset):
+        runs = []
+        for z0 in (0.3, 0.2):
+            y = c * (1 + d * z0**2 / 4)
+            runs.append(_run(y * shape + offset, y * shape + offset - 0.04, z0=z0))
+        return runs
+
+    medium, other = pair(1.02, -3.0, 0.0)
+    coarse, _ = pair(1.02, -3.0, -0.01)
+    rule = decision_rule(medium, coarse, other=other)
+    assert rule["branch"] == 1
+    assert rule["c"] == pytest.approx(1.02 - 0.02, rel=1e-10)
+    assert rule["d"] == pytest.approx(-3.0 * 1.02 / 1.0, rel=1e-8)
+    assert rule["extrapolation"] == pytest.approx(0.02, rel=1e-10)
+    assert rule["energy_ratio"] == pytest.approx(
+        (1.02 * (1 - 3 * 0.01) - 0.02) / (1.02 * (1 - 3 * 0.0225) - 0.02) * (0.01 / 0.0225) ** 2,
+        rel=1e-10,
+    )
+    # sigma_c from both points' errors, the second's resolution error scaled from the first's
+    ya, yb = 1.02 * (1 - 3 * 0.0225) - 0.02, 1.02 * (1 - 3 * 0.01) - 0.02
+    res = 0.01 / 1.25
+    sigma_a, sigma_b = np.hypot(res, 0.02), np.hypot(yb / ya * res, 0.02)
+    assert rule["sigma_c"] == pytest.approx(np.hypot(1.8 * sigma_b, 0.8 * sigma_a), rel=1e-10)
+    assert rule["energy_clause"] and rule["mass_clause"]
+
+    heavy = decision_rule({**medium, "mass": 1.04}, {**coarse, "mass": 1.02}, other=other)
+    assert not heavy["mass_clause"]
+    loose, _ = pair(1.02, -3.0, -0.1)
+    assert not decision_rule(medium, loose, other=other)["energy_clause"]

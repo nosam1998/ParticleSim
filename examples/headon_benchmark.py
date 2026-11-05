@@ -21,8 +21,10 @@ Recorded as it runs, and checkpointed so that a run can be continued:
 :func:`radiated_energy` turns the recorded modes into the energy carried by
 each, ``(R^2 / 16 pi) int |int Psi_4 dt|^2 dt``. :func:`energy_table`,
 :func:`extrapolate` and :func:`richardson` turn records into the energy at
-each radius, at infinite radius, and at zero spacing; ``--analyse`` prints
-them for one or more records:
+each radius, at infinite radius, and at zero spacing, and
+:func:`decision_rule` applies issue #51's pre-registered claim rule to them
+(:func:`convergence_order` measures the order from three spacings);
+``--analyse`` prints them for one or more records, the medium run first:
 
     uv run python examples/headon_benchmark.py --analyse runs/headon-z03/headon.json
 """
@@ -336,6 +338,145 @@ def richardson(fine, coarse, ratio, order):
     return np.asarray(fine) + error, error
 
 
+def convergence_order(coarse, medium, fine, ratio):
+    """The order ``p`` of ``Q(h) = Q_0 + C h^p`` from three spacings in a constant ``ratio``.
+
+    ``p = ln((medium - coarse) / (fine - medium)) / ln(ratio)``. ``nan`` when
+    the two differences change sign, or the finer one is not the smaller: the
+    sequence is then not converging at these spacings, and no order is
+    measured.
+    """
+    first, second = medium - coarse, fine - medium
+    if first * second <= 0 or abs(second) >= abs(first):
+        return float("nan")
+    return float(np.log(first / second) / np.log(ratio))
+
+
+def _infinity(rows, energies=None, tails=False, model="b/R2", minimum=10.5):
+    energies = [row["ratio"] for row in rows] if energies is None else list(energies)
+    if tails:
+        energies = [e + row["tail"] for e, row in zip(energies, rows, strict=True)]
+    return extrapolate([row["areal"] for row in rows], energies, model, minimum)["E"]
+
+
+def _central(raw, perturbative, tails_from, minimum=10.5):
+    """Items 3 and 4: ``b/R^2`` of ``raw`` against U3's two fits of ``perturbative``."""
+    flat = _infinity(tails_from, raw, minimum=minimum)
+    carried = [
+        _infinity(tails_from, perturbative, model=model, minimum=minimum)
+        for model in ("b/R2", "a/R+b/R2")
+    ]
+    pert = float(np.mean(carried))
+    tail = _infinity(tails_from, raw, tails=True, minimum=minimum) - flat
+    return dict(
+        flat=flat,
+        perturbative=pert,
+        perturbative_fits=carried,
+        central=(flat + pert) / 2,
+        extrapolation=abs(flat - pert) / 2,
+        tail=tail,
+    )
+
+
+def decision_rule(medium, coarse, fine=None, other=None, ratio=1.5, minimum=10.5, order=2.0):
+    """Items 1 to 8 and 10 of ``runs/headon-n32/DECISION_RULE.md``, applied mechanically.
+
+    Each run is ``dict(raw=rows, perturbative=rows, mass=..., z0=...)``, the
+    rows :func:`energy_table`'s, in units of each run's ``E_AP``, and ``mass``
+    its final horizon mass. ``medium`` and ``coarse`` are the ``z0 = 0.3``
+    runs at spacings ``h`` and ``ratio h``; ``fine``, at ``h / ratio``,
+    measures the order (item 10), else ``order`` is the stated bar. ``other``
+    is the medium run at the second separation (item 6).
+
+    Where the rule is silent, the readings recorded in
+    ``runs/headon-n32/DECISIONS.log`` are used: U3's perturbative value is the
+    mean of its ``b/R^2`` and ``a/R + b/R^2`` fits; the order is measured on
+    the quantity item 2 takes as ``|Delta|``; ``other`` is Richardson-corrected
+    with the medium run's own factor per sphere, and its relative resolution
+    error is the medium run's.
+    """
+    outer = [i for i, row in enumerate(medium["raw"]) if row["areal"] >= minimum]
+
+    def ratios(run, label="raw"):
+        return np.array([row["ratio"] for row in run[label]])
+
+    # Item 1: is Delta(R) independent of R?
+    delta = ratios(medium) - ratios(coarse)
+    mean, spread = float(np.mean(delta[outer])), float(np.ptp(delta[outer]))
+    branch = 1 if spread < abs(mean) / 2 else 2
+    # Item 2 (and 10): the resolution error.
+    flat_medium = _infinity(medium["raw"], minimum=minimum)
+    flat_coarse = _infinity(coarse["raw"], minimum=minimum)
+    by_mean = abs(mean) >= abs(flat_medium - flat_coarse)
+    size = max(abs(mean), abs(flat_medium - flat_coarse))
+    measured = None
+    if fine is not None:
+        if by_mean:
+            finer = float(np.mean((ratios(fine) - ratios(medium))[outer]))
+            measured = convergence_order(0.0, mean, mean + finer, ratio)
+        else:
+            flat_fine = _infinity(fine["raw"], minimum=minimum)
+            measured = convergence_order(flat_coarse, flat_medium, flat_fine, ratio)
+    used = measured if measured is not None and np.isfinite(measured) else order
+    resolution = size / (ratio**used - 1)
+    # Items 1 (branch), 3 and 4: what is extrapolated, and how.
+    if branch == 1:
+        raw, pert = ratios(medium), ratios(medium, "perturbative")
+    else:
+        raw = richardson(ratios(medium), ratios(coarse), ratio, 2)[0]
+        pert = richardson(ratios(medium, "perturbative"), ratios(coarse, "perturbative"), ratio, 2)[
+            0
+        ]
+    first = _central(raw, pert, medium["raw"], minimum)
+    total = float(np.sqrt(resolution**2 + first["extrapolation"] ** 2 + first["tail"] ** 2))
+    out = dict(
+        delta=delta.tolist(),
+        mean=mean,
+        spread=spread,
+        branch=branch,
+        size=size,
+        size_from="mean Delta" if by_mean else "b/R2 extrapolations",
+        order_measured=measured,
+        order=used,
+        resolution=resolution,
+        resolution_by_order={p: size / (ratio**p - 1) for p in (2, 4)},
+        sigma=total,
+        **first,
+    )
+    # Item 8: the mass clause.
+    radiated = out["central"] * close_limit_energy(medium["z0"])
+    mass_error = abs(medium["mass"] - coarse["mass"])
+    out["mass_offset"] = medium["mass"] / (1 - radiated) - 1
+    out["mass_error"] = mass_error
+    out["mass_clause"] = abs(out["mass_offset"]) + mass_error <= 0.05
+    # Items 6 and 7: the second order, and the energy clause.
+    out["fallback"] = abs(out["central"] - 1) + total
+    out["energy_clause"] = out["fallback"] <= 0.05
+    if other is not None:
+        if branch == 1:
+            raw_b, pert_b = ratios(other), ratios(other, "perturbative")
+        else:
+            raw_b = ratios(other) * raw / ratios(medium)
+            pert_b = ratios(other, "perturbative") * pert / ratios(medium, "perturbative")
+        second = _central(raw_b, pert_b, other["raw"], minimum)
+        res_b = second["central"] * resolution / out["central"]
+        sigma_b = float(np.sqrt(res_b**2 + second["extrapolation"] ** 2 + second["tail"] ** 2))
+        ka, kb = medium["z0"] ** 2 / 4, other["z0"] ** 2 / 4  # kappa_2, for M = 1
+        ya, yb = out["central"], second["central"]
+        c = (ka * yb - kb * ya) / (ka - kb)
+        sigma_c = float(np.hypot(ka / (ka - kb) * sigma_b, kb / (ka - kb) * total))
+        out["other"] = dict(**second, resolution=res_b, sigma=sigma_b)
+        out.update(
+            c=c,
+            d=(ya - yb) / (ka - kb) / c,
+            sigma_c=sigma_c,
+            energy_ratio=(yb * kb**2) / (ya * ka**2),
+            clause=abs(c - 1) + sigma_c,
+        )
+        out["energy_clause"] = out["clause"] <= 0.05
+    return out
+
+
 def _fits(label, rows, tails=True):
     areal = [row["areal"] for row in rows]
     columns = [("", [row["ratio"] for row in rows])]
@@ -429,6 +570,71 @@ def analyse(paths, reference=None):
                 f"|mean|/(1.5^p - 1): p=2 {abs(np.mean(outer)) / (ratio**2 - 1):.4f}, "
                 f"p=4 {abs(np.mean(outer)) / (ratio**4 - 1):.4f}"
             )
+    runs = [
+        dict(
+            **table,
+            mass=_final_mass(report)[1],
+            z0=report["configuration"]["punctures"][0][1][2],
+            n=report["configuration"]["n"],
+            plan=report["plan"],
+        )
+        for report, table in tables
+    ]
+    _print_rule(runs)
+
+
+def _print_rule(runs):
+    """:func:`decision_rule` for the first record, if a coarser one of its ``z0`` and plan exists.
+
+    A finer one at the same ratio measures the order; one at another ``z0``
+    with the first's ``n`` gives the second order.
+    """
+    medium, *rest = runs
+    same = [r for r in rest if r["z0"] == medium["z0"] and r["plan"] == medium["plan"]]
+    coarser = [r for r in same if r["n"] < medium["n"]]
+    if not coarser:
+        return
+    coarse = max(coarser, key=lambda r: r["n"])
+    ratio = medium["n"] / coarse["n"]
+    fine = [r for r in same if np.isclose(r["n"], medium["n"] * ratio)]
+    other = [r for r in rest if r["z0"] != medium["z0"] and r["n"] == medium["n"]]
+    rule = decision_rule(
+        medium, coarse, fine[0] if fine else None, other[0] if other else None, ratio
+    )
+    print(
+        f"Decision rule (runs/headon-n32/DECISION_RULE.md), n={medium['n']} against {coarse['n']}:"
+    )
+    print(
+        f"  1. mean Delta {rule['mean']:+.4f}, spread {rule['spread']:.4f}: branch {rule['branch']}"
+    )
+    print(
+        f"  2. |Delta| {rule['size']:.4f} ({rule['size_from']}); order measured "
+        f"{rule['order_measured']}, used {rule['order']:.3g}: sigma_res {rule['resolution']:.4f} "
+        f"(p=2 {rule['resolution_by_order'][2]:.4f}, p=4 {rule['resolution_by_order'][4]:.4f})"
+    )
+    print(
+        f"  3. b/R2 {rule['flat']:.4f}, perturbative {rule['perturbative']:.4f} "
+        f"(fits {rule['perturbative_fits'][0]:.4f}, {rule['perturbative_fits'][1]:.4f}): "
+        f"central {rule['central']:.4f}, sigma_ext {rule['extrapolation']:.4f}"
+    )
+    print(f"  4. sigma_tail {rule['tail']:.4f}   5. sigma {rule['sigma']:.4f}")
+    if "c" in rule:
+        o = rule["other"]
+        print(
+            f"  6. other z0: central {o['central']:.4f} (b/R2 {o['flat']:.4f}, perturbative "
+            f"{o['perturbative']:.4f}), sigma {o['sigma']:.4f} (res {o['resolution']:.4f}, ext "
+            f"{o['extrapolation']:.4f}, tail {o['tail']:.4f})"
+        )
+        print(
+            f"     c = {rule['c']:.4f} +- {rule['sigma_c']:.4f} of 0.0251, d = {rule['d']:.3g}, "
+            f"E ratio {rule['energy_ratio']:.4f} (first order 0.1975)"
+        )
+        print(f"  7. |c - 1| + sigma_c = {rule['clause']:.4f}: met {rule['energy_clause']}")
+    print(f"  7. fallback |E - 1| + sigma = {rule['fallback']:.4f}")
+    print(
+        f"  8. mass {rule['mass_offset']:+.5f} + {rule['mass_error']:.5f}: "
+        f"met {rule['mass_clause']}"
+    )
 
 
 def checkpoint(path, states, clock, config, extra):

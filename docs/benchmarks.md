@@ -2070,6 +2070,115 @@ It requires the centre within 1e−10 M and the mass within 1e−3 of one. The
 control fails the first by six orders of magnitude and passes the second:
 at this length the mass bound checks the run's health, not its centring.
 
+### What drives the growth: the boundary, the buffer, dissipation
+
+The `M/12` run's constraint outside 2 M e-folds every 106 M (`M/6`) and
+114 M (`M/12`) from 100 to 300 M. Criterion 5 at 1000 M allows at most ten
+times growth from 100 M, an average e-folding time of 391 M. Each run below
+changes one thing in that run and goes to 300 M, so that its effect on the
+growth can be read before anything is run to 1000 M.
+
+**The rule, fixed before the runs.** Written at 20:08:17 UTC on 2026-11-05,
+30 s after the first two runs started and before any had a record past
+0 M (`runs/puncture-far/DECISION_RULE.md`):
+- **τ** is the e-folding time of `‖H‖` outside 2 M over 100–300 M on each
+  level, by least squares of `ln‖H‖` over the records in [100, 300] M
+  (`growth_time`); negative is decay. The `M/6` and `M/12` levels are
+  compared with the baseline's **106 M and 114 M**.
+- **Δm** is the largest `|M_irr − 1|` over 0–300 M (baseline 0.0048).
+- **Go:** τ ≥ 400 M (or decay) on every level and Δm ≤ 0.01.
+- **A knob matters** if it changes τ on either inner level by a factor of
+  2 or more, either way. **It improves τ by 2×** if on at least one inner
+  level τ is at least twice the baseline's (or decays) and on neither is it
+  made twice as short; one that does both is mixed, not an improvement.
+- **At A's 300 M:** if A passes go, continue it from its checkpoint to
+  1000 M.
+- **Otherwise** wait for C and D to reach 300 M, and build F: the baseline
+  plus every knob that improved τ by 2×. If F is a run already made, that
+  run's records are F's first 300 M and it continues from its checkpoint.
+  Continue F past 300 M only if it passes go, or if its smallest τ over all
+  levels is at least twice the baseline's smallest (212 M): the best
+  measured shot, stated as such.
+- **If no knob improves τ by 2×,** spacing is the remaining candidate: run
+  E (`--n 64 --extent 8 --box 32`, `M/16`) to 300 M, and no 1000 M run.
+- **B** (far boundary, flat reference) runs only on a free slot and never
+  delays F. It is measured against A, and enters F only if it improves τ
+  over A's by 2× and has reached 300 M when F is built.
+
+**The runs.** Each is the baseline (`--n 48 --box 24 --octant --courant
+0.5 --interval 10`, trumpet data, `W`, unadvected gauge) with one change.
+The four-level grid's inner two levels are the baseline's two, to the
+last digit of every cell centre (`test_the_four_level_grid_reproduces_the_baselines_two_levels_inside_it`),
+so A changes only what lies outside ±3.9 M.
+
+| run | change | what it isolates | levels | τ per level, M | Δm | reached |
+|---|---|---|---|---|---:|---|
+| baseline (`puncture-m12`) | — | | `M/6`, `M/12` | 106, 114 | 0.0048 | 1000 M |
+| A `puncture-far` | `--levels 4 --extent 32`: boundary at ±16 M, zone 2 M | boundary distance | `M/1.5` … `M/12` | 176, 788, **336, 180** | 0.0195 | 300 M |
+| C `puncture-diss` | `--dissipation 0.3` (0.1 before) | dissipation | `M/6`, `M/12` | **97, 104** | 0.0208 | 300 M |
+| D `puncture-buffer` | `--buffer 3` (6 before): the fine level evolved 0.25 M further out | refinement buffer | `M/6`, `M/12` | running | | |
+| B `puncture-far-flat` | as A, `--background flat` | the boundary's reference, far away | `M/1.5` … `M/12` | running | | |
+
+A, its inner levels in bold:
+
+| t / M | 0 | 50 | 100 | 150 | 200 | 250 | 300 |
+|---|---|---|---|---|---|---|---|
+| horizon mass | 1.0000 | 0.9996 | 1.0001 | 1.0025 | 1.0062 | 1.0117 | 1.0195 |
+| horizon residual | 0.0006 | 0.0023 | 0.0039 | 0.0040 | 0.0039 | 0.0039 | 0.0039 |
+| `M/1.5` `‖H‖`, `r > 2 M` | 6.0e−08 | 1.3e−06 | 3.0e−06 | 4.0e−06 | 5.1e−06 | 6.9e−06 | 9.8e−06 |
+| `M/3` `‖H‖`, `r > 2 M` | 5.4e−07 | 1.9e−04 | 2.2e−04 | 2.1e−04 | 2.2e−04 | 2.4e−04 | 2.9e−04 |
+| **`M/6` `‖H‖`, `r > 2 M`** | 2.2e−06 | 5.5e−04 | 7.0e−04 | 8.4e−04 | 9.3e−04 | 1.1e−03 | 1.4e−03 |
+| **`M/12` `‖H‖`, `r > 2 M`** | 1.7e−06 | 7.1e−04 | 7.9e−04 | 1.0e−03 | 1.3e−03 | 1.7e−03 | 2.4e−03 |
+| baseline mass | 1.0000 | 0.9998 | 1.0014 | 1.0034 | 1.0047 | 1.0042 | 0.9970 |
+| baseline `M/6` `‖H‖` | 2.2e−06 | 1.3e−04 | 2.2e−04 | 3.5e−04 | 5.5e−04 | 9.0e−04 | 1.5e−03 |
+| baseline `M/12` `‖H‖` | 1.7e−06 | 6.5e−04 | 7.2e−04 | 7.1e−04 | 9.2e−04 | 2.0e−03 | 3.5e−03 |
+
+C:
+
+| t / M | 0 | 50 | 100 | 150 | 200 | 250 | 300 |
+|---|---|---|---|---|---|---|---|
+| horizon mass | 1.0000 | 1.0003 | 1.0073 | 1.0155 | 1.0206 | 1.0193 | 1.0057 |
+| horizon residual | 0.0006 | 0.0039 | 0.0039 | 0.0039 | 0.0040 | 0.0006 | 0.0039 |
+| `M/6` `‖H‖`, `r > 2 M` | 2.2e−06 | 2.2e−04 | 4.6e−04 | 8.2e−04 | 1.3e−03 | 2.3e−03 | 3.8e−03 |
+| `M/12` `‖H‖`, `r > 2 M` | 1.7e−06 | 9.4e−04 | 1.5e−03 | 1.5e−03 | 1.4e−03 | 4.0e−03 | 8.6e−03 |
+
+- **The far boundary slows the growth and does not lower the constraint.**
+  A's τ is 3.2 times the baseline's on `M/6` and 1.6 times on `M/12`, so
+  by the rule its knob improves τ by 2×. But its `M/6` constraint is three
+  times the baseline's at 50 and 100 M, and the two meet near 300 M
+  (1.4e−03 against 1.5e−03): the level's error is larger early, when its
+  edge is an interpolated refinement boundary instead of the radiative
+  edge, and grows more slowly.
+- **The far boundary makes the mass worse.** A's mass rises steadily, by
+  1.3e−04 per M at 300 M and accelerating, to 1.0195; the baseline's peaks
+  at 1.0048 at 210 M. Δm is four times the baseline's and twice the go bound.
+- **Triple dissipation does not matter**, by the rule: τ is 97 and 104 M,
+  within 10% of the baseline's. Its mass error is four times larger
+  (1.0206 at 200 M), and its constraint at 300 M two to three times larger.
+- **No run passes go.** A's coarsest level (176 M) and finest (180 M) are
+  below 400 M, and its Δm is above 0.01.
+
+**Cost.** One CPU thread per run, three runs sharing the machine: A 28.6 s
+per M (four levels), C 27.0 s per M, D 25.2 s per M to 100 M. A container
+restart at 23:04 UTC killed D at 100 M and B at 70 M; both resumed from
+their checkpoints, and from then on cost about 50 s per M on the
+restarted machine.
+
+To reproduce (each script holds a snapshot of the commit it runs, 808c619;
+`runs/` is not tracked), and to print a run's verdict:
+
+```bash
+sh runs/puncture-far/run.sh          # A, to 300 M (an argument sets the stop time)
+sh runs/puncture-diss/run.sh         # C
+sh runs/puncture-buffer/run.sh       # D
+sh runs/puncture-far-flat/run.sh     # B
+uv run python examples/puncture_benchmark.py --verdict runs/puncture-far/puncture.json
+```
+
+Each script is `examples/puncture_benchmark.py` with the baseline's flags,
+the change in the table, `--stop 300 --interval 10`, and `--resume` once a
+checkpoint exists.
+
 ### What is not here
 
 - **1000 M within 5% of the mass.** The `M/8` run is stable by the

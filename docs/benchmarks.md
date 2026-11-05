@@ -2145,13 +2145,13 @@ C:
 - **The far boundary slows the growth and does not lower the constraint.**
   A's τ is 3.2 times the baseline's on `M/6` and 1.6 times on `M/12`, so
   by the rule its knob improves τ by 2×. But its `M/6` constraint is three
-  times the baseline's at 50 and 100 M, and the two meet near 300 M
+  to four times the baseline's at 50 and 100 M, and the two meet near 300 M
   (1.4e−03 against 1.5e−03): the level's error is larger early, when its
   edge is an interpolated refinement boundary instead of the radiative
   edge, and grows more slowly.
 - **The far boundary makes the mass worse.** A's mass rises steadily, by
-  1.3e−04 per M at 300 M and accelerating, to 1.0195; the baseline's peaks
-  at 1.0048 at 210 M. Δm is four times the baseline's and twice the go bound.
+  1.8e−04 per M from 290 to 300 M and accelerating (6e−05 at 160 M), to
+  1.0195; the baseline's peaks at 1.0048 at 210 M. Δm is four times the baseline's and twice the go bound.
 - **Triple dissipation does not matter**, by the rule: τ is 97 and 104 M,
   within 10% of the baseline's. Its mass error is four times larger
   (1.0206 at 200 M), and its constraint at 300 M two to three times larger.

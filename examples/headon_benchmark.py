@@ -247,14 +247,12 @@ def energy_table(report, reference, mode="2,0", start=None, fixed="start", mass=
     ``t = 0``, over ``reference``), and ``tail``, an upper bound on the
     ringdown still to come after the record ends, in the same units, if
     the news rings as the fundamental for ``mass`` does,
-    ``A e^(-gamma t) cos(omega t + phase)``. The largest ``|N|`` over the
-    last half period is ``A`` there to within the sampling's
-    ``cos(omega dt / 2)``; damped to the end of the record it is the
-    envelope ``A_end``. What follows is
-    ``(R^2/16 pi) int A_end^2 e^(-2 gamma t) cos^2 dt``, at most
-    ``(R^2/16 pi) A_end^2 (1/(4 gamma) + 1/(4 |omega - i gamma|))`` for any
-    phase. ``end`` is the record's last retarded time,
-    ``t - R - 2M ln(R/2M - 1)``.
+    ``A e^(-gamma t) cos(omega t + phase)``. ``A`` and the phase are fitted,
+    by linear least squares, to the record's last period, and what follows
+    the record is ``(R^2/16 pi) int A_end^2 e^(-2 gamma t) cos^2 dt``, at
+    most ``(R^2/16 pi) A_end^2 (1/(4 gamma) + 1/(4 |omega - i gamma|))``
+    whatever the phase at the end. ``end`` is the record's last retarded
+    time, ``t - R - 2M ln(R/2M - 1)``.
     """
     from scipy.integrate import cumulative_simpson
 
@@ -268,10 +266,11 @@ def energy_table(report, reference, mode="2,0", start=None, fixed="start", mass=
         series = np.array([complex(*w["spheres"][index]["modes"][mode]) for w in waves])
         energy = radiated_energy(times, series, areal, start=start, fixed=fixed)
         news = cumulative_simpson(series, x=times, initial=0.0)
-        last = np.flatnonzero(times >= times[-1] - np.pi / omega)
-        peak = last[np.argmax(np.abs(news[last]))]
-        sampling = np.cos(omega * (times[1] - times[0]) / 2)
-        envelope = np.abs(news[peak]) / sampling * np.exp(-gamma * (times[-1] - times[peak]))
+        last = times >= times[-1] - 2 * np.pi / omega
+        since = times[last] - times[-1]
+        basis = np.exp(-gamma * since) * np.array([np.cos(omega * since), np.sin(omega * since)])
+        amplitude, *_ = np.linalg.lstsq(basis.T, news[last].real, rcond=None)
+        envelope = np.hypot(*amplitude)
         integral = 1 / (4 * gamma) + 1 / (4 * abs(complex(omega, gamma)))
         tail = areal**2 / (16 * np.pi) * envelope**2 * integral
         rows.append(

@@ -31,6 +31,11 @@ The tests hold it to both.
 direction, and integrated against ``conj(_{-2}Y_lm)`` with Gauss-Legendre
 nodes in ``cos(theta)`` and a uniform grid in ``phi``. The harmonics come from
 Goldberg's formula, and are held to the closed forms for ``l = 2``.
+
+**To infinite radius.** A mode read at a finite radius carries a near-zone
+term in ``1/r`` that a fit in the radius has to guess at.
+:func:`perturbative_extrapolation` removes it from one radius alone, with
+the leading correction of perturbation theory (issue #51).
 """
 
 from __future__ import annotations
@@ -249,8 +254,53 @@ def bssn_weyl(state, spacing, order: int = 4):
     return electric, magnetic, metric
 
 
+def perturbative_extrapolation(times, series, areal: float, mass: float, l: int) -> np.ndarray:
+    """``r Psi_4`` at infinity, estimated from one mode of ``Psi_4`` read at one radius.
+
+    Nakano, Healy, Lousto and Zlochower, Phys. Rev. D 91, 104022 (2015),
+    to first order in ``1/r``:
+
+        r Psi_4(inf) = (1 - 2M/r) [r Psi_4 - ((l-1)(l+2)/2) int_0^t Psi_4 dt'] + O(1/r^2)
+
+    with ``r`` the sphere's areal radius and ``M`` the mass of the hole the
+    waves leave. ``series`` is the ``(l, m)`` mode of ``Psi_4`` (not ``r
+    Psi_4``) sampled at ``times``, and the result is sampled at the same
+    times: compare it across radii at equal retarded time. The integral is
+    Simpson's and starts at the first sample, where the news must vanish,
+    which is right for time-symmetric data started at ``t = 0``.
+
+    **Where it comes from.** The source itself was not reachable here; the
+    formula and its areal radius are as papers citing it quote it. Both of
+    its parts were rederived independently. The outgoing solution of the
+    ``s = -2`` Teukolsky equation on Schwarzschild has ``r Psi_4 = A(u) +
+    ((l-1)(l+2)/2r) int A du + O(1/r^2)`` in Kinnersley's tetrad, with ``u =
+    t - r*`` and ``M`` entering only at ``1/r^2``. Kinnersley's ``Psi_4`` is,
+    up to a constant, ``1 - 2M/r`` times that of a static orthonormal
+    frame, which is what :func:`psi4`
+    builds where the lapse is ``sqrt(1 - 2M/r)`` and the shift is small.
+
+    **What was checked.** On Teukolsky's flat-space ``l = 2`` wave at 6, 12
+    and 24 M, the raw ``r Psi_4`` differs between radii by 4.9e-02 and
+    2.5e-02 of its peak, and the corrected one by 1.8e-03 and 4.4e-04: from
+    ``1/r`` to ``1/r^2`` (``tests/benchmarks/test_extraction_benchmarks.py``).
+    **What was not.** That wave has ``M = 0``, so the factor ``1 - 2M/r``
+    and the slice's departure from a static frame are untested; so are the
+    source's further terms for a spinning hole, which are not included.
+    """
+    from scipy.integrate import cumulative_simpson
+
+    if l < 2:
+        raise ValueError(f"Psi_4 has no l = {l} mode")
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(series, dtype=complex)
+    integral = cumulative_simpson(values, x=times, initial=0.0)
+    coefficient = (l - 1) * (l + 2) / 2
+    return (1 - 2 * mass / areal) * (areal * values - coefficient * integral)
+
+
 __all__ = [
     "bssn_weyl",
+    "perturbative_extrapolation",
     "psi4",
     "radial_tetrad",
     "sphere_modes",

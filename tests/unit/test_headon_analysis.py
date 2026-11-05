@@ -185,6 +185,8 @@ def test_the_decision_rule_extrapolates_the_richardson_limit_when_the_error_depe
     assert rule["perturbative"] == pytest.approx(0.95, rel=1e-10)
     assert rule["order_measured"] == pytest.approx(2, rel=1e-10)
     assert rule["resolution"] == pytest.approx(rule["size"] / 1.25, rel=1e-12)
+    forced = decision_rule(_run(at(0.0625)), _run(at(0.09375)), branch=1)
+    assert forced["rule_branch"] == 2 and forced["flat"] > 0.95 + 0.05
     quartic = decision_rule(_run(at(0.0625, 4)), _run(at(0.09375, 4)), _run(at(0.0417, 4)))
     assert quartic["order_measured"] == pytest.approx(4, rel=1e-3)
 

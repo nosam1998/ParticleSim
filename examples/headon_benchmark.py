@@ -378,7 +378,9 @@ def _central(raw, perturbative, tails_from, minimum=10.5):
     )
 
 
-def decision_rule(medium, coarse, fine=None, other=None, ratio=1.5, minimum=10.5, order=2.0):
+def decision_rule(
+    medium, coarse, fine=None, other=None, ratio=1.5, minimum=10.5, order=2.0, branch=None
+):
     """Items 1 to 8 and 10 of ``runs/headon-n32/DECISION_RULE.md``, applied mechanically.
 
     Each run is ``dict(raw=rows, perturbative=rows, mass=..., z0=...)``, the
@@ -393,7 +395,8 @@ def decision_rule(medium, coarse, fine=None, other=None, ratio=1.5, minimum=10.5
     mean of its ``b/R^2`` and ``a/R + b/R^2`` fits; the order is measured on
     the quantity item 2 takes as ``|Delta|``; ``other`` is Richardson-corrected
     with the medium run's own factor per sphere, and its relative resolution
-    error is the medium run's.
+    error is the medium run's. ``branch`` forces item 1's branch, for a
+    sensitivity outside the rule; ``rule_branch`` is always the rule's.
     """
     outer = [i for i, row in enumerate(medium["raw"]) if row["areal"] >= minimum]
 
@@ -403,7 +406,8 @@ def decision_rule(medium, coarse, fine=None, other=None, ratio=1.5, minimum=10.5
     # Item 1: is Delta(R) independent of R?
     delta = ratios(medium) - ratios(coarse)
     mean, spread = float(np.mean(delta[outer])), float(np.ptp(delta[outer]))
-    branch = 1 if spread < abs(mean) / 2 else 2
+    rule_branch = 1 if spread < abs(mean) / 2 else 2
+    branch = rule_branch if branch is None else branch
     # Item 2 (and 10): the resolution error.
     flat_medium = _infinity(medium["raw"], minimum=minimum)
     flat_coarse = _infinity(coarse["raw"], minimum=minimum)
@@ -434,6 +438,7 @@ def decision_rule(medium, coarse, fine=None, other=None, ratio=1.5, minimum=10.5
         mean=mean,
         spread=spread,
         branch=branch,
+        rule_branch=rule_branch,
         size=size,
         size_from="mean Delta" if by_mean else "b/R2 extrapolations",
         order_measured=measured,

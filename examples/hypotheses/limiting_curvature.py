@@ -32,7 +32,9 @@ class LimitingCurvature(Theory):
     id = "user.limiting_curvature"
     tier = "B"
     fields = [FieldSpec("g", "metric", rank=2)]
-    couplings = [Coupling("inverse_rho_c", 1.0 / 0.41, units="1/planck_density", bounds=(0.0, 1e6))]
+    couplings = [
+        Coupling("inverse_rho_c", 1.0 / 0.41, units="1/planck_density", bounds=(0.0, 1e6))
+    ]
     provenance = (
         "User hypothesis: density saturates at rho_c. Structurally identical to "
         "the holonomy correction of effective loop quantum cosmology, but "

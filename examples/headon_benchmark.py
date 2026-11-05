@@ -19,13 +19,19 @@ Recorded as it runs, and checkpointed so that a run can be continued:
     uv run python examples/headon_benchmark.py --z0 0.3 --stop 80 --output headon.json --resume
 
 :func:`radiated_energy` turns the recorded modes into the energy carried by
-each, ``(R^2 / 16 pi) int |int Psi_4 dt|^2 dt``.
+each, ``(R^2 / 16 pi) int |int Psi_4 dt|^2 dt``. :func:`energy_table`,
+:func:`extrapolate` and :func:`richardson` turn records into the energy at
+each radius, at infinite radius, and at zero spacing; ``--analyse`` prints
+them for one or more records:
+
+    uv run python examples/headon_benchmark.py --analyse runs/headon-z03/headon.json
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import itertools
 import json
 import time
 from pathlib import Path
@@ -71,12 +77,17 @@ def close_limit_energy(z0: float, mass: float = 1.0) -> float:
     return 0.0251 * ((z0 / mass) ** 2 / 4) ** 2 * mass
 
 
-def extraction_plan(setup, radii):
+def extraction_plan(setup, radii, margin=5):
     """``(radius, level)`` for each radius: the finest level whose evolved interior holds it.
 
     The interior stops a buffer, and on the coarsest level the radiation
-    zone, short of the edge, and the sphere keeps five cells clear of that
-    for the cubic interpolation and the Weyl tensor's stencils.
+    zone, short of the edge, and the sphere keeps ``margin`` cells clear of
+    that. Four is what the stencils need: the cubic spline reaches two cells
+    past a point on the sphere, and the Weyl tensor's fourth-order
+    derivatives, pure second derivatives included, two more along any one
+    axis (mixed ones are composed along different axes). The fifth cell is
+    spare; the default keeps it, so that earlier records' plans stay as
+    they were.
     """
     plan = []
     for radius in radii:
@@ -84,7 +95,7 @@ def extraction_plan(setup, radii):
             h = setup.spacing(level)
             half = 0.5 * setup.full_axis(level).size * h
             edge = setup.zone if level == 0 else setup.nested.pairs[0].buffer
-            if radius + 5 * h <= half - edge * h:
+            if radius + margin * h <= half - edge * h:
                 plan.append((float(radius), level))
                 break
         else:
@@ -224,6 +235,165 @@ def radiated_energy(times, series, areal, start=None, fixed="start"):
     return float(areal**2 / (16 * np.pi) * simpson(np.abs(news) ** 2, x=times))
 
 
+#: The fundamental (2, 0) ringing of a hole of unit mass, ``M omega``.
+FUNDAMENTAL = complex(0.37367, -0.08896)
+
+
+def energy_table(report, reference, mode="2,0", start=None, fixed="start", mass=1.0):
+    """The energy at each sphere of a record, over ``reference``, with a bound on what is missing.
+
+    One row per sphere, in order of radius: its coordinate radius and level, its areal radius
+    ``R`` averaged over the record, ``ratio`` (:func:`radiated_energy` from
+    ``t = 0``, over ``reference``), and ``tail``, an upper bound on the
+    ringdown still to come after the record ends, in the same units, if
+    the news rings as the fundamental for ``mass`` does,
+    ``A e^(-gamma t) cos(omega t + phase)``. The largest ``|N|`` over the
+    last half period is ``A`` there to within the sampling's
+    ``cos(omega dt / 2)``; damped to the end of the record it is the
+    envelope ``A_end``. What follows is
+    ``(R^2/16 pi) int A_end^2 e^(-2 gamma t) cos^2 dt``, at most
+    ``(R^2/16 pi) A_end^2 (1/(4 gamma) + 1/(4 |omega - i gamma|))`` for any
+    phase. ``end`` is the record's last retarded time,
+    ``t - R - 2M ln(R/2M - 1)``.
+    """
+    from scipy.integrate import cumulative_simpson
+
+    waves = report["waves"]
+    times = np.array([w["time"] for w in waves])
+    omega, gamma = FUNDAMENTAL.real / mass, -FUNDAMENTAL.imag / mass
+    rows = []
+    for index, sphere in enumerate(waves[0]["spheres"]):
+        radius, level = sphere["radius"], sphere["level"]
+        areal = float(np.mean([w["spheres"][index]["areal"] for w in waves]))
+        series = np.array([complex(*w["spheres"][index]["modes"][mode]) for w in waves])
+        energy = radiated_energy(times, series, areal, start=start, fixed=fixed)
+        news = cumulative_simpson(series, x=times, initial=0.0)
+        last = np.flatnonzero(times >= times[-1] - np.pi / omega)
+        peak = last[np.argmax(np.abs(news[last]))]
+        sampling = np.cos(omega * (times[1] - times[0]) / 2)
+        envelope = np.abs(news[peak]) / sampling * np.exp(-gamma * (times[-1] - times[peak]))
+        integral = 1 / (4 * gamma) + 1 / (4 * abs(complex(omega, gamma)))
+        tail = areal**2 / (16 * np.pi) * envelope**2 * integral
+        rows.append(
+            dict(
+                radius=float(radius),
+                level=int(level),
+                areal=areal,
+                energy=energy,
+                ratio=energy / reference,
+                tail=tail / reference,
+                end=float(times[-1] - areal - 2 * mass * np.log(areal / (2 * mass) - 1)),
+            )
+        )
+    return sorted(rows, key=lambda row: row["radius"])
+
+
+#: The finite-radius models :func:`extrapolate` fits: powers of ``1/R``.
+MODELS = {"b/R2": (2,), "a/R+b/R2": (1, 2), "a/R": (1,)}
+
+
+def extrapolate(areal, energy, model="b/R2", minimum=10.5):
+    """``E(R) = E_inf (1 + a/R + b/R^2)``, the terms ``model`` names, by least squares.
+
+    Only areal radii ``R >= minimum`` are used: the default keeps the
+    ``r = 10`` sphere (``R = 10.93``) and out, what ``docs/benchmarks.md``
+    calls ``R >= 11``. Returns ``E_inf`` and each
+    coefficient relative to it, ``{"E": ..., "a": ..., "b": ...}``. At least
+    one more radius than parameters is required, so that a residual exists.
+    """
+    powers = MODELS[model]
+    areal = np.asarray(areal, dtype=float)
+    energy = np.asarray(energy, dtype=float)
+    keep = areal >= minimum
+    if keep.sum() < len(powers) + 2:
+        raise ValueError(f"{model} needs {len(powers) + 2} radii at R >= {minimum}")
+    design = np.column_stack([areal[keep] ** 0, *(areal[keep] ** -p for p in powers)])
+    solution, *_ = np.linalg.lstsq(design, energy[keep], rcond=None)
+    out = {"E": float(solution[0])}
+    for name, power in (("a", 1), ("b", 2)):
+        if power in powers:
+            out[name] = float(solution[1 + powers.index(power)] / solution[0])
+    out["residual"] = float(np.max(np.abs(design @ solution - energy[keep])))
+    return out
+
+
+def richardson(fine, coarse, ratio, order):
+    """Richardson's extrapolation of ``fine`` and ``coarse`` (spacings ``h`` and ``ratio h``).
+
+    If ``Q(h) = Q_0 + C h^order``, then ``Q_0 = fine + (fine - coarse) / (ratio^order - 1)``,
+    and the second term is ``fine``'s own error. Returns ``(Q_0, error)``.
+    """
+    error = (np.asarray(fine) - np.asarray(coarse)) / (ratio**order - 1)
+    return np.asarray(fine) + error, error
+
+
+def _summary(name, report, reference):
+    config = report["configuration"]
+    z0 = config["punctures"][0][1][2]
+    h = config["extent"] / config["n"] / 2 ** (config["levels"] - 1)
+    rows = energy_table(report, reference)
+    times = [w["time"] for w in report["waves"]]
+    print(f"{name}: n={config['n']} z0={z0} finest h=M/{1 / h:.4g} to t={times[-1]}")
+    print(f"  reference E = {reference:.5g} M; plan {report['plan']}")
+    print("  r      level  R       E/E_ref   tail/E_ref  (E/E_ref-1)R^2  end u")
+    for row in rows:
+        excess = (row["ratio"] - 1) * row["areal"] ** 2
+        print(
+            f"  {row['radius']:<6g} {row['level']:<6d} {row['areal']:<7.2f} "
+            f"{row['ratio']:<9.4f} {row['tail']:<11.2e} {excess:<15.1f} {row['end']:.1f}"
+        )
+    areal = [row["areal"] for row in rows]
+    ratio = [row["ratio"] for row in rows]
+    tailed = [row["ratio"] + row["tail"] for row in rows]
+    for model in MODELS:
+        for label, values in (("", ratio), (" +tail", tailed)):
+            try:
+                fit = extrapolate(areal, values, model)
+            except ValueError as error:
+                print(f"  {model}{label}: {error}")
+                continue
+            terms = " ".join(f"{k}={v:+.3g}" for k, v in fit.items() if k in "ab")
+            print(f"  {model}{label}, R>=10.5: E_inf/E_ref = {fit['E']:.4f} ({terms})")
+    return rows
+
+
+def analyse(paths, reference=None):
+    """Print each record's energy table and extrapolations, and resolution differences.
+
+    ``reference`` is the energy each is divided by, ``0.0251 kappa_2^2`` of
+    each record's ``z0`` unless given. Records of the same ``z0`` at two
+    resolutions are compared radius by radius, finer minus coarser,
+    ``Delta(R)``, with Richardson's correction at orders 2 and 4.
+    """
+    reports = [(str(path), json.loads(Path(path).read_text())) for path in paths]
+    tables = {}
+    for name, report in reports:
+        z0 = report["configuration"]["punctures"][0][1][2]
+        tables[name] = (report, _summary(name, report, reference or close_limit_energy(z0)))
+    for (ra, ta), (rb, tb) in itertools.combinations(tables.values(), 2):
+        za, zb = (r["configuration"]["punctures"][0][1][2] for r in (ra, rb))
+        na, nb = ra["configuration"]["n"], rb["configuration"]["n"]
+        if za != zb or na == nb or ra["plan"] != rb["plan"]:
+            continue
+        (fine, nf), (coarse, nc) = sorted(((ta, na), (tb, nb)), key=lambda x: -x[1])
+        ratio = nf / nc
+        print(f"Delta(R) = E(n={nf}) - E(n={nc}), over the reference, ratio {ratio:.3g}:")
+        delta = [f["ratio"] - c["ratio"] for f, c in zip(fine, coarse, strict=True)]
+        for f, d in zip(fine, delta, strict=True):
+            fixed2 = richardson(f["ratio"], f["ratio"] - d, ratio, 2)[0]
+            fixed4 = richardson(f["ratio"], f["ratio"] - d, ratio, 4)[0]
+            print(
+                f"  r={f['radius']:<5g} R={f['areal']:<6.2f} Delta={d:+.4f} "
+                f"Richardson p=2 {fixed2:.4f} p=4 {fixed4:.4f}"
+            )
+        outer = [d for f, d in zip(fine, delta, strict=True) if f["areal"] >= 10.5]
+        print(
+            f"  R>=10.5: mean Delta {np.mean(outer):+.4f}, spread {np.ptp(outer):.4f}, "
+            f"resolution error p=2 {abs(np.mean(outer)) / (ratio**2 - 1):.4f}, "
+            f"p=4 {abs(np.mean(outer)) / (ratio**4 - 1):.4f}"
+        )
+
+
 def checkpoint(path, states, clock, config, extra):
     temporary = path.with_suffix(".tmp.npz")
     np.savez_compressed(
@@ -286,6 +456,7 @@ def run(
     progress=None,
     coarsen_at=None,
     accept_source_change=False,
+    margin=5,
 ):
     """Evolve, extract and record; with ``coarsen_at``, drop the finest level from that time.
 
@@ -293,13 +464,14 @@ def run(
     the next level's evolved interior, the finest level costs most of the
     run and resolves nothing the waves need. From ``coarsen_at`` on the run
     continues on the coarser levels' states as they are, unchanged.
+    ``margin`` is :func:`extraction_plan`'s.
     """
     output = None if output is None else Path(output)
     levels = config["levels"]
     if resume and saved_levels(output.with_suffix(".npz")) < levels:
         levels -= 1
     setup, states = puncture.NestedPuncture.build(**{**config, "levels": levels}, backend=backend)
-    plan = extraction_plan(setup, radii)
+    plan = extraction_plan(setup, radii, margin)
     clock = 0.0
     extra = dict(waves=[], records=[], events=[])
     history = []
@@ -319,6 +491,7 @@ def run(
         source_sha256=source_digest(),
         time_step=setup.time_step,
         plan=plan,
+        margin=margin,
         adm_mass=puncture.brill_lindquist_adm_mass([m for m, _ in config["punctures"]]),
         close_limit_energy=close_limit_energy(config["punctures"][0][1][2]),
         coarsen_at=coarsen_at,
@@ -384,6 +557,21 @@ def main():
     parser.add_argument("--box", type=int, default=24)
     parser.add_argument("--levels", type=int, default=6)
     parser.add_argument("--z0", type=float, default=0.3)
+    parser.add_argument("--buffer", type=int, default=6, help="refinement buffer, in cells")
+    parser.add_argument(
+        "--margin",
+        type=int,
+        default=5,
+        help="cells each extraction sphere keeps clear of its level's evolved interior",
+    )
+    parser.add_argument("--plan", action="store_true", help="print the extraction plan and stop")
+    parser.add_argument(
+        "--analyse",
+        type=Path,
+        nargs="+",
+        metavar="JSON",
+        help="print the energy tables of these records and stop",
+    )
     parser.add_argument("--radii", type=float, nargs="+", default=[6, 8, 10, 12, 16, 20, 24])
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
@@ -395,9 +583,23 @@ def main():
         help="resume although the code changed, recording the earlier digests",
     )
     args = parser.parse_args()
+    if args.analyse:
+        analyse(args.analyse)
+        return
     config = configuration(
-        n=args.n, extent=args.extent, box=args.box, levels=args.levels, z0=args.z0
+        n=args.n,
+        extent=args.extent,
+        box=args.box,
+        levels=args.levels,
+        z0=args.z0,
+        buffer=args.buffer,
     )
+    if args.plan:
+        setup, _ = puncture.NestedPuncture.build(**config, backend="numpy")
+        print(
+            json.dumps([list(entry) for entry in extraction_plan(setup, args.radii, args.margin)])
+        )
+        return
     if args.output.parent:
         args.output.parent.mkdir(parents=True, exist_ok=True)
     run(
@@ -409,6 +611,7 @@ def main():
         progress=lambda row: print(json.dumps(row), flush=True),
         coarsen_at=args.coarsen_at,
         accept_source_change=args.accept_source_change,
+        margin=args.margin,
     )
 
 

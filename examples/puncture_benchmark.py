@@ -123,7 +123,9 @@ def stability_verdict(
     1. every field is finite;
     2. the horizon is found with ``max|Theta| < residual``;
     3. ``|M_irr - 1| <= mass_band``;
-    4. the lapse-weighted centre is less than ``offset`` from the puncture;
+    4. the lapse-weighted centre is less than ``offset`` from the puncture
+       on every axis (whether it grows exponentially is not tested: on an
+       octant it is zero by construction);
     5. on every level, ``hamiltonian_outer`` is at most ``ratio`` times its
        value at ``reference`` (tested at every record from ``reference`` on),
        and a least-squares fit of ``ln||H||`` over the records in
@@ -154,7 +156,7 @@ def stability_verdict(
         1: "fields not finite",
         2: f"horizon not found with max|Theta| < {residual}",
         3: f"|M_irr - 1| > {mass_band}",
-        4: f"offset not below {offset} M",
+        4: f"offset not below {offset} M per axis",
         5: (
             f"||H|| outside 2 M above {ratio}x its {reference:g} M value, or an "
             f"e-folding time over the last {window:g} M not above {efold:g} M"
@@ -177,9 +179,9 @@ def stability_verdict(
         if not abs(mass - 1) <= mass_band:
             failed[3] = f"{names[3]} (M_irr={mass:.5g})"
         centre = record.get("centre", [float("nan")] * 3)
-        distance = float(np.sqrt(np.sum(np.square(centre))))
+        distance = float(np.max(np.abs(centre)))
         if not distance < offset:
-            failed[4] = f"{names[4]} (offset={distance:.4g} M)"
+            failed[4] = f"{names[4]} (largest offset per axis {distance:.4g} M)"
         if when >= reference - TIME_TOLERANCE and base_norms is not None:
             for level in tested:
                 grown = _level_norm(record, level) / base_norms[level]

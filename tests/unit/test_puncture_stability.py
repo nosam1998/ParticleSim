@@ -119,7 +119,7 @@ def test_a_record_set_with_no_constraint_growth_is_stable_to_its_last_time():
         ({"horizon_found": False}, "2"),
         ({"horizon_mass": 1.0501}, "3"),
         ({"horizon_mass": 0.9499}, "3"),
-        ({"centre": [0.06, 0.06, 0.06]}, "4"),
+        ({"centre": [0.0, -0.1, 0.0]}, "4"),
     ],
 )
 def test_each_pointwise_criterion_fails_at_the_record_that_breaks_it(change, criterion):
@@ -130,7 +130,7 @@ def test_each_pointwise_criterion_fails_at_the_record_that_breaks_it(change, cri
     assert verdict["criteria"][criterion]["first_failure"] == 530.0
     # A value just inside each bound passes.
     inside = {"1": {}, "2": {"horizon_residual": 0.0099}, "3": {"horizon_mass": 1.0499}}
-    inside["4"] = {"centre": [0.05, 0.05, 0.05]}
+    inside["4"] = {"centre": [0.099, -0.099, 0.099]}  # per axis, not the distance
     assert stability_verdict(synthetic(overrides={530.0: inside[criterion]}))["stable_to"] == 1000.0
 
 

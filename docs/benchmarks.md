@@ -3247,8 +3247,11 @@ recomputed here rather than quoted.
   energy scales as `z₀⁴`, and the ringing fits the fundamental
   `0.3737 − 0.0890i` to 0.2% (`test_close_limit_energy_reproduces_abrahams_and_price`).
 
-So the comparison is with `z₀ = 0.3 M`: `κ₂ = 0.0225`, and the close limit
-gives `E = 1.2731e−05 M`, 0.00127% of `M_ADM = 1`. Its error is the
+So the comparison is with `z₀ = 0.3 M`: `κ₂ = 0.0225`, and Abrahams and
+Price's published coefficient gives `E_AP = 1.2707e−05 M`, 0.00127% of
+`M_ADM = 1`. The recomputed 0.025148 gives `1.2731e−05 M`, 0.19% more.
+**Every ratio to "the close limit" in this section is to the published
+`1.2707e−05 M`** (`headon_benchmark.close_limit_energy`). Its error is the
 neglected second order in `κ₂`, which neither source quantifies for this
 data. The final mass it implies is `M_ADM − E = 0.999987 M`.
 
@@ -3318,7 +3321,8 @@ is right for time-symmetric data, and Simpson's rule for both integrals
 radius's retarded time zero. The ringdown left beyond the end of the record
 is at most 0.8% of the energy (at 24 M), and below 0.01% at 12 M and in.
 
-**The extrapolated energy.** From `R = 11` out, the excess falls as
+**The extrapolated energy.** From `R = 11` out (here and below, "`R ≥ 11`"
+counts the `r = 10` sphere, `R = 10.93`: the five outer spheres), the excess falls as
 `1/R²`: `(E/E_cl − 1)R²` is 42, 45, 43, 44 and 44 with the 24 M record's
 tail added. That is the expected form. For an outgoing quadrupole the
 finite-radius terms in the news are `ḟ/r + c₁f/r² + …`, and the `1/r`
@@ -3334,10 +3338,12 @@ ends at rest. Extrapolated to infinite radius:
 | `a/R + b/R²`, `R ≥ 11`, with the tails | 0.932 |
 | `a/R` alone, `R ≥ 11` (which the data do not follow) | 0.828 |
 
-So **`E_rad = 1.27e−05 M` to `1.28e−05 M`, 0.0% to +0.6% from Abrahams and
-Price's `1.2707e−05 M`**, with the finite-radius error taken as `1/R²` as
-the data at `R ≥ 11` show it to be. Allowing a free `1/R` term moves it to
-−10% to −7%. The `(4,0)` mode carries 0.1% to 6% of the `(2,0)` energy
+So, from this record alone, `E_rad = 1.27e−05 M` to `1.28e−05 M`, 0.0% to
++0.6% from Abrahams and Price's `1.2707e−05 M`, with the finite-radius
+error taken as `1/R²`; a free `1/R` term moves it to −10% to −7%. **That
+reading did not survive.** The perturbative extrapolation below sides with
+the free `1/R` fit (0.89 to 0.91), and a second resolution moves every
+sphere's energy by about 20% (see "The error bar" below). The `(4,0)` mode carries 0.1% to 6% of the `(2,0)` energy
 depending on radius, and 49% at `r = 8` alone, a feature of that sphere
 that no other radius shows; it is not included. Fixing the news at the end
 of the record instead of the start changes the four inner radii by 0.3% or
@@ -3349,12 +3355,13 @@ horizon reads 1.0031 at 70 M, **+0.31%**. That is the horizon's own error at
 `M/8`, three hundred times the radiated energy. So `M_ADM − E_rad` against
 the horizon checks the mass, not the energy.
 
-**Against issue #51's 5%.**
+**Against issue #51's 5%, from this run alone** (the verdict with the error
+bar is in "The error bar" below).
 - **The final mass is within 5%**: 0.31%.
-- **The radiated energy is within 5%** with the `1/R²` extrapolation that
-  the outer five radii follow, at 0.0% to 0.6%. It is not within 5% once a
-  free `1/R` term is admitted, at −10% to −7%. One resolution was run, so the
-  resolution's own error is not in either number.
+- **The radiated energy was within 5%** with the `1/R²` extrapolation, at
+  0.0% to 0.6%, and not once a free `1/R` term is admitted, at −10% to
+  −7%. One resolution was run, so the resolution's own error is in neither
+  number.
 - **The literature value is first order.** It neglects terms of second
   order in `κ₂ = 0.0225`, which no source available here quantifies.
 
@@ -3499,22 +3506,226 @@ of `√(1 − 2M/R)` at `R ≈ 21` to 25 (`R` from `W`) and a shift below
   radius of each sphere moves by up to 0.08 M at 24 M, and 0.46 M at 6 M,
   over the run.
 
+#### The error bar: a second resolution and a second separation
+
+One resolution cannot say how much of the `R`-dependence above is
+numerical. A second resolution (run L) measures the truncation error, and a
+second separation (run Z) measures the second-order term the close limit
+leaves out, so that the leading coefficient can be held to Abrahams and
+Price's 0.0251 itself.
+
+**The runs.** Each differs from the medium run (`runs/headon-z03`) only as
+the table says. All go to 70 M, with the finest level dropped at 15 M and
+the same seven spheres.
+
+| run | `n`, box, buffer | finest spacing | `z₀` | extraction plan | cost, to 15 M / after | wall time |
+|---|---|---|---|---|---|---|
+| L, `runs/headon-n32` | 32, 16, 4 (6 M) | `3M/32` (`M/10.7`) | 0.3 | the medium run's, with `--margin 4` | 40 / 17 s per M | 25 min |
+| medium, `runs/headon-z03` | 48, 24, 6 (6 M) | `M/16` | 0.3 | `[6,2],[8,1],[10,1],[12,1],[16,0],[20,0],[24,0]` | 441 / 126 s per M (shared machine, last round) | about 3.7 h |
+| Z, `runs/headon-z02` | 48, 24, 6 | `M/16` | 0.2 | the medium run's | 95 / 45 s per M | 65 min |
+| H, `runs/headon-n72` | 72, 36, 9 (6 M) | `M/24` | 0.3 | the medium run's | probe: 566 / 282 s per M | running |
+
+- **The same physical grid at 1.5 times the spacing.** Box 16 of 3 M is
+  box 24 of 2 M, and a buffer of 4 cells of 1.5 M is 6 of 1 M. At `n = 32`
+  the default five-cell margin moves the spheres at 6 and 12 M a level
+  coarser, so `extraction_plan(margin=4)` keeps them where the medium run
+  had them. Four cells is what the stencils need: the cubic spline reaches
+  two cells past the sphere and the fourth-order Weyl derivatives two more
+  along any axis (`test_a_four_cell_margin_at_n32_reproduces_the_medium_runs_extraction_plan`).
+- **The same placement.** At `z₀ = 0.3` with `n = 32, 48, 72`, and at
+  `z₀ = 0.2` with `n = 48`, each puncture is 0.3 of a finest cell from the
+  nearest sample along the axis. `n = 40` or 60 would put it at 0.5, and 36
+  or 64 at 0.1.
+- **The same time step.** The coarsest step is 0.5 M in every run. L's
+  Courant limit allows 0.75 M, but the 0.5 M extraction interval caps it.
+  So L and the medium run differ in spacing only.
+- **The cost** was measured with two #48 runs on the other cores. It is
+  about a third of the last round's, on a quieter machine.
+
+**The rule, fixed before the results** (2026-11-05T20:10:30Z, in
+`runs/headon-n32/DECISION_RULE.md`, while L was at `t < 1 M` and before Z
+had started). In brief:
+1. `Δ(R) = E₄₈(R) − E₃₂(R)` over `E_AP`. If its spread over `R ≥ 11` is
+   below half its mean, the `R`-dependence is physical, and the
+   extrapolation uses the medium run's `E(R)`. Otherwise it uses the
+   Richardson-corrected `E₄₈ + Δ/(1.5² − 1)`.
+2. Resolution: `σ_res = |Δ|/(1.5^p − 1)`, **`p = 2` the stated bar**, `p = 4`
+   reported. `|Δ|` is the larger of the mean `Δ` over `R ≥ 11` and the
+   difference of the two runs' own `b/R²` extrapolations.
+3. Extrapolation: `σ_ext` is half the difference between the `b/R²` fit and
+   the perturbative extrapolation (the subsection above), both over
+   `R ≥ 11`. The central value is their midpoint.
+4. Tail: `σ_tail` is what adding each sphere's ringdown bound
+   (`energy_table`) does to the `b/R²` fit.
+5. `σ` is the quadrature sum of the three.
+6. Second order: `E/(M κ₂²) = c (1 + d κ₂)` through the two separations,
+   `c = (0.0225 y₀.₂ − 0.01 y₀.₃)/0.0125`. `σ_c` is propagated with the two
+   points' errors independent, and Z's relative resolution error taken
+   equal to the medium run's.
+7. **The energy clause is met if `|c/0.0251 − 1| + σ_c/0.0251 ≤ 5%`.**
+   Without Z it would be `|E∞(0.3)/E_AP − 1| + σ ≤ 5%`.
+8. **The mass clause is met if** the medium run's final horizon mass is
+   within 5% of `M_ADM − E∞`, counting `|M_h,48 − M_h,32|` as its error.
+
+`energy_table`'s ringdown bound fits the fundamental's amplitude to the
+last period of the news and integrates the rest of the ringing at the worst
+phase. It is 0.64% at 24 M and 0.06% at 12 M, where the earlier estimate
+above gave 0.8% and "below 0.01%"
+(`test_the_tail_bound_holds_the_ringdown_left_after_the_record`).
+
+**The energy at each sphere.** `E₂₀ / E_AP` with the news from `t = 0`, raw,
+and carried to infinity perturbatively with each run's final horizon mass
+(the subsection above):
+
+| `r` | 6 | 8 | 10 | 12 | 16 | 20 | 24 |
+|---|---|---|---|---|---|---|---|
+| areal radius `R` | 6.81 | 8.88 | 10.93 | 12.96 | 17.00 | 21.01 | 25.01 |
+| L (`n = 32`), raw | 1.484 | 3.368 | 1.117 | 1.042 | 1.146 | 0.834 | 0.804 |
+| medium (`n = 48`), raw | 1.734 | 1.487 | 1.352 | 1.269 | 1.150 | 1.100 | 1.062 |
+| `Δ(R)`, medium − L | +0.250 | −1.881 | +0.235 | +0.227 | +0.003 | +0.265 | +0.258 |
+| L, perturbative (`M = 1.0096`) | 1.412 | 22.4 | 0.938 | 0.884 | 1.338 | 0.732 | 0.715 |
+| medium, perturbative (`M = 1.0031`) | 1.644 | 1.359 | 1.134 | 1.066 | 0.988 | 0.960 | 0.940 |
+| Z (`z₀ = 0.2`), raw | 1.819 | 1.563 | 1.415 | 1.328 | 1.203 | 1.149 | 1.110 |
+| Z, perturbative (`M = 1.0028`) | 1.613 | 1.524 | 1.185 | 1.113 | 1.038 | 1.003 | 0.982 |
+| ringdown bound, medium | 0.0002 | 0.0003 | 0.0004 | 0.0006 | 0.0014 | 0.0030 | 0.0064 |
+
+- **The coarser run radiates about a fifth less.** Where its record is
+  clean, `Δ` is +0.23 to +0.27 of `E_AP` at every radius, 17% to 24% of the
+  medium run's energy. The peaks of `|RΨ₄|` agree to 2% to 6% at 6 to
+  12 M, and L's are 18% to 20% lower at 16 to 24 M, where its `3M` level
+  has 5.6 points per wavelength. L's ringdown is damped more at every radius.
+- **Two of L's spheres are spoiled.** At `r = 8` and 16 its `Ψ₄` carries a
+  slow offset of about 5% of its peak after `t ≈ 25`, so the news ends far
+  from zero: its mean over the last 10 M is −64% (`r = 8`) and −32%
+  (`r = 16`) of its peak, against at most 9% in every other record. The
+  energy counts the offset squared over 45 M: 3.37 at `r = 8`. The
+  perturbative correction integrates `Ψ₄` again and makes it 22. The cause
+  is not established. It starts after the level drop, at 15 M, has had time
+  to reach 8 M, and no other sphere or run shows it.
+- **So `Δ` is not constant by the rule's measure, because of one sphere.**
+  Over `R ≥ 11` its mean is +0.198 and its spread 0.262, over half the
+  mean: the rule's second branch. Without the spoiled `r = 16`, the spread
+  is 0.038 and the mean +0.246, the first branch.
+
+**Extrapolated, by method.** `E∞ / E_AP` over `R ≥ 11`:
+
+| method | L | medium | Z (`z₀ = 0.2`) |
+|---|---:|---:|---:|
+| raw, `b/R²` | 0.811 | 1.000 | 1.045 |
+| raw, `b/R²`, with the ringdown bound | 0.815 | 1.006 | 1.050 |
+| raw, `a/R + b/R²` | (−0.26) | 0.903 | 0.940 |
+| perturbative, `b/R²` | 0.839 | 0.893 | 0.934 |
+| perturbative, `a/R + b/R²` | (−1.34) | 0.909 | 0.933 |
+| Richardson `p = 2` (medium and L), raw, `b/R²` | | 1.152 | |
+| Richardson `p = 2`, perturbative, `b/R²` / `a/R + b/R²` | | 0.936 / (2.71) | |
+
+Bracketed values are fits that L's two spoiled spheres throw off. Taken
+literally, the rule's second branch extrapolates the Richardson-corrected
+energies, which inherit `r = 16` too: 1.152 with `b/R²` and 0.936 to 2.71
+perturbatively. On that branch `σ_ext` alone is several times the 5%, so
+the first branch is the favourable reading, and the budget below uses it.
+
+**The error budget,** for `z₀ = 0.3`, in units of `E_AP`:
+
+| term | `p = 2` (the bar) | `p = 4` | how |
+|---|---:|---:|---|
+| central `E∞` | 0.951 | 0.951 | midpoint of `b/R²` (1.000) and perturbative (0.901, the mean of its two fits) |
+| resolution, `σ_res` | 0.158 | 0.049 | `0.198/(1.5^p − 1)`; 0.197 and 0.061 without `r = 16` |
+| extrapolation, `σ_ext` | 0.050 | 0.050 | `(1.000 − 0.901)/2` |
+| tail, `σ_tail` | 0.005 | 0.005 | `1.006 − 1.000` |
+| total, `σ` | **0.166** | **0.070** | quadrature |
+
+**The second order.** At every sphere Z's `E/κ₂²` is a fixed multiple of
+the medium run's: 1.045 to 1.051 raw, 1.044 to 1.051 perturbatively
+(`r = 6` and 8 aside, 1.044 to 1.047 from 10 M out). So the ratio does not
+depend on the extrapolation:
+- **`E(0.2)/E(0.3) = 0.2064` to 0.2067** for `R ≥ 11`, against the first
+  order's `(0.2/0.3)⁴ = 0.1975`: 4.6% more, at `z₀ = 0.2`, than `z₀⁴`
+  scaling gives.
+- **`d = −3.3` to −3.4** from those ratios, sphere by sphere: `E/κ₂²`
+  falls as the holes start further apart. The raw and corrected ratios
+  agree, so the extrapolation does not set it.
+  It is one resolution of each, and the resolution's effect on the ratio
+  was not measured.
+- **`c`.** Through the central values, `y₀.₃ = 0.951 ± 0.166` and
+  `y₀.₂ = 0.989 ± 0.174` (`p = 2`), `c = 1.8 y₀.₂ − 0.8 y₀.₃ = 1.020` of
+  0.0251, **`c = 0.0256 ± 0.0085`**, and `d = −3.0`. With `p = 4`,
+  `σ_c = 0.0037`. Against the recomputed 0.025148, `c` is 1.8% high.
+
+**The final mass.** The horizon reads 1.0031 at 70 M in the medium run
+and 1.0096 in L, on the level below the finest in both (`M/8` and
+`M/5.3`). `M_ADM − E∞ = 0.999988`. So the medium run is **+0.31% from it,
+with a resolution error of 0.65%**. L's horizon mass climbs by 0.7% from
+20 M to 70 M, the medium run's by 0.02%. Z's reads 1.0028.
+
+**Against issue #51's 5%, by the rule.**
+- **The mass clause is met.** `0.31% + 0.65% = 0.97%`, within 5%.
+- **The energy clause is not met.** `|c/0.0251 − 1| + σ_c/0.0251 =
+  2.0% + 34% = 36%` with the stated `p = 2` bar, and 2.0% + 15% = 17% with
+  `p = 4`. The fallback without the second order gives `4.9% + 16.6% = 21%`.
+  The central values are within 5% of the close limit: 0.951 at `z₀ = 0.3`,
+  1.020 for `c`. Their error bars are not.
+- **The term that exceeds is the resolution**, 16% of the energy at
+  `p = 2`. The coarser run radiates a fifth less, so the medium run is not
+  in the convergent regime closely enough to bound itself. The `1.8`
+  lever arm of the two-point fit doubles it again for `c`. Next is the
+  extrapolation, 5% by itself: the `1/R` versus `1/R²` question, which the
+  perturbative correction settles only as far as its untested `(1 − 2M/r)`
+  factor does.
+- **What would shrink them.** A measured order and a finer run: run H (`n = 72`, `M/24`) was running when this was written; its 1 M probe projected 55 M in about 5.5 h.
+  Spheres beyond 24 M on a level finer than `2M` (`n = 64, extent = 128`
+  keeps the inner levels and reaches 48 M, at 8.5 points per wavelength)
+  would test the extrapolation with radius instead of with a model. A third
+  separation would turn the two-point `c` into a fit.
+- **The "same 1000 M puncture" clause** is issue #48's run, reported there.
+
+**Holes that start apart, priced.** The full-NR value for holes falling
+from rest, `E/M ≈ 5.5e−04`, needs the finest box to hold the whole fall.
+Nested boxes here are fixed and cubic. For `z₀ = 5 M` that is ±5.5 M at
+`M/16` (half-mass holes need it): 92³ octant points on every level, 35
+times today's 28³. At this round's 95 s per M for the 28³ hierarchy, that
+is about 3,300 s per M. An infall from 10 M takes about 35 M, and the waves
+need about 60 M more to pass 40–50 M and ring down. About 100 M is about
+90 h per resolution, and an error bar needs two or three. At `z₀ ≈ 1 M`
+(finest box ±2 M) one resolution would cost a few hours, but no
+Brill–Lindquist value at that separation was reachable here.
+
+To reproduce the analysis, and the runs (each `run.sh` in `runs/` starts or
+resumes its run from a code snapshot):
+
+```bash
+uv run python examples/headon_benchmark.py --plan --n 32 --box 16 --buffer 4 --margin 4
+uv run python examples/headon_benchmark.py --n 32 --box 16 --buffer 4 --margin 4 --z0 0.3 \
+  --stop 70 --coarsen-at 15 --output runs/headon-n32/headon.json        # L
+uv run python examples/headon_benchmark.py --z0 0.2 --stop 70 --coarsen-at 15 \
+  --output runs/headon-z02/headon.json                                  # Z
+uv run python examples/headon_benchmark.py --analyse runs/headon-z03/headon.json \
+  runs/headon-n32/headon.json runs/headon-z02/headon.json
+```
+
 #### What is not here
 
-- **A literature value beyond first order.** The comparison is with the
-  close limit at `κ₂ = 0.0225`, whose second-order correction no source
-  available here quantifies for Brill–Lindquist data. A difference of a few
-  percent between a full evolution and it is not, by itself, an error of
-  either.
-- **Holes that start apart.** `z₀ = 0.3 M` starts inside a common horizon;
-  the merger is a distorted hole ringing down. Holes that fall from rest at
-  larger separations (0.055% of `M` from infinity) need both resolved along
-  their fall, which this machine cannot afford here.
-- **The energy balance.** The horizon's mass is measured to about 0.3%, and
-  the radiated energy is 0.0013% of `M`. `M_ADM − E` against the final
-  horizon mass checks the mass, not the energy.
-- **Convergence of the waveform.** One production resolution, `M/16` to the
-  merger and `M/8` after it, and the small `M/8` configuration of the test.
+- **An energy within 5% with its error bar.** The central values are
+  within 5% of the close limit (0.951, and 1.020 for `c`), but the
+  resolution error is 16% at `p = 2`. Issue #51's energy clause is not met.
+- **A literature value beyond first order.** No source available here
+  quantifies the second order for Brill–Lindquist data. The `c (1 + d κ₂)`
+  fit measures it from two separations here; it is not checked against
+  anyone's.
+- **Holes that start apart.** `z₀ = 0.3` and 0.2 start inside a common
+  horizon, so the merger is a distorted hole ringing down. Holes falling
+  from rest (0.055% of `M` from infinity) cost about 90 h per resolution
+  here, as priced above.
+- **The energy balance.** The horizon's mass is measured to about 0.3%,
+  with a resolution difference of 0.65%, and the radiated energy is
+  0.0013% of `M`. `M_ADM − E` against the final horizon mass checks the
+  mass, not the energy.
+- **Why L's `r = 8` and 16 spheres drift.** Their news ends far from zero
+  after the level drop; the cause is not established. No run without the
+  drop was made at `n = 32`.
+- **The resolution's effect on the second order.** Z has one resolution;
+  its relative resolution error is assumed equal to the medium run's.
+- **The `(4,0)` mode's energy**, and the `r = 8` anomaly in it.
 
 ## A scalar test field on a warp background: what can be evolved *on* one
 

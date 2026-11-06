@@ -3513,10 +3513,11 @@ of `√(1 − 2M/R)` at `R ≈ 21` to 25 (`R` from `W`) and a shift below
 #### The error bar: a second resolution and a second separation
 
 One resolution cannot say how much of the `R`-dependence above is
-numerical. A second resolution (run L) measures the truncation error, a
-third (run H) its order, and a second separation (run Z) the second-order
-term the close limit leaves out, so that the leading coefficient can be
-held to Abrahams and Price's 0.0251 itself.
+numerical. A second resolution (run L) measures the truncation error, and
+a second separation (run Z) the second-order term the close limit leaves
+out, so that the leading coefficient can be held to Abrahams and Price's
+0.0251 itself. A third resolution (run H) was to measure the order; it was
+cut off at 5 M, so the order is the rule's stated `p = 2`.
 
 **The runs.** Each differs from the medium run (`runs/headon-z03`) only as
 the table says. All go to 70 M, with the finest level dropped at 15 M and
@@ -3527,7 +3528,7 @@ the same seven spheres.
 | L, `runs/headon-n32` | 32, 16, 4 (6 M) | `3M/32` (`M/10.7`) | 0.3 | the medium run's, with `--margin 4` | 40 / 17 s per M | 25 min |
 | medium, `runs/headon-z03` | 48, 24, 6 (6 M) | `M/16` | 0.3 | `[6,2],[8,1],[10,1],[12,1],[16,0],[20,0],[24,0]` | 441 / 126 s per M (shared machine, last round) | about 3.7 h |
 | Z, `runs/headon-z02` | 48, 24, 6 | `M/16` | 0.2 | the medium run's | 95 / 45 s per M | 65 min |
-| H, `runs/headon-n72` | 72, 36, 9 (6 M) | `M/24` | 0.3 | the medium run's (default margin) | probe: 566 / 282 s per M | running when this was written |
+| H, `runs/headon-n72` | 72, 36, 9 (6 M) | `M/24` | 0.3 | the medium run's (default margin) | 609 s per M to 5 M (probe: 566 / 282) | cut off at 5 M |
 
 - **The same physical grid at 1.5 times the spacing.** Box 16 of 3 M is
   box 24 of 2 M, and a buffer of 4 cells of 1.5 M is 6 of 1 M. At `n = 32`
@@ -3547,13 +3548,25 @@ the same seven spheres.
   So L and the medium run differ in spacing only.
 - **The cost** was measured with two #48 runs on the other cores. It is
   about a third of the last round's, on a quieter machine.
-- **H was conditional.** The rule (item 10 below) let it start only if a
-  1 M probe projected 55 M before the round's hard stop, 2026-11-06T16:06Z.
-  The probe (`runs/headon-n72-probe`) measured 566 s per M on six levels
-  and 282 on five, about 5.5 h to 55 M, so it started at 22:50Z. A
-  container restart killed it at its 5 M checkpoint at 23:04Z; it resumed
-  from that checkpoint at 23:08Z, when the same arithmetic gave 55 M by
-  about 04:30Z.
+- **H was conditional, and was cut off at 5 M.** The rule (item 10 below)
+  let it start only if a 1 M probe projected 55 M before the round's hard
+  stop, 2026-11-06T16:06Z. The probe (`runs/headon-n72-probe`) measured
+  566 s per M on six levels and 282 on five, about 5.5 h to 55 M, so it
+  started at 21:59Z, when Z finished.
+  - **Its 5 M checkpoint** came at 22:50Z: 609 s per M, 51 min per
+    checkpoint. A container restart killed it at 23:04Z, and it resumed
+    from that checkpoint at 23:08Z.
+  - **The next restart**, at about 00:05Z, killed it 57 min later, before
+    its 10 M checkpoint. One six-level checkpoint after a resume takes
+    longer than the container lasts between restarts (about an hour).
+  - **So its projected completion no longer preceded the hard stop.**
+    Every restart returns it to 5 M. By item 10 it was not resumed, which
+    was decided and logged at 2026-11-06T00:12:20Z before anything else was
+    done (reading D7 below).
+  - **Its two records**, for information: the common horizon at 0.9963
+    (0 M) and 1.0022 (5 M, residual 0.004), against the medium run's 0.9957
+    and 1.0021, and the punctures at ±0.115 by 5 M (±0.11 in the medium
+    run). No wave had reached the 6 M sphere.
 
 **The rule, fixed before the results**, written at 2026-11-05T20:10:30Z
 into `runs/headon-n32/DECISION_RULE.md`, while L was at `t < 1 M` and
@@ -3605,7 +3618,8 @@ ratio of spacings 1.5. All numbers are taken at 70 M, or where a run stopped (st
 
 **Where the rule is silent**, the readings were written at
 2026-11-05T23:10:36Z into `runs/headon-n32/DECISIONS.log`. That was after
-L's and Z's energies had been seen, and before any of H's.
+L's and Z's energies had been seen, and before any of H's. A seventh, on
+H's cut-off, followed at 2026-11-06T00:12:20Z.
 `headon_benchmark.decision_rule` applies the rule with them.
 - **Item 1 is applied as written.** The draft of this section written at
   22:18Z took the first branch as "the favourable reading", with the
@@ -3627,7 +3641,11 @@ L's and Z's energies had been seen, and before any of H's.
   multiplied by the medium run's own Richardson factor at that sphere.
   Z's resolution error is the medium run's, relative; its extrapolation
   and tail errors are Z's own.
-- **H enters only through `p`.** Its horizon mass is reported, not used.
+- **H would enter only through `p`.** Its horizon mass is reported, not used.
+- **H is cut off at 5 M (D7).** Item 10 asks for a run to 55 M, and H
+  stopped before any wave reached a sphere. So no order is measured and
+  `p = 2` stays the bar; `--analyse` given H's record lists it as not
+  used (`test_a_finer_record_that_stops_before_55_m_does_not_measure_the_order`).
 
 `energy_table`'s ringdown bound fits the fundamental's amplitude to the
 last period of the news and integrates the rest of the ringing at the worst
@@ -3752,7 +3770,11 @@ with a resolution error of 0.65%**. L's horizon mass climbs by 0.7% from
     (`headon-n32-nocoarsen`, about 2 h at this round's cost; not run) would
     say whether the drop spoils `r = 8` and 16, and, if it does, put the
     rule on its first branch.
-  - **A finer pair.** Run H (`n = 72`, `M/24`) was running when this was written; with it, item 10 measures the order instead of assuming it.
+  - **A finer pair, run to the end.** Run H (`n = 72`, `M/24`) needs about
+    5 h more, from its 5 M checkpoint to 55 M, at this round's cost. With
+    it, item 10 measures the order instead of assuming it. That takes a
+    machine that lasts longer than a 51-min six-level checkpoint, or
+    checkpoints more often than the driver's one per 5 M record.
   - **Spheres beyond 24 M** on a level finer than `2M` (`n = 64,
     extent = 128` keeps the inner levels and reaches 48 M, at 8.5 points
     per wavelength) would test the extrapolation with radius instead of
@@ -3782,10 +3804,11 @@ uv run python examples/headon_benchmark.py --n 32 --box 16 --buffer 4 --margin 4
 uv run python examples/headon_benchmark.py --z0 0.2 --stop 70 --coarsen-at 15 \
   --output runs/headon-z02/headon.json                                  # Z
 uv run python examples/headon_benchmark.py --n 72 --box 36 --buffer 9 --z0 0.3 \
-  --stop 70 --coarsen-at 15 --output runs/headon-n72/headon.json        # H
-# the medium run first; the rule's verdict is printed last
+  --stop 70 --coarsen-at 15 --output runs/headon-n72/headon.json        # H, cut off at 5 M
+# the medium run first; the rule's verdict is printed last (H's record, if
+# added, is listed as not used)
 uv run python examples/headon_benchmark.py --analyse runs/headon-z03/headon.json \
-  runs/headon-n32/headon.json runs/headon-z02/headon.json runs/headon-n72/headon.json
+  runs/headon-n32/headon.json runs/headon-z02/headon.json
 ```
 
 #### What is not here
@@ -3810,8 +3833,17 @@ uv run python examples/headon_benchmark.py --analyse runs/headon-z03/headon.json
 - **Why L's `r = 8` and 16 spheres drift.** Their news ends far from zero
   after the level drop; the cause is not established. No run without the
   drop was made at `n = 32`.
+- **A measured order.** Run H (`n = 72`) was cut off at 5 M by container
+  restarts, before any wave reached a sphere (reading D7). The resolution
+  error rests on the stated `p = 2`, with `p = 4` beside it.
 - **The resolution's effect on the second order.** Z has one resolution;
   its relative resolution error is assumed equal to the medium run's.
+- **The `(1 − 2M/r)` factor, numerically.** The perturbative extrapolation
+  rests on it, and the Teukolsky check has `M = 0` (the subsection above).
+  It is most of the change from the raw energies to the perturbative ones.
+- **What would shrink `σ`.** A clean coarse run (L without the level drop),
+  H to 55 M, spheres beyond 24 M, and a third separation, as listed above.
+  None of them was run.
 - **The `(4,0)` mode's energy**, and the `r = 8` anomaly in it.
 
 ## A scalar test field on a warp background: what can be evolved *on* one

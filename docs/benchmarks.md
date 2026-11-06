@@ -2118,6 +2118,7 @@ so A changes only what lies outside ±3.9 M.
 | C `puncture-diss` | `--dissipation 0.3` (0.1 before) | dissipation | `M/6`, `M/12` | **97, 104** | 0.0208 | 300 M |
 | D `puncture-buffer` | `--buffer 3` (6 before): the fine level evolved 0.25 M further out | refinement buffer | `M/6`, `M/12` | **106, 81** | 0.0048 | 300 M |
 | B `puncture-far-flat` | as A, `--background flat` | the boundary's reference, far away | `M/1.5` … `M/12` | 383, 507, **371, 198** | 0.0193 | 300 M |
+| E `puncture-m16`, after the decision, outside the rule | `--n 64 --box 32`: `M/8` to ±4 M, `M/16` to ±2 M, the same boxes | finest spacing | `M/8`, `M/16` | **111, 88** | 0.0020 | 300 M |
 
 A, its inner levels in bold:
 
@@ -2209,10 +2210,52 @@ B enters it only if B has reached 300 M by then.
 - **F does not pass go,** and its smallest τ, 176 M on the coarsest level,
   is below twice the baseline's smallest (212 M). By the rule F is not
   continued, and **no configuration was run to 1000 M** this round.
-- **E was not run:** a knob improved τ by 2×, so the rule's spacing branch
-  does not apply. The `M/16` measurement is not here.
+- **E was not run under the rule:** a knob improved τ by 2×, so the
+  rule's spacing branch does not apply. It was run afterwards, as a
+  measurement outside the rule (below).
 - **B reached 300 M at 01:02 UTC,** ten minutes after F was built, and is
   reported as a measurement; by its τ it would not have entered F.
+
+**E, the finest spacing: a measurement after the decision, outside the
+rule.** Started at 01:12 UTC on 2026-11-06, after the decision above. The
+rule did not call for it, and it does not change the round's verdict:
+#48's acceptance is still not met. It is the baseline at `--n 64 --box 32`, so the
+coarse level is `M/8` to ±4 M and the fine level `M/16` to ±2 M, the
+baseline's two boxes at 4/3 the resolution (36³ octant points each, time
+step 0.0625 M). Its question is whether a finer spacing moves τ toward the
+400 M criterion 5 needs, that is, whether a longer `M/16` or `M/24` run
+could meet the acceptance. With the baseline at the same times:
+
+| t / M | 0 | 50 | 100 | 150 | 200 | 250 | 300 |
+|---|---|---|---|---|---|---|---|
+| horizon mass | 1.0000 | 0.9998 | 1.0003 | 1.0008 | 1.0008 | 1.0000 | 0.9980 |
+| horizon residual | 0.0002 | 0.0008 | 0.0009 | 0.0006 | 0.0007 | 0.0023 | 0.0039 |
+| `M/8` `‖H‖`, `r > 2 M` | 6.7e−07 | 6.0e−05 | 9.0e−05 | 1.4e−04 | 2.1e−04 | 3.4e−04 | 5.4e−04 |
+| `M/16` `‖H‖`, `r > 2 M` | 4.2e−07 | 1.5e−04 | 1.6e−04 | 2.3e−04 | 4.6e−04 | 8.4e−04 | 1.2e−03 |
+| baseline mass | 1.0000 | 0.9998 | 1.0014 | 1.0034 | 1.0047 | 1.0042 | 0.9970 |
+| baseline `M/6` `‖H‖` | 2.2e−06 | 1.3e−04 | 2.2e−04 | 3.5e−04 | 5.5e−04 | 9.0e−04 | 1.5e−03 |
+| baseline `M/12` `‖H‖` | 1.7e−06 | 6.5e−04 | 7.2e−04 | 7.1e−04 | 9.2e−04 | 2.0e−03 | 3.5e−03 |
+
+τ is 111 M on `M/8` and 88 M on `M/16`, 1.05 and 0.78 times the
+baseline's 106 and 114 M; Δm is 0.0020, at 300 M (the mass peaks at
+1.0009 at 180 M and then falls, by 6.1e−05 per M from 290 to 300 M), and
+`stable_to` is 300 M, with no criterion failing. **Finer spacing lowers
+the constraint and the mass error, and does not slow the growth.** The
+constraint outside 2 M is 0.23 to 0.51 times the baseline's at 100, 200
+and 300 M, and Δm less than half the baseline's 0.0048, which is what a
+truncation error does. But by the rule's test spacing does not matter for
+τ: neither level changes by a factor of 2, and the fine level's τ is
+shorter, not longer. Over 40–140 M, the window the earlier `M/8` →
+`M/12` comparison used, the coarse level's e-folding time goes on
+lengthening (72, 96, 112 M with the finest level at `M/8`, `M/12`,
+`M/16`) and the fine level's does not (151, 686, 329 M). From 100 M on,
+the growth is a rate of about one e-fold per 100 M that the two spacings
+measured there, `M/12` and `M/16`, leave in place while its amplitude
+falls, so a longer `M/16` run, or an `M/24` one, would start
+lower and fail criterion 5 later, not pass it: E's `M/16` level is at
+7.4 of the 10 allowed at 300 M and, at its τ, reaches 10 near 330 M; at
+τ near 100 M, 1000 M is about e⁹, some 8000 times the 100 M value, where
+criterion 5 allows 10.
 
 **The verdicts.** `stability_verdict` on each run's records (`--verdict`).
 The fit half of criterion 5 starts at 400 M, so a run that ends at 300 M
@@ -2227,6 +2270,7 @@ which criterion 5 allows up to 10:
 | C `puncture-diss` | 300 M | 300 M | none | 8.1 (`M/6`) | 0.0208 |
 | D `puncture-buffer` | 300 M | 300 M | none | 9.5 (`M/12`) | 0.0048 |
 | B `puncture-far-flat` | 300 M | 300 M | none | 2.8 (`M/12`) | 0.0193 |
+| E `puncture-m16`, outside the rule | 300 M | 300 M | none | 7.4 (`M/16`) | 0.0020 |
 
 **When the fit half starts is a reading.** The definition says "an
 exponential fit to the last 300 M of records" without saying from when.
@@ -2257,15 +2301,20 @@ their checkpoints and cost about 50 s per M on the restarted machine. A
 second restart, at about 00:05 UTC, killed them at 160 and 130 M; resumed
 again, two to the machine, D cost 16.6 s per M and B 18.9 s per M. Each
 resume read the last 10 M checkpoint, so no record was lost or repeated.
+E, started after the others had finished and with no other benchmark run
+on the machine, cost 36.2 s per M at one thread (42.6 s per M over the first
+10 M, which include compiling), against the plan's 52 s per M alone, and
+took 3.0 hours to 300 M with no restart.
 
-To reproduce (each script holds a snapshot of the commit it runs, 808c619;
-`runs/` is not tracked), and to print a run's verdict:
+To reproduce (each script holds a snapshot of the commit it runs, 808c619,
+and E's of 2e11665; `runs/` is not tracked), and to print a run's verdict:
 
 ```bash
 sh runs/puncture-far/run.sh          # A, to 300 M (an argument sets the stop time)
 sh runs/puncture-diss/run.sh         # C
 sh runs/puncture-buffer/run.sh       # D
 sh runs/puncture-far-flat/run.sh     # B
+sh runs/puncture-m16/run.sh          # E, after the decision, outside the rule
 uv run python examples/puncture_benchmark.py --verdict runs/puncture-far/puncture.json
 ```
 
@@ -2279,11 +2328,14 @@ checkpoint exists.
   above to 130 M (criterion 3) and the `M/12` run to 350 M (criterion 5;
   its mass leaves the band at 600 M); the `M/12` run reaches 1000 M finite
   with a horizon, at 0.555 of its mass. None of the four diagnostics
-  passed the pre-registered go test, so none was run past 300 M.
-- **The finest spacing from 100 M on.** E (`M/16`) was not run, by the
-  rule; from 100 M on, the effect of spacing on τ is unmeasured. A
-  two-level `M/16` run costs about 52 s per M alone, so 1000 M is 15 to
-  24 hours of one CPU thread.
+  passed the pre-registered go test, so none was run past 300 M; nor was
+  E, measured afterwards outside the rule.
+- **The finest spacing past 300 M, and finer than `M/16`.** E (`M/16`) is
+  measured, to 300 M only and outside the rule: its τ is the baseline's
+  within a factor of 2, so spacing does not slow the growth over 100–300 M.
+  Whether that holds past 300 M, and at `M/24`, is not measured. A
+  two-level `M/16` run cost 36 s per M alone, so 1000 M is about 10 hours
+  of one CPU thread.
 - **The far boundary as a cure.** A slows the growth by changing what
   lies outside ±3.9 M, and its boundary is a finite-domain experiment with
   an analytic trumpet reference; B shows the reference no longer matters

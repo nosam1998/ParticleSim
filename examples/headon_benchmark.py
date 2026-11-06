@@ -46,6 +46,16 @@ from particlesim.solvers.nr import bssn, puncture
 
 MODES = ((2, 0), (4, 0), (2, 2))
 
+#: The time the decision rule takes its numbers at (``runs/headon-n32/DECISION_RULE.md``: "All
+#: numbers are taken at 70 M, or where a run stopped"); the default ``--stop`` runs past it.
+RULE_TIME = 70.0
+#: How far a finer record's waves must run to measure the order (item 10 of the rule).
+ORDER_TIME = 55.0
+#: Two sample times closer than this are the same time.
+TIME_TOLERANCE = 1e-6
+#: The extraction margin of checkpoints written before the margin was stored in them.
+DEFAULT_MARGIN = 5
+
 
 def configuration(*, n=48, extent=96.0, box=24, levels=6, z0=0.3, buffer=6):
     """The grid and data. ``z0`` is each puncture's distance from the centre, in ``M``."""
@@ -379,7 +389,15 @@ def _central(raw, perturbative, tails_from, minimum=10.5):
 
 
 def decision_rule(
-    medium, coarse, fine=None, other=None, ratio=1.5, minimum=10.5, order=2.0, branch=None
+    medium,
+    coarse,
+    fine=None,
+    other=None,
+    ratio=1.5,
+    minimum=10.5,
+    order=2.0,
+    branch=None,
+    order_runs=None,
 ):
     """Items 1 to 8 and 10 of ``runs/headon-n32/DECISION_RULE.md``, applied mechanically.
 
@@ -397,6 +415,9 @@ def decision_rule(
     with the medium run's own factor per sphere, and its relative resolution
     error is the medium run's. ``branch`` forces item 1's branch, for a
     sensitivity outside the rule; ``rule_branch`` is always the rule's.
+    ``order_runs``, the coarse, medium and fine runs cut at the fine run's
+    last wave sample, measure the order in their place (``DECISIONS.log`` D4:
+    a fine run that stops before 70 M); everything else stays at 70 M.
     """
     outer = [i for i, row in enumerate(medium["raw"]) if row["areal"] >= minimum]
 
@@ -415,12 +436,15 @@ def decision_rule(
     size = max(abs(mean), abs(flat_medium - flat_coarse))
     measured = None
     if fine is not None:
+        # On the quantity item 2 selected at 70 M, from the runs D4 cuts if any.
+        at_c, at_m, at_f = (coarse, medium, fine) if order_runs is None else order_runs
         if by_mean:
-            finer = float(np.mean((ratios(fine) - ratios(medium))[outer]))
-            measured = convergence_order(0.0, mean, mean + finer, ratio)
+            first = float(np.mean((ratios(at_m) - ratios(at_c))[outer]))
+            finer = float(np.mean((ratios(at_f) - ratios(at_m))[outer]))
+            measured = convergence_order(0.0, first, first + finer, ratio)
         else:
-            flat_fine = _infinity(fine["raw"], minimum=minimum)
-            measured = convergence_order(flat_coarse, flat_medium, flat_fine, ratio)
+            flats = (_infinity(run["raw"], minimum=minimum) for run in (at_c, at_m, at_f))
+            measured = convergence_order(*flats, ratio)
     used = measured if measured is not None and np.isfinite(measured) else order
     resolution = size / (ratio**used - 1)
     # Items 1 (branch), 3 and 4: what is extrapolated, and how.
@@ -503,13 +527,15 @@ def _final_mass(report):
     return (found[-1]["time"], found[-1]["horizon_mass"]) if found else (None, None)
 
 
-def _summary(name, report, reference):
+def _summary(name, report, reference, recorded=None):
     config = report["configuration"]
     z0 = config["punctures"][0][1][2]
     h = config["extent"] / config["n"] / 2 ** (config["levels"] - 1)
     when, mass = _final_mass(report)
     times = [w["time"] for w in report["waves"]]
     print(f"{name}: n={config['n']} z0={z0} finest h=M/{1 / h:.4g} to t={times[-1]}")
+    if recorded is not None and recorded > times[-1] + TIME_TOLERANCE:
+        print(f"  recorded to t={recorded:g}; cut at t={times[-1]:g}, where the rule reads it")
     print(f"  reference E = {reference:.5g} M; plan {report['plan']}")
     print(f"  horizon mass {mass} at t={when}; M_ADM = {report['adm_mass']}")
     tables = {}
@@ -528,25 +554,56 @@ def _summary(name, report, reference):
     return tables
 
 
-def analyse(paths, reference=None):
+def truncate(report, until):
+    """``report`` with its waves and records cut to the samples at or before ``until``."""
+    keep = until + TIME_TOLERANCE
+    return {
+        **report,
+        "waves": [w for w in report["waves"] if w["time"] <= keep],
+        "records": [r for r in report.get("records", []) if r["time"] <= keep],
+    }
+
+
+def analyse(paths, reference=None, until=RULE_TIME):
     """Print each record's energy tables and extrapolations, and resolution differences.
 
-    ``reference`` is the energy each is divided by, ``0.0251 kappa_2^2`` of
-    each record's ``z0`` unless given. Each record is tabulated raw and
-    carried to infinity perturbatively with its final horizon mass. Records
-    of the same ``z0`` and plan at two resolutions are compared radius by
-    radius, finer minus coarser, ``Delta(R)``, with Richardson's correction
-    at orders 2 and 4, and the corrected energies are extrapolated in turn.
+    Every record is first cut to ``until`` (:func:`truncate`), the rule's
+    70 M: its energies, tails and final horizon mass are all read there, so
+    that a record run past it (the default ``--stop`` is 80) is judged, and
+    compared with the others, at the same time. ``reference`` is the energy
+    each is divided by, ``0.0251 kappa_2^2`` of each record's ``z0`` unless
+    given. Each record is tabulated raw and carried to infinity
+    perturbatively with its final horizon mass. Records of the same ``z0``
+    and plan at two resolutions are compared radius by radius, finer minus
+    coarser, ``Delta(R)``, with Richardson's correction at orders 2 and 4,
+    and the corrected energies are extrapolated in turn; a pair including a
+    record whose waves stop before :data:`ORDER_TIME` is not, as its waves
+    have not reached the spheres (``DECISIONS.log`` D7). Returns
+    :func:`decision_rule`'s result, ``None`` without a coarser record.
     """
-    reports = [(str(path), json.loads(Path(path).read_text())) for path in paths]
     tables = []
-    for name, report in reports:
+    for path in paths:
+        whole = json.loads(Path(path).read_text())
+        report = truncate(whole, until)
         z0 = report["configuration"]["punctures"][0][1][2]
-        tables.append((report, _summary(name, report, reference or close_limit_energy(z0))))
-    for (ra, ta), (rb, tb) in itertools.combinations(tables, 2):
+        ref = reference or close_limit_energy(z0)
+        rows = _summary(str(path), report, ref, recorded=whole["waves"][-1]["time"])
+        tables.append((report, ref, rows))
+    for (ra, _, ta), (rb, _, tb) in itertools.combinations(tables, 2):
         za, zb = (r["configuration"]["punctures"][0][1][2] for r in (ra, rb))
         na, nb = ra["configuration"]["n"], rb["configuration"]["n"]
         if za != zb or na == nb or ra["plan"] != rb["plan"]:
+            continue
+        short = [
+            f"n={r['configuration']['n']} stops at t={r['waves'][-1]['time']:g}"
+            for r in (ra, rb)
+            if r["waves"][-1]["time"] < ORDER_TIME - TIME_TOLERANCE
+        ]
+        if short:
+            print(
+                f"Delta(R) of n={na} and n={nb} not tabulated: {', '.join(short)}, "
+                f"before {ORDER_TIME:g} M (item 10; D7)"
+            )
             continue
         (fine, nf), (coarse, nc) = sorted(((ta, na), (tb, nb)), key=lambda x: -x[1])
         ratio = nf / nc
@@ -583,13 +640,15 @@ def analyse(paths, reference=None):
             n=report["configuration"]["n"],
             plan=report["plan"],
             stop=report["waves"][-1]["time"],
+            report=report,
+            reference=ref,
         )
-        for report, table in tables
+        for report, ref, table in tables
     ]
-    _print_rule(runs)
+    return _print_rule(runs)
 
 
-def rule_runs(runs, until=55.0):
+def rule_runs(runs, until=ORDER_TIME, full=RULE_TIME):
     """Which records :func:`decision_rule` takes: the first is the medium run.
 
     The coarse run is the nearest coarser one of the medium run's ``z0`` and
@@ -597,8 +656,11 @@ def rule_runs(runs, until=55.0):
     another ``z0`` with the medium run's ``n``. A finer record whose waves stop
     before ``until`` is not used, and is returned in ``cut``: item 10 of the
     rule asks for 55 M, and its order cannot come from spheres the waves have
-    not reached (``DECISIONS.log`` D7: run H, cut off at 5 M). Returns
-    ``None`` when no coarser record exists.
+    not reached (``DECISIONS.log`` D7: run H, cut off at 5 M). ``other`` must
+    also have the medium run's plan and reach ``full``: item 7 takes the
+    fallback "if Z has not reached 70 M". A candidate that does not is
+    returned in ``refused`` with the reason, and ``other`` is then ``None``.
+    Returns ``None`` when no coarser record exists.
     """
     medium, *rest = runs
     same = [r for r in rest if r["z0"] == medium["z0"] and r["plan"] == medium["plan"]]
@@ -609,29 +671,58 @@ def rule_runs(runs, until=55.0):
     ratio = medium["n"] / coarse["n"]
     finer = [r for r in same if np.isclose(r["n"], medium["n"] * ratio)]
     fine = [r for r in finer if r["stop"] >= until]
-    other = [r for r in rest if r["z0"] != medium["z0"] and r["n"] == medium["n"]]
+    other, refused = None, []
+    for r in rest:
+        if r["z0"] == medium["z0"] or r["n"] != medium["n"]:
+            continue
+        if r["plan"] != medium["plan"]:
+            refused.append((r, f"its plan {r['plan']} is not the medium run's"))
+        elif r["stop"] < full - TIME_TOLERANCE:
+            refused.append((r, f"it stops at t={r['stop']:g}, before {full:g} M"))
+        elif other is None:
+            other = r
     return dict(
         medium=medium,
         coarse=coarse,
         fine=fine[0] if fine else None,
-        other=other[0] if other else None,
+        other=other,
         ratio=ratio,
         cut=[r for r in finer if r["stop"] < until],
+        refused=refused,
     )
 
 
 def _print_rule(runs):
-    """:func:`decision_rule` for the records :func:`rule_runs` selects, if a coarser one exists."""
+    """:func:`decision_rule` for the records :func:`rule_runs` selects, if a coarser one exists.
+
+    A fine record that stops before 70 M measures the order with all three
+    records cut at its last wave sample (D4). Returns the rule's result.
+    """
     chosen = rule_runs(runs)
     if chosen is None:
-        return
-    medium, coarse = chosen["medium"], chosen["coarse"]
-    rule = decision_rule(medium, coarse, chosen["fine"], chosen["other"], chosen["ratio"])
+        return None
+    medium, coarse, fine = chosen["medium"], chosen["coarse"], chosen["fine"]
+    order_runs = None
+    if fine is not None and fine["stop"] < RULE_TIME - TIME_TOLERANCE:
+        order_runs = [
+            dict(raw=energy_table(truncate(r["report"], fine["stop"]), r["reference"]))
+            for r in (coarse, medium, fine)
+        ]
+    rule = decision_rule(
+        medium, coarse, fine, chosen["other"], chosen["ratio"], order_runs=order_runs
+    )
     print(
         f"Decision rule (runs/headon-n32/DECISION_RULE.md), n={medium['n']} against {coarse['n']}:"
     )
     for r in chosen["cut"]:
         print(f"  n={r['n']} stops at t={r['stop']:g}, before 55 M: not used (item 10; D7)")
+    if order_runs is not None:
+        print(
+            f"  n={fine['n']} stops at t={fine['stop']:g}: the order is measured with all three "
+            f"records cut there (D4)"
+        )
+    for r, why in chosen["refused"]:
+        print(f"  z0={r['z0']:g} n={r['n']} not used for item 6: {why} (item 7 fallback)")
     print(
         f"  1. mean Delta {rule['mean']:+.4f}, spread {rule['spread']:.4f}: branch {rule['branch']}"
     )
@@ -663,15 +754,17 @@ def _print_rule(runs):
         f"  8. mass {rule['mass_offset']:+.5f} + {rule['mass_error']:.5f}: "
         f"met {rule['mass_clause']}"
     )
+    return rule
 
 
-def checkpoint(path, states, clock, config, extra):
+def checkpoint(path, states, clock, config, extra, margin=DEFAULT_MARGIN):
     temporary = path.with_suffix(".tmp.npz")
     np.savez_compressed(
         temporary,
         time=clock,
         configuration=json.dumps(config, sort_keys=True),
         extra=json.dumps(extra),
+        margin=margin,
         **{
             f"{level}:{name}": np.asarray(value)
             for level, state in enumerate(states)
@@ -687,10 +780,21 @@ def saved_levels(path):
         return 1 + max(int(key.split(":")[0]) for key in data.files if ":" in key)
 
 
-def restore(path, states, config, backend):
+def restore(path, states, config, backend, margin=DEFAULT_MARGIN):
+    """A checkpoint's states, time and records, if its configuration and ``margin`` are these.
+
+    The margin decides the extraction plan; a checkpoint written before it
+    was stored was made with :data:`DEFAULT_MARGIN`.
+    """
     with np.load(path, allow_pickle=False) as data:
         if json.loads(str(data["configuration"])) != json.loads(json.dumps(config, sort_keys=True)):
             raise ValueError("checkpoint configuration differs from this experiment")
+        saved = int(data["margin"]) if "margin" in data.files else DEFAULT_MARGIN
+        if saved != margin:
+            raise ValueError(
+                f"checkpoint was made with margin {saved}, not {margin}; "
+                f"resume with --margin {saved}"
+            )
         xp = bssn._module(backend)
         restored = []
         for level, state in enumerate(states):
@@ -747,7 +851,7 @@ def run(
     extra = dict(waves=[], records=[], events=[])
     history = []
     if resume:
-        states, clock, extra = restore(output.with_suffix(".npz"), states, config, backend)
+        states, clock, extra = restore(output.with_suffix(".npz"), states, config, backend, margin)
         extra.setdefault("events", [])
         previous = json.loads(output.read_text())
         history = previous.get("source_history", [])
@@ -794,7 +898,7 @@ def run(
             if progress:
                 progress(row)
             if output is not None:
-                checkpoint(output.with_suffix(".npz"), states, clock, config, extra)
+                checkpoint(output.with_suffix(".npz"), states, clock, config, extra, margin)
                 report = {**metadata, **extra}
                 temporary = output.with_suffix(".tmp.json")
                 temporary.write_text(json.dumps(report) + "\n")

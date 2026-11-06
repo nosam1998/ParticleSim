@@ -1,6 +1,6 @@
 # Milestone status
 
-Issue audit: 2026-10-04, local suite verification 2026-10-24. This distinguishes the implementation state recorded
+Issue audit: 2026-10-04, local suite verification 2026-10-24 and 2026-11-06. This distinguishes the implementation state recorded
 by GitHub from benchmark acceptance. Each milestone requires all its child
 issues to be closed **and** its benchmarks to pass in CI.
 
@@ -36,6 +36,15 @@ is being rerun on the integrated branch; its result is recorded in the
 pull request. The research-marked reruns (Choptuik at research resolution,
 IKKT at `N = 32`) belong to the nightly workflow and were not run.
 
+Actions was still disabled on 2026-11-06, so the v0.6.0 checks were also
+run locally, on Python 3.13 on the same shared machine: `ruff check` and
+`ruff format --check` pass; `pytest -m "not slow"` passed 1966 tests with 3
+skipped (`yt`, `playwright`) and none failed; `pytest -m "benchmark and
+not slow"` passed 172 of 172; `particlesim check-limits` reports all 11
+GR limits ok; and the slow extraction, head-on and puncture-stability
+tests pass. The analysis-tool guards merged after the full run were
+checked with their own tests (30 passed).
+
 ## IKKT scope
 
 [#86](https://github.com/nosam1998/ParticleSim/issues/86) reproduces the
@@ -50,28 +59,37 @@ are in [Benchmarks](benchmarks.md#bosonic-lorentzian-ikkt-dimension-benchmark).
 
 ## Remaining acceptance work
 
-Version 0.5.0 moves each of these and completes #52 and #132.
+Version 0.5.0 moved each of these and completed #52 and #132. Version
+0.6.0 measured #48 and #51 against pre-registered rules; neither is met.
 
 - [#48: Fixed mesh refinement](https://github.com/nosam1998/ParticleSim/issues/48).
-  Prolongation, restriction, subcycling and stage buffers exist. On the
-  cell-centred two-level grids of v0.4.0, an octant evolution
-  (`solvers/nr/octant.py`) holds the puncture at its centre to rounding. A
-  stability definition was written down before the runs (finite, horizon
-  found with residual below 0.01, mass within 5%, centred, constraints
-  bounded). The `M/8` two-level run meets it to 130 M; the `M/12` run meets
-  it to 590 M and then, though it stays finite with a horizon all the way
-  to 1000 M, its mass leaves the 5% band at 600 M, peaks at 1.168 at 700 M
-  and ends at 0.555, with the constraints e-folding every 155 to 271 M. The
-  1000 M acceptance is not met; the full record is in
-  [Benchmarks](benchmarks.md).
+  Not met. By the definition fixed before the run, the `M/12` two-level
+  octant run is stable to about 350 M by criterion 5 (its constraint
+  outside 2 M passes ten times its 100 M value at 360 M; its mass leaves
+  the 5% band at 600 M). It reaches 1000 M finite with a horizon. This
+  corrects the earlier 590 M, which applied criterion 3 alone. Four
+  diagnostics to 300 M, against a rule pre-registered at
+  2026-11-05T20:08:17Z, separated the causes. Neither the refinement buffer
+  nor triple dissipation matters. A far boundary (±16 M, four levels)
+  lengthens the inner levels' e-folding time 1.6–3.2× but does not lower
+  the constraint, and quadruples the mass error. At that distance the
+  boundary reference does not matter. No run passed the go test
+  (τ ≥ 400 M on every level and Δm ≤ 0.01), so by the rule none was run to
+  1000 M. The finest spacing (`M/16`) is the remaining, unmeasured
+  candidate. See
+  [Benchmarks, "What drives the growth"](benchmarks.md#what-drives-the-growth-the-boundary-the-buffer-dissipation).
 - [#51: 3D NR benchmarks](https://github.com/nosam1998/ParticleSim/issues/51).
-  Gauge-wave and evolved Teukolsky-wave convergence are implemented. A
-  head-on Brill–Lindquist collision from rest at `z₀ = 0.3 M`, compared
-  with the Abrahams–Price close limit recomputed here by a Zerilli
-  evolution, gives a final horizon mass within 0.3% and a radiated energy
-  within 1% under a `1/R²` extrapolation of the extraction radius but
-  −10% with a free `1/R` term, at one resolution. The single puncture to
-  1000 M is #48's run. Neither item meets its acceptance in full.
+  Energy not met, mass met. By the rule fixed beforehand
+  (2026-11-05T20:10:30Z), from two resolutions (`M/10.7`, `M/16`) and two
+  separations (`z₀ = 0.3`, `0.2`) run to 70 M, with the perturbative Ψ₄
+  extrapolation, the leading close-limit coefficient comes out at
+  `c = 0.040 ± 0.019` against Abrahams–Price's 0.0251. The clause reads
+  136% against 5%, and the error bar is set by the extrapolation that the
+  coarse run's two spoiled spheres feed. The final horizon mass is within
+  0.97% of `M_ADM − E`, counting the resolution error. A third resolution
+  (`M/24`) was cut off at 5 M by container restarts, so the order is the
+  stated `p = 2`. The single puncture to 1000 M is #48's run. Details:
+  [Benchmarks, "The error bar: a second resolution and a second separation"](benchmarks.md#the-error-bar-a-second-resolution-and-a-second-separation).
 - [#52: Modified CCZ4](https://github.com/nosam1998/ParticleSim/issues/52).
   Modified CCZ4 is implemented (`symbolic/modified_ccz4.py`,
   `symbolic/esgb.py`, `solvers/nr/modified.py`): the modified gauge reduces

@@ -2267,10 +2267,23 @@ which criterion 5 allows up to 10:
 |---|---:|---:|---|---:|---:|
 | baseline (`puncture-m12`) | 1000 M | 350 M | criterion 5 at 360 M (`M/6`, 10.02×); 3 at 600 M; 2 at 820 M | 6.7 (`M/6`) | 0.0048 |
 | A `puncture-far` | 300 M | 300 M | none | 3.3 (`M/1.5`) | 0.0195 |
-| C `puncture-diss` | 300 M | 300 M | none | 8.2 (`M/6`) | 0.0208 |
+| C `puncture-diss` | 300 M | 300 M | none | 8.1 (`M/6`) | 0.0208 |
 | D `puncture-buffer` | 300 M | 300 M | none | 9.5 (`M/12`) | 0.0048 |
 | B `puncture-far-flat` | 300 M | 300 M | none | 2.8 (`M/12`) | 0.0193 |
 | E `puncture-m16`, outside the rule | 300 M | 300 M | none | 7.4 (`M/16`) | 0.0020 |
+
+**When the fit half starts is a reading.** The definition says "an
+exponential fit to the last 300 M of records" without saying from when.
+Starting it at 400 M, the 100 M reference plus the 300 M window, so that
+every fit lies after the reference, is a reading fixed in the plan
+(`.claude/orchestration/m4-acceptance/plan.md`, U1 Step 1, written on
+2026-11-05 before any diagnostic ran), and `stability_verdict` applies it.
+Under the other reading, a fit over [0, 300 M] at `T = 300 M`,
+`growth_time` gives e-folding times of 74 M (baseline, `M/6`), 119 M (A,
+`M/12`; 120 M on `M/1.5`), 65 M (C, `M/6`), 76 M (D, `M/6`) and 123 M (B,
+`M/12`) on each run's fastest level, all below 1000 M. Every 300 M run
+then fails criterion 5 at 300 M, and the baseline is stable to 290 M
+instead of 350 M. #48's verdict, not met, is the same under both.
 
 **The longest run is still the baseline's**, and against the five criteria
 at 1000 M: 1 passes (finite to 1000 M); 2 fails at 820 M (`max|Θ|`
@@ -3887,7 +3900,13 @@ H's cut-off, followed at 2026-11-06T00:12:20Z.
   `b/R²` and `a/R + b/R²`. Each run is corrected with its own final horizon
   mass. On the second branch both fits are applied to the
   Richardson-corrected corrected energies. U3 found no `1/R` term left
-  (`a = −0.5`), so the raw `a/R + b/R²` fit does not count.
+  (`a = −0.5`), so the raw `a/R + b/R²` fit does not count. The other
+  reading, the mean of the per-sphere corrected energies over `R ≥ 11`
+  with no fit (1.094 on the second branch), gives a central `E∞` of 1.123,
+  `σ_ext = 0.029` and `σ = 0.161`; the fallback is then `12% + 16% = 28%`
+  and `|c/0.0251 − 1| + σ_c/0.0251 = 21% + 33% = 54%`. The energy clause
+  fails under both readings; under the second, the resolution (16%), not
+  the extrapolation (3%), is the term that exceeds.
 - **Item 10's order** is `ln(D₁/D₂)/ln 1.5`, with `D₁ = E₄₈ − E₃₂` and
   `D₂ = E₇₂ − E₄₈` taken on whichever quantity item 2 selects as `|Δ|`:
   here the mean over the five spheres of `R ≥ 11`. If `D₁` and `D₂` differ
@@ -3901,7 +3920,8 @@ H's cut-off, followed at 2026-11-06T00:12:20Z.
 - **H is cut off at 5 M (D7).** Item 10 asks for a run to 55 M, and H
   stopped before any wave reached a sphere. So no order is measured and
   `p = 2` stays the bar; `--analyse` given H's record lists it as not
-  used (`test_a_finer_record_that_stops_before_55_m_does_not_measure_the_order`).
+  used (`test_a_finer_record_that_stops_before_55_m_does_not_measure_the_order`)
+  and tabulates no `Δ(R)` against it.
 
 `energy_table`'s ringdown bound fits the fundamental's amplitude to the
 last period of the news and integrates the rest of the ringing at the worst

@@ -9,6 +9,10 @@ boundary benchmark. Checkpoints permit continuing the same experiment.
 
 ``--octant`` evolves one eighth of the same reflection-symmetric problem
 (:mod:`particlesim.solvers.nr.octant`); its records are of the unfolded grid.
+
+``--verdict puncture.json`` applies the stability definition of issue #48
+(:func:`stability_verdict`) to a finished or running experiment's records
+and prints it as JSON, without evolving anything.
 """
 
 from __future__ import annotations
@@ -34,17 +38,20 @@ def configuration(
     reflection_symmetry=False,
     octant=False,
     courant=None,
+    levels=2,
+    buffer=6,
+    dissipation=None,
 ):
     config = dict(
         n=n,
         extent=extent,
         box=box,
-        levels=2,
+        levels=levels,
         centering="cell",
         conformal="W",
         data="trumpet",
         advect=False,
-        buffer=6,
+        buffer=buffer,
         zone=min(2.0, extent / 8),
         boundary_background=background,
         reflection_symmetry=reflection_symmetry,
@@ -55,7 +62,187 @@ def configuration(
         config["octant"] = True
     if courant is not None:
         config["courant"] = float(courant)
+    if dissipation is not None:
+        config["dissipation"] = float(dissipation)
     return config
+
+
+#: Two record times closer than this are the same time; a long run's clock
+#: accumulates rounding (99.99999999999791 for 100).
+TIME_TOLERANCE = 1e-6
+
+
+def _record_at(records, when):
+    for record in records:
+        if abs(record["time"] - when) <= TIME_TOLERANCE:
+            return record
+    return None
+
+
+def _level_norm(record, level):
+    value = record["hamiltonian_outer"][level]
+    return float("nan") if value is None else float(value)
+
+
+def growth_time(records, level, start, stop):
+    """The e-folding time of ``hamiltonian_outer`` on one level over ``[start, stop]``.
+
+    A least-squares fit of ``ln||H||`` against time over the records in the
+    window (ends included, within :data:`TIME_TOLERANCE`). A negative value
+    is a decay time; ``inf`` is no trend. ``nan`` if fewer than two records
+    in the window have a finite, positive norm on that level.
+    """
+    times, logs = [], []
+    for record in records:
+        if start - TIME_TOLERANCE <= record["time"] <= stop + TIME_TOLERANCE:
+            value = _level_norm(record, level)
+            if np.isfinite(value) and value > 0:
+                times.append(record["time"])
+                logs.append(np.log(value))
+    if len(times) < 2:
+        return float("nan")
+    slope = np.polyfit(times, logs, 1)[0]
+    return float("inf") if slope == 0 else float(1 / slope)
+
+
+def stability_verdict(
+    records,
+    *,
+    mass_band=0.05,
+    residual=0.01,
+    ratio=10.0,
+    efold=1000.0,
+    window=300.0,
+    reference=100.0,
+    offset=0.1,
+):
+    """Apply the stability definition of issue #48 to an experiment's records.
+
+    A record passes when
+
+    1. every field is finite;
+    2. the horizon is found with ``max|Theta| < residual``;
+    3. ``|M_irr - 1| <= mass_band``;
+    4. the lapse-weighted centre is less than ``offset`` from the puncture
+       on every axis (whether it grows exponentially is not tested: on an
+       octant it is zero by construction);
+    5. on every level, ``hamiltonian_outer`` is at most ``ratio`` times its
+       value at ``reference`` (tested at every record from ``reference`` on),
+       and a least-squares fit of ``ln||H||`` over the records in
+       ``[T - window, T]`` gives an e-folding time above ``efold`` or decay
+       (tested at every record from ``reference + window`` on). A level
+       with no norm at ``reference`` (no points outside 2 M) is not tested.
+
+    ``stable_to`` is the last time up to which every record passes (``None``
+    if the first one fails); ``reason`` lists the criteria the next record
+    fails. ``criteria`` gives each criterion's first failing time (``None``
+    if it never fails) and why. ``mass_rate`` is the least-squares slope of
+    ``M_irr`` per M from ``reference`` on, ``mass_excursion`` the largest
+    ``|M_irr - 1|``, and ``efolding`` each level's e-folding time over the
+    last ``window`` (negative is decay).
+    """
+    records = sorted(records, key=lambda r: r["time"])
+    if not records:
+        raise ValueError("no records")
+    levels = len(records[0]["hamiltonian_outer"])
+    base = _record_at(records, reference)
+    base_norms = [_level_norm(base, level) for level in range(levels)] if base is not None else None
+    tested = (
+        []
+        if base_norms is None
+        else [level for level, value in enumerate(base_norms) if np.isfinite(value)]
+    )
+    names = {
+        1: "fields not finite",
+        2: f"horizon not found with max|Theta| < {residual}",
+        3: f"|M_irr - 1| > {mass_band}",
+        4: f"offset not below {offset} M per axis",
+        5: (
+            f"||H|| outside 2 M above {ratio}x its {reference:g} M value, or an "
+            f"e-folding time over the last {window:g} M not above {efold:g} M"
+        ),
+    }
+    criteria = {key: {"first_failure": None, "reason": None} for key in names}
+    stable_to = None
+    first_failure = None
+
+    for index, record in enumerate(records):
+        when = record["time"]
+        failed = {}
+        if not record.get("finite", False):
+            failed[1] = names[1]
+        found = record.get("horizon_found", False)
+        theta = record.get("horizon_residual", float("nan")) if found else float("nan")
+        if not (found and theta < residual):
+            failed[2] = f"{names[2]} (found={found}, max|Theta|={theta:.4g})"
+        mass = record.get("horizon_mass", float("nan")) if found else float("nan")
+        if not abs(mass - 1) <= mass_band:
+            failed[3] = f"{names[3]} (M_irr={mass:.5g})"
+        centre = record.get("centre", [float("nan")] * 3)
+        distance = float(np.max(np.abs(centre)))
+        if not distance < offset:
+            failed[4] = f"{names[4]} (largest offset per axis {distance:.4g} M)"
+        if when >= reference - TIME_TOLERANCE and base_norms is not None:
+            for level in tested:
+                grown = _level_norm(record, level) / base_norms[level]
+                if not grown <= ratio:
+                    failed[5] = f"level {level}: ||H|| is {grown:.3g}x its {reference:g} M value"
+                    break
+            if 5 not in failed and when >= reference + window - TIME_TOLERANCE:
+                for level in tested:
+                    tau = growth_time(records[: index + 1], level, when - window, when)
+                    if not (tau < 0 or tau > efold):
+                        failed[5] = (
+                            f"level {level}: e-folding time {tau:.4g} M over "
+                            f"{when - window:g}-{when:g} M"
+                        )
+                        break
+        for key, why in failed.items():
+            if criteria[key]["first_failure"] is None:
+                criteria[key] = {"first_failure": when, "reason": why}
+        if failed and first_failure is None:
+            first_failure = (when, sorted(failed))
+        if first_failure is None:
+            stable_to = when
+
+    last = records[-1]["time"]
+    after = [r for r in records if r["time"] >= reference - TIME_TOLERANCE]
+    masses = [(r["time"], r["horizon_mass"]) for r in after if r.get("horizon_found")]
+    mass_rate = float(np.polyfit(*zip(*masses, strict=True), 1)[0]) if len(masses) >= 2 else None
+    excursions = [abs(r["horizon_mass"] - 1) for r in records if r.get("horizon_found")]
+    return {
+        "stable_to": None if stable_to is None else round(stable_to, 6),
+        "last_time": round(last, 6),
+        "failed_at": None if first_failure is None else round(first_failure[0], 6),
+        "reason": [] if first_failure is None else first_failure[1],
+        "criteria": {
+            str(key): {
+                "first_failure": None
+                if value["first_failure"] is None
+                else round(value["first_failure"], 6),
+                "reason": value["reason"],
+            }
+            for key, value in criteria.items()
+        },
+        "mass_rate": mass_rate,
+        "mass_excursion": max(excursions) if excursions else None,
+        "efolding": [growth_time(records, level, last - window, last) for level in range(levels)],
+    }
+
+
+def diagnostic_summary(records, *, start=100.0, stop=300.0):
+    """The pre-registered diagnostic numbers: tau per level and Delta m.
+
+    ``tau`` is each level's e-folding time of ``hamiltonian_outer`` over
+    ``[start, stop]`` (negative is decay), ``delta_m`` the largest
+    ``|M_irr - 1|`` over ``[0, stop]``.
+    """
+    levels = len(records[0]["hamiltonian_outer"])
+    window = [r for r in records if r["time"] <= stop + TIME_TOLERANCE and r.get("horizon_found")]
+    return {
+        "tau": [growth_time(records, level, start, stop) for level in range(levels)],
+        "delta_m": max((abs(r["horizon_mass"] - 1) for r in window), default=None),
+    }
 
 
 def measure(setup, states):
@@ -246,7 +433,27 @@ def main():
         help="Evolve only the octant x, y, z > 0, with reflection ghosts (same restriction)",
     )
     parser.add_argument("--courant", type=float, default=None, help="Courant factor (default 0.25)")
+    parser.add_argument("--levels", type=int, default=2, help="Nested levels (default 2)")
+    parser.add_argument(
+        "--buffer", type=int, default=6, help="Refinement buffer in points (default 6)"
+    )
+    parser.add_argument(
+        "--dissipation", type=float, default=None, help="Kreiss-Oliger epsilon (default 0.1)"
+    )
+    parser.add_argument(
+        "--verdict",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Print the #48 stability verdict of a saved experiment and exit",
+    )
     args = parser.parse_args()
+    if args.verdict is not None:
+        records = json.loads(args.verdict.read_text())["records"]
+        verdict = stability_verdict(records)
+        verdict["diagnostic"] = diagnostic_summary(records)
+        print(json.dumps(verdict, indent=2))
+        return
     run_benchmark(
         config=configuration(
             n=args.n,
@@ -256,6 +463,9 @@ def main():
             reflection_symmetry=args.reflection_symmetry,
             octant=args.octant,
             courant=args.courant,
+            levels=args.levels,
+            buffer=args.buffer,
+            dissipation=args.dissipation,
         ),
         stop=args.stop,
         interval=args.interval,

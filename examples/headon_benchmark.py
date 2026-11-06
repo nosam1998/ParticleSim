@@ -582,33 +582,56 @@ def analyse(paths, reference=None):
             z0=report["configuration"]["punctures"][0][1][2],
             n=report["configuration"]["n"],
             plan=report["plan"],
+            stop=report["waves"][-1]["time"],
         )
         for report, table in tables
     ]
     _print_rule(runs)
 
 
-def _print_rule(runs):
-    """:func:`decision_rule` for the first record, if a coarser one of its ``z0`` and plan exists.
+def rule_runs(runs, until=55.0):
+    """Which records :func:`decision_rule` takes: the first is the medium run.
 
-    A finer one at the same ratio measures the order; one at another ``z0``
-    with the first's ``n`` gives the second order.
+    The coarse run is the nearest coarser one of the medium run's ``z0`` and
+    plan, the fine run one finer at the same ratio, and ``other`` one at
+    another ``z0`` with the medium run's ``n``. A finer record whose waves stop
+    before ``until`` is not used, and is returned in ``cut``: item 10 of the
+    rule asks for 55 M, and its order cannot come from spheres the waves have
+    not reached (``DECISIONS.log`` D7: run H, cut off at 5 M). Returns
+    ``None`` when no coarser record exists.
     """
     medium, *rest = runs
     same = [r for r in rest if r["z0"] == medium["z0"] and r["plan"] == medium["plan"]]
     coarser = [r for r in same if r["n"] < medium["n"]]
     if not coarser:
-        return
+        return None
     coarse = max(coarser, key=lambda r: r["n"])
     ratio = medium["n"] / coarse["n"]
-    fine = [r for r in same if np.isclose(r["n"], medium["n"] * ratio)]
+    finer = [r for r in same if np.isclose(r["n"], medium["n"] * ratio)]
+    fine = [r for r in finer if r["stop"] >= until]
     other = [r for r in rest if r["z0"] != medium["z0"] and r["n"] == medium["n"]]
-    rule = decision_rule(
-        medium, coarse, fine[0] if fine else None, other[0] if other else None, ratio
+    return dict(
+        medium=medium,
+        coarse=coarse,
+        fine=fine[0] if fine else None,
+        other=other[0] if other else None,
+        ratio=ratio,
+        cut=[r for r in finer if r["stop"] < until],
     )
+
+
+def _print_rule(runs):
+    """:func:`decision_rule` for the records :func:`rule_runs` selects, if a coarser one exists."""
+    chosen = rule_runs(runs)
+    if chosen is None:
+        return
+    medium, coarse = chosen["medium"], chosen["coarse"]
+    rule = decision_rule(medium, coarse, chosen["fine"], chosen["other"], chosen["ratio"])
     print(
         f"Decision rule (runs/headon-n32/DECISION_RULE.md), n={medium['n']} against {coarse['n']}:"
     )
+    for r in chosen["cut"]:
+        print(f"  n={r['n']} stops at t={r['stop']:g}, before 55 M: not used (item 10; D7)")
     print(
         f"  1. mean Delta {rule['mean']:+.4f}, spread {rule['spread']:.4f}: branch {rule['branch']}"
     )

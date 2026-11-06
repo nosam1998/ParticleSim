@@ -13,6 +13,7 @@ from examples.headon_benchmark import (
     extrapolate,
     radiated_energy,
     richardson,
+    rule_runs,
 )
 from particlesim.solvers.nr import puncture
 
@@ -240,3 +241,27 @@ def test_the_decision_rule_recovers_the_second_order_and_judges_both_clauses():
     assert not heavy["mass_clause"]
     loose, _ = pair(1.02, -3.0, -0.1)
     assert not decision_rule(medium, loose, other=other)["energy_clause"]
+
+
+def test_a_finer_record_that_stops_before_55_m_does_not_measure_the_order():
+    """Item 10 asks for 55 M: run H, cut off at 5 M, is set aside (``DECISIONS.log`` D7).
+
+    The records are as ``--analyse`` builds them, medium first. A finer
+    record to 70 M is taken as the fine run; the same record stopped at 5 M
+    is reported in ``cut`` and the order falls back to the stated ``p = 2``.
+    The control is the 70 M record, which is used.
+    """
+    plan = [list(entry) for entry in MEDIUM_PLAN]
+
+    def record(n, z0=0.3, stop=70.0):
+        return dict(_run(np.ones(len(AREAL)), z0=z0), n=n, plan=plan, stop=stop)
+
+    medium, coarse, other = record(48), record(32), record(48, z0=0.2)
+    cut_off = rule_runs([medium, coarse, other, record(72, stop=5.0)])
+    assert cut_off["coarse"] is coarse and cut_off["other"] is other
+    assert cut_off["fine"] is None and [r["n"] for r in cut_off["cut"]] == [72]
+    assert cut_off["ratio"] == pytest.approx(1.5)
+    finished = record(72)
+    control = rule_runs([medium, coarse, other, finished])
+    assert control["fine"] is finished and control["cut"] == []
+    assert rule_runs([medium, other]) is None

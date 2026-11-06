@@ -2116,7 +2116,7 @@ so A changes only what lies outside ±3.9 M.
 | baseline (`puncture-m12`) | — | | `M/6`, `M/12` | 106, 114 | 0.0048 | 1000 M |
 | A `puncture-far` | `--levels 4 --extent 32`: boundary at ±16 M, zone 2 M | boundary distance | `M/1.5` … `M/12` | 176, 788, **336, 180** | 0.0195 | 300 M |
 | C `puncture-diss` | `--dissipation 0.3` (0.1 before) | dissipation | `M/6`, `M/12` | **97, 104** | 0.0208 | 300 M |
-| D `puncture-buffer` | `--buffer 3` (6 before): the fine level evolved 0.25 M further out | refinement buffer | `M/6`, `M/12` | running | | |
+| D `puncture-buffer` | `--buffer 3` (6 before): the fine level evolved 0.25 M further out | refinement buffer | `M/6`, `M/12` | **106, 81** | 0.0048 | 300 M |
 | B `puncture-far-flat` | as A, `--background flat` | the boundary's reference, far away | `M/1.5` … `M/12` | running | | |
 
 A, its inner levels in bold:
@@ -2142,6 +2142,15 @@ C:
 | `M/6` `‖H‖`, `r > 2 M` | 2.2e−06 | 2.2e−04 | 4.6e−04 | 8.2e−04 | 1.3e−03 | 2.3e−03 | 3.8e−03 |
 | `M/12` `‖H‖`, `r > 2 M` | 1.7e−06 | 9.4e−04 | 1.5e−03 | 1.5e−03 | 1.4e−03 | 4.0e−03 | 8.6e−03 |
 
+D:
+
+| t / M | 0 | 50 | 100 | 150 | 200 | 250 | 300 |
+|---|---|---|---|---|---|---|---|
+| horizon mass | 1.0000 | 0.9998 | 1.0014 | 1.0033 | 1.0047 | 1.0042 | 0.9971 |
+| horizon residual | 0.0006 | 0.0022 | 0.0033 | 0.0034 | 0.0016 | 0.0032 | 0.0040 |
+| `M/6` `‖H‖`, `r > 2 M` | 2.2e−06 | 1.3e−04 | 2.2e−04 | 3.5e−04 | 5.4e−04 | 9.0e−04 | 1.4e−03 |
+| `M/12` `‖H‖`, `r > 2 M` | 1.1e−06 | 2.9e−04 | 3.4e−04 | 4.9e−04 | 1.0e−03 | 2.0e−03 | 3.2e−03 |
+
 - **The far boundary slows the growth and does not lower the constraint.**
   A's τ is 3.2 times the baseline's on `M/6` and 1.6 times on `M/12`, so
   by the rule its knob improves τ by 2×. But its `M/6` constraint is three
@@ -2155,6 +2164,13 @@ C:
 - **Triple dissipation does not matter**, by the rule: τ is 97 and 104 M,
   within 10% of the baseline's. Its mass error is four times larger
   (1.0206 at 200 M), and its constraint at 300 M two to three times larger.
+- **The refinement buffer does not matter**, by the rule: τ is 106 and
+  81 M, 1.0 and 0.71 times the baseline's. Moving the coarse–fine
+  interface 0.25 M out leaves the mass within 1.2e−04 of the baseline's
+  at every record (1.0047 at 200 M, 0.9971 at 300 M) and the `M/6`
+  constraint within 1% at the table's times. It halves the `M/12`
+  constraint at 100 M (3.4e−04 against 7.2e−04), which then grows faster,
+  passes the baseline's by 200 M and ends 9% below it at 300 M.
 - **The spacing's effect is already in the data.** Over 40–140 M, the
   only window both two-level runs cover, going from `M/8` to `M/12` (the
   `puncture-1000` run against the baseline) lengthened the coarse level's

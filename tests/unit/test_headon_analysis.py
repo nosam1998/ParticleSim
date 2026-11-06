@@ -1,10 +1,15 @@
 """The head-on benchmark's analysis: extraction plans, radius extrapolation, Richardson, tails."""
 
+import json
+
 import numpy as np
 import pytest
 
 from examples.headon_benchmark import (
     FUNDAMENTAL,
+    analyse,
+    checkpoint,
+    close_limit_energy,
     configuration,
     convergence_order,
     decision_rule,
@@ -12,6 +17,7 @@ from examples.headon_benchmark import (
     extraction_plan,
     extrapolate,
     radiated_energy,
+    restore,
     richardson,
     rule_runs,
 )
@@ -265,3 +271,206 @@ def test_a_finer_record_that_stops_before_55_m_does_not_measure_the_order():
     control = rule_runs([medium, coarse, other, finished])
     assert control["fine"] is finished and control["cut"] == []
     assert rule_runs([medium, other]) is None
+
+
+def _news_pulse(times, centre, width):
+    """``Psi_4`` whose news is ``exp(-(t - centre)^2 / 2 width^2)``: it starts and ends at rest."""
+    return -(times - centre) / width**2 * np.exp(-((times - centre) ** 2) / (2 * width**2))
+
+
+def _report(path, n, z0=0.3, stop=70.0, pulses=(), masses=(1.003, 1.003), plan=MEDIUM_PLAN):
+    """A record as the driver writes it, to ``stop``, on the medium run's spheres, at ``path``.
+
+    Each pulse is ``(centre, ratio, retarded)``: a news pulse of energy
+    ``ratio`` (one value, or one per sphere) over this ``z0``'s ``E_AP``,
+    at ``t = centre``, plus each sphere's areal radius if ``retarded``.
+    The horizon mass is ``masses[0]`` to 70 M and ``masses[1]`` after.
+    """
+    width = 1.5
+    reference = close_limit_energy(z0)
+    times = np.arange(0.0, stop + 0.25, 0.5)
+    signals = []
+    for areal in AREAL:
+        psi4 = np.zeros_like(times)
+        for centre, ratio, retarded in pulses:
+            energy = np.broadcast_to(ratio, AREAL.shape)[list(AREAL).index(areal)] * reference
+            amplitude = np.sqrt(energy * 16 * np.pi / (width * np.sqrt(np.pi)))
+            psi4 += amplitude / areal * _news_pulse(times, centre + retarded * areal, width)
+        signals.append(psi4)
+    waves = [
+        dict(
+            time=float(t),
+            spheres=[
+                dict(radius=r, level=level, areal=float(a), modes={"2,0": [float(s[i]), 0.0]})
+                for (r, level), a, s in zip(plan, AREAL, signals, strict=True)
+            ],
+        )
+        for i, t in enumerate(times)
+    ]
+    records = [
+        dict(time=float(t), horizon_found=True, horizon_mass=masses[0] if t <= 70 else masses[1])
+        for t in np.arange(0.0, stop + 0.25, 5.0)
+    ]
+    config = dict(n=n, extent=96.0, levels=6, punctures=[[0.5, [0, 0, z0]], [0.5, [0, 0, -z0]]])
+    report = dict(
+        configuration=config,
+        plan=[list(entry) for entry in plan],
+        adm_mass=1.0,
+        waves=waves,
+        records=records,
+    )
+    path.write_text(json.dumps(report))
+    return path
+
+
+def _at(path, until):
+    """The rule's run for a saved record cut by hand at ``until``: the oracle for ``analyse``."""
+    report = json.loads(path.read_text())
+    report["waves"] = [w for w in report["waves"] if w["time"] <= until]
+    report["records"] = [r for r in report["records"] if r["time"] <= until]
+    z0 = report["configuration"]["punctures"][0][1][2]
+    mass = report["records"][-1]["horizon_mass"]
+    reference = close_limit_energy(z0)
+    return dict(
+        raw=energy_table(report, reference),
+        perturbative=energy_table(report, reference, perturbative=mass),
+        mass=mass,
+        z0=z0,
+    )
+
+
+def test_analyse_reads_a_record_run_past_70_m_at_70_m(tmp_path, capsys):
+    """The rule takes every number at 70 M; the driver's default ``--stop`` is 80.
+
+    The medium record runs to 80 M, and a second pulse passes every sphere
+    at 75 M while its horizon mass jumps from 1.003 to 1.05. ``analyse``
+    must judge it as the same record cut at 70 M (energies, tails and the
+    mass clause), as the coarse and second-separation records, which stop
+    at 70 M, are. The control: the 80 M record's verdict is a different one.
+    """
+    shape = 1 + 43 / AREAL**2
+    medium = _report(
+        tmp_path / "medium.json",
+        48,
+        stop=80.0,
+        pulses=[(10.0, shape, True), (75.0, 0.6, False)],
+        masses=(1.003, 1.05),
+    )
+    coarse = _report(tmp_path / "coarse.json", 32, pulses=[(10.0, 0.8 * shape, True)])
+    other = _report(tmp_path / "other.json", 48, z0=0.2, pulses=[(10.0, 1.05 * shape, True)])
+    rule = analyse([medium, coarse, other])
+    printed = capsys.readouterr().out
+    assert "recorded to t=80; cut at t=70" in printed
+
+    expected = decision_rule(_at(medium, 70.0), _at(coarse, 70.0), other=_at(other, 70.0))
+    for key in ("central", "sigma", "tail", "c", "sigma_c", "mass_offset", "fallback"):
+        assert rule[key] == pytest.approx(expected[key], rel=1e-12), key
+    assert rule["mass_offset"] == pytest.approx(0.003, abs=1e-4)
+    at_end = decision_rule(_at(medium, 80.0), _at(coarse, 70.0), other=_at(other, 70.0))
+    assert abs(at_end["central"] - expected["central"]) > 0.1
+    assert abs(at_end["mass_offset"] - expected["mass_offset"]) > 0.04
+
+
+def test_a_fine_record_that_stops_between_55_and_70_m_measures_the_order_with_all_three_cut(
+    tmp_path, capsys
+):
+    """``DECISIONS.log`` D4: the order from all three records at the fine one's last sample.
+
+    Each record's error is ``0.2 (48/n)^2`` of ``E_AP`` at every sphere, so
+    the order is 2. The fine record stops at 60 M; at 64 M a pulse of 0.3
+    reaches the coarse record only. Cut at 60 M the order reads 2. The
+    control: the coarse and medium records at 70 M against the fine one at
+    60 M read about 3.9.
+    """
+    shape = 1 + 43 / AREAL**2
+
+    def record(name, n, stop=70.0, late=0.0):
+        pulses = [(10.0, shape, True), (25.0, 0.2 * (48 / n) ** 2, True), (64.0, late, False)]
+        return _report(tmp_path / name, n, stop=stop, pulses=pulses)
+
+    medium, coarse = record("medium.json", 48), record("coarse.json", 32, late=0.3)
+    fine = record("fine.json", 72, stop=60.0)
+    rule = analyse([medium, coarse, fine])
+    assert "n=72 stops at t=60: the order is measured with all three records cut there (D4)" in (
+        capsys.readouterr().out
+    )
+    assert rule["order_measured"] == pytest.approx(2.0, abs=0.01)
+    expected = decision_rule(_at(medium, 70.0), _at(coarse, 70.0), _at(fine, 60.0))
+    assert rule["central"] == pytest.approx(expected["central"], rel=1e-12)
+    assert abs(expected["order_measured"] - 3.9) < 0.1  # the control, uncut
+
+
+def test_a_second_separation_that_stops_before_70_m_or_on_another_plan_is_not_used():
+    """Item 7 takes the fallback "if Z has not reached 70 M"; item 6 compares like with like.
+
+    A second-separation record that stops at 30 M, or extracts on another
+    plan, is refused with the reason, and the rule then judges the energy
+    clause by the fallback. The control: the same record to 70 M is used.
+    """
+    plan = [list(entry) for entry in MEDIUM_PLAN]
+    shape = 1 + 43 / AREAL**2
+
+    def record(n, z0=0.3, stop=70.0, plan=plan):
+        return dict(_run(shape * (1 + (z0 == 0.2) * 0.05), z0=z0), n=n, plan=plan, stop=stop)
+
+    medium, coarse = record(48), _run(0.9 * shape)
+    coarse = dict(coarse, n=32, plan=plan, stop=70.0)
+    early = record(48, z0=0.2, stop=30.0)
+    chosen = rule_runs([medium, coarse, early])
+    assert chosen["other"] is None
+    assert [(r is early, "30" in why) for r, why in chosen["refused"]] == [(True, True)]
+    rule = decision_rule(medium, coarse, chosen["fine"], chosen["other"], chosen["ratio"])
+    assert "c" not in rule and rule["energy_clause"] == (rule["fallback"] <= 0.05)
+    moved = record(48, z0=0.2, plan=[[6.0, 1], *plan[1:]])
+    assert rule_runs([medium, coarse, moved])["other"] is None
+
+    finished = record(48, z0=0.2)
+    control = rule_runs([medium, coarse, finished])
+    assert control["other"] is finished and control["refused"] == []
+    assert "c" in decision_rule(medium, coarse, other=control["other"])
+
+
+def test_analyse_does_not_tabulate_delta_against_a_record_stopped_before_55_m(tmp_path, capsys):
+    """Run H stopped at 5 M, before any wave reached a sphere: its ``Delta(R)`` means nothing.
+
+    The pair of finished records is still compared; the control is that
+    pair's block.
+    """
+    shape = 1 + 43 / AREAL**2
+    medium = _report(tmp_path / "medium.json", 48, pulses=[(10.0, shape, True)])
+    coarse = _report(tmp_path / "coarse.json", 32, pulses=[(10.0, 0.8 * shape, True)])
+    cut = _report(tmp_path / "cut.json", 72, stop=5.0, pulses=[(10.0, shape, True)])
+    analyse([medium, coarse, cut])
+    printed = capsys.readouterr().out
+    assert "Delta(R) = E(n=48) - E(n=32)" in printed
+    assert "E(n=72)" not in printed
+    assert "Delta(R) of n=48 and n=72 not tabulated: n=72 stops at t=5, before 55 M" in printed
+    assert "Delta(R) of n=32 and n=72 not tabulated" in printed
+
+
+def test_a_resume_with_another_margin_is_refused_and_an_old_checkpoint_resumes_at_the_default(
+    tmp_path,
+):
+    """The margin decides the extraction plan, so a resume must keep it.
+
+    A checkpoint made with ``--margin 4`` resumes with 4 and is refused with
+    the default 5. One written before the margin was stored (no ``margin``
+    key) resumes at the default and is refused with 4.
+    """
+    states = [{"W": np.ones(3)}]
+    config = {"n": 8}
+    path = tmp_path / "headon.npz"
+    checkpoint(path, states, 5.0, config, {"waves": []}, 4)
+    restored, clock, extra = restore(path, states, config, "numpy", margin=4)
+    assert clock == 5.0 and extra == {"waves": []}
+    np.testing.assert_array_equal(restored[0]["W"], np.ones(3))
+    with pytest.raises(ValueError, match="margin 4, not 5; resume with --margin 4"):
+        restore(path, states, config, "numpy")
+
+    old = tmp_path / "old.npz"
+    np.savez_compressed(
+        old, time=5.0, configuration=json.dumps(config), extra=json.dumps({}), **{"0:W": np.ones(3)}
+    )
+    assert restore(old, states, config, "numpy")[1] == 5.0
+    with pytest.raises(ValueError, match="margin 5, not 4"):
+        restore(old, states, config, "numpy", margin=4)

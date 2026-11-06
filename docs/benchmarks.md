@@ -2117,7 +2117,7 @@ so A changes only what lies outside ±3.9 M.
 | A `puncture-far` | `--levels 4 --extent 32`: boundary at ±16 M, zone 2 M | boundary distance | `M/1.5` … `M/12` | 176, 788, **336, 180** | 0.0195 | 300 M |
 | C `puncture-diss` | `--dissipation 0.3` (0.1 before) | dissipation | `M/6`, `M/12` | **97, 104** | 0.0208 | 300 M |
 | D `puncture-buffer` | `--buffer 3` (6 before): the fine level evolved 0.25 M further out | refinement buffer | `M/6`, `M/12` | **106, 81** | 0.0048 | 300 M |
-| B `puncture-far-flat` | as A, `--background flat` | the boundary's reference, far away | `M/1.5` … `M/12` | running | | |
+| B `puncture-far-flat` | as A, `--background flat` | the boundary's reference, far away | `M/1.5` … `M/12` | 383, 507, **371, 198** | 0.0193 | 300 M |
 
 A, its inner levels in bold:
 
@@ -2151,6 +2151,17 @@ D:
 | `M/6` `‖H‖`, `r > 2 M` | 2.2e−06 | 1.3e−04 | 2.2e−04 | 3.5e−04 | 5.4e−04 | 9.0e−04 | 1.4e−03 |
 | `M/12` `‖H‖`, `r > 2 M` | 1.1e−06 | 2.9e−04 | 3.4e−04 | 4.9e−04 | 1.0e−03 | 2.0e−03 | 3.2e−03 |
 
+B:
+
+| t / M | 0 | 50 | 100 | 150 | 200 | 250 | 300 |
+|---|---|---|---|---|---|---|---|
+| horizon mass | 1.0000 | 0.9996 | 1.0004 | 1.0029 | 1.0067 | 1.0119 | 1.0193 |
+| horizon residual | 0.0006 | 0.0025 | 0.0040 | 0.0039 | 0.0040 | 0.0039 | 0.0039 |
+| `M/1.5` `‖H‖`, `r > 2 M` | 6.0e−08 | 7.7e−05 | 9.5e−05 | 1.1e−04 | 1.3e−04 | 1.4e−04 | 1.6e−04 |
+| `M/3` `‖H‖`, `r > 2 M` | 5.4e−07 | 1.9e−04 | 2.3e−04 | 2.4e−04 | 2.6e−04 | 2.9e−04 | 3.4e−04 |
+| **`M/6` `‖H‖`, `r > 2 M`** | 2.2e−06 | 5.5e−04 | 7.0e−04 | 8.4e−04 | 9.2e−04 | 1.1e−03 | 1.3e−03 |
+| **`M/12` `‖H‖`, `r > 2 M`** | 1.7e−06 | 7.2e−04 | 8.1e−04 | 1.0e−03 | 1.3e−03 | 1.6e−03 | 2.2e−03 |
+
 - **The far boundary slows the growth and does not lower the constraint.**
   A's τ is 3.2 times the baseline's on `M/6` and 1.6 times on `M/12`, so
   by the rule its knob improves τ by 2×. But its `M/6` constraint is three
@@ -2171,20 +2182,68 @@ D:
   constraint within 1% at the table's times. It halves the `M/12`
   constraint at 100 M (3.4e−04 against 7.2e−04), which then grows faster,
   passes the baseline's by 200 M and ends 9% below it at 300 M.
+- **At a far boundary, the reference does not matter**, by the rule,
+  measured against A: B's τ on the inner levels is 371 and 198 M, 1.10
+  times A's on both. Its inner levels' constraint is A's within 7%, and
+  its mass within 5e−04, at every time in the tables (1.0193 against
+  1.0195 at 300 M). The flat reference shows only on the coarsest level,
+  whose edge is the boundary: from 50 M on its constraint is 17 to 61
+  times A's, and grows about half as fast.
 - **The spacing's effect is already in the data.** Over 40–140 M, the
   only window both two-level runs cover, going from `M/8` to `M/12` (the
   `puncture-1000` run against the baseline) lengthened the coarse level's
   e-folding time from 72 M to 96 M and the fine level's from 151 M to
   686 M. From 100 M on, the baseline's growth is the steady one above, and
   `M/8` has no record past 140 M.
-- **No run passes go.** A's coarsest level (176 M) and finest (180 M) are
-  below 400 M, and its Δm is above 0.01.
+- **No run passes go.** Every run's `M/12` τ is below 400 M (198 M at
+  best, B's); A's, B's and C's Δm are above 0.01, D's is the baseline's.
+
+**The decision.** D, the last of C and D, reached 300 M at 00:52 UTC on
+2026-11-06, and F was built then. One reading the rule leaves implicit
+was fixed at 23:10:18 UTC on 2026-11-05, after A and C had finished and
+before D or B had a record past 100 and 70 M
+(`runs/puncture-far/DECISIONS.log`): F is built when D reaches 300 M, and
+B enters it only if B has reached 300 M by then.
+- **Only A's knob improved τ by 2×,** so F is A's configuration and A's
+  records are F's first 300 M.
+- **F does not pass go,** and its smallest τ, 176 M on the coarsest level,
+  is below twice the baseline's smallest (212 M). By the rule F is not
+  continued, and **no configuration was run to 1000 M** this round.
+- **E was not run:** a knob improved τ by 2×, so the rule's spacing branch
+  does not apply. The `M/16` measurement is not here.
+- **B reached 300 M at 01:02 UTC,** ten minutes after F was built, and is
+  reported as a measurement; by its τ it would not have entered F.
+
+**The verdicts.** `stability_verdict` on each run's records (`--verdict`).
+The fit half of criterion 5 starts at 400 M, so a run that ends at 300 M
+can fail only the pointwise criteria and the ten-times test, and none
+does; "growth" is the largest `‖H‖(300 M) / ‖H‖(100 M)` over the levels,
+which criterion 5 allows up to 10:
+
+| run | reached | `stable_to` | first failure | growth, 100–300 M | Δm, 0–300 M |
+|---|---:|---:|---|---:|---:|
+| baseline (`puncture-m12`) | 1000 M | 350 M | criterion 5 at 360 M (`M/6`, 10.02×); 3 at 600 M; 2 at 820 M | 6.7 (`M/6`) | 0.0048 |
+| A `puncture-far` | 300 M | 300 M | none | 3.3 (`M/1.5`) | 0.0195 |
+| C `puncture-diss` | 300 M | 300 M | none | 8.2 (`M/6`) | 0.0208 |
+| D `puncture-buffer` | 300 M | 300 M | none | 9.5 (`M/12`) | 0.0048 |
+| B `puncture-far-flat` | 300 M | 300 M | none | 2.8 (`M/12`) | 0.0193 |
+
+**The longest run is still the baseline's**, and against the five criteria
+at 1000 M: 1 passes (finite to 1000 M); 2 fails at 820 M (`max|Θ|`
+0.0106); 3 fails at 600 M (`M_irr` 1.060); 4 passes by construction (an
+octant cannot move the hole); 5 fails at 360 M. **#48's acceptance is not
+met.** D is at 9.5 of the 10 allowed at 300 M; at its `M/12` τ of 81 M,
+ten times comes about 5 M later. A and B, at about 3, are the furthest
+from it, but if their fits hold the ratio reaches 10 near 500 M (A's
+`M/1.5`) and 550 M (B's `M/12`).
 
 **Cost.** One CPU thread per run, three runs sharing the machine: A 28.6 s
 per M (four levels), C 27.0 s per M, D 25.2 s per M to 100 M. A container
 restart at 23:04 UTC killed D at 100 M and B at 70 M; both resumed from
-their checkpoints, and from then on cost about 50 s per M on the
-restarted machine.
+their checkpoints and cost about 50 s per M on the restarted machine. A
+second restart, at about 00:05 UTC, killed them at 160 and 130 M; resumed
+again, two to the machine, D cost 16.6 s per M and B 18.9 s per M. Each
+resume read the last 10 M checkpoint, so no record was lost or repeated.
 
 To reproduce (each script holds a snapshot of the commit it runs, 808c619;
 `runs/` is not tracked), and to print a run's verdict:
@@ -2203,10 +2262,20 @@ checkpoint exists.
 
 ### What is not here
 
-- **1000 M within 5% of the mass.** The `M/8` run is stable by the
-  definition above to 130 M (criterion 3) and the `M/12` run to 350 M
-  (criterion 5; its mass leaves the band at 600 M); the `M/12` run
-  reaches 1000 M finite with a horizon, at 0.555 of its mass.
+- **A run stable to 1000 M.** The `M/8` run is stable by the definition
+  above to 130 M (criterion 3) and the `M/12` run to 350 M (criterion 5;
+  its mass leaves the band at 600 M); the `M/12` run reaches 1000 M finite
+  with a horizon, at 0.555 of its mass. None of the four diagnostics
+  passed the pre-registered go test, so none was run past 300 M.
+- **The finest spacing from 100 M on.** E (`M/16`) was not run, by the
+  rule; from 100 M on, the effect of spacing on τ is unmeasured. A
+  two-level `M/16` run costs about 52 s per M alone, so 1000 M is 15 to
+  24 hours of one CPU thread.
+- **The far boundary as a cure.** A slows the growth by changing what
+  lies outside ±3.9 M, and its boundary is a finite-domain experiment with
+  an analytic trumpet reference; B shows the reference no longer matters
+  there. Neither lowers the constraint, and both raise the mass error
+  fourfold.
 - **Asymmetric perturbations.** Both long runs are octants, so the hole
   cannot move, and the five-level runs' failure, the hole drifting out of
   the finest box, is excluded by construction rather than cured. The full-grid

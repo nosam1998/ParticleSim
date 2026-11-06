@@ -84,10 +84,10 @@ def baseline_records():
     ]
 
 
-def synthetic(stop=1000.0, tau=(-500.0, 2000.0), overrides=None):
-    """Records every 10 M that pass everything; ``overrides`` maps a time to changes."""
+def synthetic(stop=1000.0, tau=(-500.0, 2000.0), overrides=None, step=10.0):
+    """Records every ``step`` M that pass everything; ``overrides`` maps a time to changes."""
     records = []
-    for t in np.arange(0.0, stop + 5, 10.0):
+    for t in np.arange(0.0, stop + step / 2, step):
         record = dict(
             time=float(t),
             finite=True,
@@ -156,6 +156,36 @@ def test_the_fit_test_starts_at_reference_plus_window_and_fails_on_slow_growth()
     # The same growth in a 1100 M e-folding passes; so does decay.
     assert stability_verdict(synthetic(tau=(-500.0, 1100.0)))["stable_to"] == 1000.0
     assert stability_verdict(synthetic(tau=(-500.0, -100.0)))["stable_to"] == 1000.0
+
+
+def test_criterion_5_is_untested_not_passed_without_a_record_at_the_reference_time():
+    """Records every 30 M (0, 30, 60, 90, 120, ...) have none at 100 M to measure growth from.
+
+    The fine level e-folds every 100 M, so on the 10 M grid criterion 5
+    fails at 330 M. Every 30 M, it cannot be tested: the verdict says so,
+    and asserts stability only to 90 M, the last record before 100 M. A
+    record set that ends before 100 M is not marked: criterion 5 never
+    applies to it.
+    """
+    growing = (-500.0, 100.0)
+    verdict = stability_verdict(synthetic(tau=growing, step=30.0))
+    assert verdict["untested"] == ["criterion 5 untested: no record at 100 M"]
+    assert verdict["stable_to"] == 90.0 and verdict["last_time"] == 990.0
+    assert verdict["failed_at"] is None
+    assert verdict["reason"] == ["criterion 5 untested: no record at 100 M"]
+    assert verdict["criteria"]["5"] == {
+        "first_failure": None,
+        "reason": "criterion 5 untested: no record at 100 M",
+    }
+    # A pointwise failure before 100 M still sets stable_to.
+    broken = {60.0: {"finite": False}}
+    early = stability_verdict(synthetic(tau=growing, step=30.0, overrides=broken))
+    assert early["stable_to"] == 30.0 and early["failed_at"] == 60.0
+    assert early["reason"] == [1, "criterion 5 untested: no record at 100 M"]
+    # The controls: the 10 M grid tests it, and a set that stops at 90 M has nothing to test.
+    assert stability_verdict(synthetic(tau=growing))["stable_to"] == 330.0
+    short = stability_verdict(synthetic(stop=90.0, tau=growing, step=30.0))
+    assert short["stable_to"] == 90.0 and "untested" not in short and short["reason"] == []
 
 
 def test_a_level_with_no_points_outside_two_m_is_not_tested():

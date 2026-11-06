@@ -132,6 +132,11 @@ def stability_verdict(
        ``[T - window, T]`` gives an e-folding time above ``efold`` or decay
        (tested at every record from ``reference + window`` on). A level
        with no norm at ``reference`` (no points outside 2 M) is not tested.
+       Records that run past ``reference`` with none at it (a run resumed
+       off the 10 M grid, or recorded every 30 M) leave criterion 5
+       untested, not passed: ``untested`` then names it, the reason is
+       appended to ``reason`` and to criterion 5's, and ``stable_to`` is
+       not asserted past the last record before ``reference``.
 
     ``stable_to`` is the last time up to which every record passes (``None``
     if the first one fails); ``reason`` lists the criteria the next record
@@ -152,6 +157,7 @@ def stability_verdict(
         if base_norms is None
         else [level for level, value in enumerate(base_norms) if np.isfinite(value)]
     )
+    untested = base is None and records[-1]["time"] > reference + TIME_TOLERANCE
     names = {
         1: "fields not finite",
         2: f"horizon not found with max|Theta| < {residual}",
@@ -205,16 +211,24 @@ def stability_verdict(
         if first_failure is None:
             stable_to = when
 
+    untested_reason = f"criterion 5 untested: no record at {reference:g} M"
+    if untested:
+        criteria[5]["reason"] = untested_reason
+        before = [r["time"] for r in records if r["time"] < reference - TIME_TOLERANCE]
+        if stable_to is not None:
+            stable_to = min(stable_to, before[-1]) if before else None
+
     last = records[-1]["time"]
     after = [r for r in records if r["time"] >= reference - TIME_TOLERANCE]
     masses = [(r["time"], r["horizon_mass"]) for r in after if r.get("horizon_found")]
     mass_rate = float(np.polyfit(*zip(*masses, strict=True), 1)[0]) if len(masses) >= 2 else None
     excursions = [abs(r["horizon_mass"] - 1) for r in records if r.get("horizon_found")]
-    return {
+    reason = [] if first_failure is None else first_failure[1]
+    verdict = {
         "stable_to": None if stable_to is None else round(stable_to, 6),
         "last_time": round(last, 6),
         "failed_at": None if first_failure is None else round(first_failure[0], 6),
-        "reason": [] if first_failure is None else first_failure[1],
+        "reason": [*reason, untested_reason] if untested else reason,
         "criteria": {
             str(key): {
                 "first_failure": None
@@ -228,6 +242,9 @@ def stability_verdict(
         "mass_excursion": max(excursions) if excursions else None,
         "efolding": [growth_time(records, level, last - window, last) for level in range(levels)],
     }
+    if untested:
+        verdict["untested"] = [untested_reason]
+    return verdict
 
 
 def diagnostic_summary(records, *, start=100.0, stop=300.0):

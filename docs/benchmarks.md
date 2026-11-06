@@ -2155,6 +2155,12 @@ C:
 - **Triple dissipation does not matter**, by the rule: τ is 97 and 104 M,
   within 10% of the baseline's. Its mass error is four times larger
   (1.0206 at 200 M), and its constraint at 300 M two to three times larger.
+- **The spacing's effect is already in the data.** Over 40–140 M, the
+  only window both two-level runs cover, going from `M/8` to `M/12` (the
+  `puncture-1000` run against the baseline) lengthened the coarse level's
+  e-folding time from 72 M to 96 M and the fine level's from 151 M to
+  686 M. From 100 M on, the baseline's growth is the steady one above, and
+  `M/8` has no record past 140 M.
 - **No run passes go.** A's coarsest level (176 M) and finest (180 M) are
   below 400 M, and its Δm is above 0.01.
 

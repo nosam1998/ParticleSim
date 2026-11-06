@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.0 (2026-11-06)
+
+- Add `extraction.perturbative_extrapolation`, the Nakano–Healy–Lousto–
+  Zlochower `1/r` correction of `rΨ₄`, checked on a Teukolsky wave under a
+  pre-registered rule (inter-radius discrepancy per doubling 1.99× raw,
+  4.09× corrected). Applied to the 70 M head-on record it sides with
+  the free `1/R` fit, 9–11% below the `1/R²` value.
+- Put an error bar on the head-on collision (#51): a second resolution and a
+  second separation, a claim rule fixed in advance and applied mechanically
+  (`headon_benchmark.decision_rule`, `--analyse`, `--buffer`, `--margin`),
+  and the perturbative extrapolation. The energy clause is not met (136%
+  against 5%); the mass clause is (0.97%).
+- Add puncture diagnostics for #48: `--levels`, `--buffer`, `--dissipation`
+  and `--verdict` in `examples/puncture_benchmark.py`, `stability_verdict`
+  and `growth_time`, and four 300 M runs against a pre-registered rule
+  (boundary distance, boundary reference, refinement buffer, dissipation).
+  None reaches the stability the 1000 M acceptance needs, so #48 stays open.
+  Corrected: by the full definition (criterion 5) the `M/12` baseline is
+  stable to about 350 M, not 590 M.
+- Add the orchestration setup under `.claude/` (agents, skills, workflows,
+  templates) and the standing rules in `CLAUDE.md`.
+
 ## 0.5.0 (2026-10-24)
 
 - Fix CCZ4's conformal Ricci tensor, which counted the Z terms twice: a

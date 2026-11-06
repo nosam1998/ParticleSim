@@ -21,8 +21,7 @@ At the audit, repository-level GitHub Actions was disabled. That explains
 the missing recent workflow runs; a queued historical run is not evidence
 that current benchmarks passed. A `workflow_dispatch` of CI on `main` sent on
 2026-10-24 also stayed queued, so the CI gate cannot run until Actions is
-re-enabled for the repository. It was still disabled in November, so the
-v0.6.0 checks were also run locally.
+re-enabled for the repository.
 
 In its place, the suites CI runs were executed locally on 2026-10-24 on the
 v0.5.0 branch (main plus PR #216), on a 4-core machine shared with other
@@ -36,6 +35,15 @@ limit); `pytest -m "benchmark and not slow"` passed 171 of 171; and
 is being rerun on the integrated branch; its result is recorded in the
 pull request. The research-marked reruns (Choptuik at research resolution,
 IKKT at `N = 32`) belong to the nightly workflow and were not run.
+
+Actions was still disabled on 2026-11-06, so the v0.6.0 checks were also
+run locally, on Python 3.13 on the same shared machine: `ruff check` and
+`ruff format --check` pass; `pytest -m "not slow"` passed 1966 tests with 3
+skipped (`yt`, `playwright`) and none failed; `pytest -m "benchmark and
+not slow"` passed 172 of 172; `particlesim check-limits` reports all 11
+GR limits ok; and the slow extraction, head-on and puncture-stability
+tests pass. The analysis-tool guards merged after the full run were
+checked with their own tests (30 passed).
 
 ## IKKT scope
 

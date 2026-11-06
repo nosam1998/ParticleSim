@@ -19,6 +19,10 @@
   None reaches the stability the 1000 M acceptance needs, so #48 stays open.
   Corrected: by the full definition (criterion 5) the `M/12` baseline is
   stable to about 350 M, not 590 M.
+- Guard the #48 and #51 analysis tools: records are read at 70 M, an
+  unfinished second separation falls back as the rule says, a resume keeps
+  its extraction margin, and criterion 5 is reported untested without a
+  100 M record.
 - Add the orchestration setup under `.claude/` (agents, skills, workflows,
   templates) and the standing rules in `CLAUDE.md`.
 
